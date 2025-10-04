@@ -1,36 +1,160 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+DRAKON-01A – Space Object Tracking & Collision Avoidance Platform
 
-## Getting Started
+An interactive satellite operations dashboard that visualizes real-time orbital objects, predicts potential conjunctions, and provides fleet health monitoring.
 
-First, run the development server:
+🔭 High-Level Roadmap
 
-```bash
+MVP (Current Progress ✅):
+
+🌍 Interactive 3D globe with real-time satellite positions (using TLEs + satellite.js)
+
+📊 Fleet Health card with orbit breakdown (LEO / MEO / GEO / Debris)
+
+📈 Proximity Timeline (next 24h)
+
+🚨 Critical Alerts list
+
+📉 Historical Trends chart (basic)
+
+▶️ “Run Collision Screening” action
+
+Next Features (Planned 🔜):
+
+Conjunction prediction engine (optimized, spatial indexing)
+
+Maneuver planner + cost modeling
+
+Advanced UI/UX polish
+
+Multi-tenant support
+
+Improved caching + geospatial queries (PostGIS)
+
+🛠️ Tech Stack
+
+Frontend: Next.js (App Router) · React · Tailwind CSS · shadcn/ui
+3D Globe: deck.gl + Mapbox (alt: CesiumJS, three.js)
+Charts: Recharts / Chart.js / ApexCharts
+Orbit propagation: satellite.js
+(SGP4)
+Backend / Jobs: Next.js API routes, Node.js worker (BullMQ + Redis)
+Database: PostgreSQL + PostGIS (later)
+Realtime: WebSockets (Socket.IO) or managed service (Pusher / Supabase Realtime)
+Queue / Cache: Redis
+Auth: Clerk / NextAuth (optional)
+CI/CD: GitHub Actions → Vercel (frontend), Render/Fly.io/DigitalOcean (worker/ws)
+Monitoring: Sentry, Grafana, Prometheus
+
+📂 Project Structure
+/drakon
+├─ /app
+│ ├─ /dashboard
+│ │ ├─ page.tsx
+│ │ ├─ layout.tsx
+│ │ └─ components/
+│ ├─ /api # serverless endpoints
+│ └─ globals.css
+├─ /components # shared UI components
+├─ /lib # helpers (satellite.js, API client)
+├─ /worker # background jobs
+│ ├─ index.ts
+│ ├─ jobs/
+│ └─ queue.ts
+├─ /scripts # fetch TLE scripts
+├─ /db # migrations
+├─ package.json
+├─ docker-compose.yml
+└─ Dockerfile
+
+Data Model (Postgres)
+
+satellites → core satellite info (name, NORAD ID, TLEs, owner)
+
+tle_history → historical TLEs per sat
+
+positions → computed positions over time
+
+conjunctions → close approaches (time, distance, risk)
+
+maneuvers → planned burns (Δv, ETA, fuel est.)
+
+alerts → critical events + collision warnings
+
+🌐 API Endpoints (MVP)
+
+GET /api/satellites → list satellites
+
+GET /api/satellites/:id/position → get satellite position at given time
+
+GET /api/positions?since=... → stream recent positions
+
+GET /api/conjunctions?range=24h → conjunctions in time window
+
+POST /api/run-screening → enqueue screening job
+
+GET /api/alerts → list critical alerts
+
+🔄 Data Flow
+
+Worker fetches TLEs periodically → stores in DB
+
+Worker propagates orbits using satellite.js → computes live positions
+
+Screening job checks for close approaches → inserts alerts into DB/Redis
+
+Frontend subscribes via WebSocket / polling → updates globe + panels
+
+User triggers “Run Collision Screening” → async job → results returned
+
+⚡ Development
+Setup
+
+# create project
+
+npx create-next-app@latest drakon-dashboard --experimental-app
+cd drakon-dashboard
+
+# install deps
+
+npm install tailwindcss @tailwindcss/forms satellite.js redis bullmq socket.io-client socket.io
+
+Run
+
+# Next.js frontend
+
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+# Worker (separate terminal)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+NODE_ENV=development node worker/index.js
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Docker (optional)
+docker-compose up --build
 
-## Learn More
+📈 Current Status
 
-To learn more about Next.js, take a look at the following resources:
+✅ Interactive 3D globe with live satellites
+✅ Objects overview panel with LEO/MEO/GEO/Debris breakdown
+✅ Satellite details panel (with NORAD, velocity, inclination, orbit, etc.)
+✅ Loading state until API data is ready
+🔜 Search & filtering (in progress)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+📌 Roadmap
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Satellite globe visualization
 
-## Deploy on Vercel
+Object overview + detail panel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Search & filter satellites
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Alerts + Proximity Timeline
+
+Historical Trends chart
+
+Collision screening worker
+
+Real-time WebSocket updates
+
+📜 License
+
+MIT License © 2025 DRAKON
