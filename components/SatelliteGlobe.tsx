@@ -5,6 +5,7 @@ import Globe from './Globe';
 import { ScatterplotLayer } from 'deck.gl';
 import { positionFromTLE } from '@/lib/satellite';
 import * as satellite from 'satellite.js';
+import { ArrowBigDown, ArrowBigUp } from 'lucide-react';
 
 // ----------------------
 // Types
@@ -84,6 +85,7 @@ export default function SatelliteGlobe() {
   const tleRef = useRef<TleEntry[]>([]);
   const [selected, setSelected] = useState<SelectedMeta | null>(null);
   const [loading, setLoading] = useState(true);
+  const [overviewExpanded, setOverviewExpanded] = useState(false);
 
   // Fetch TLE once
   useEffect(() => {
@@ -93,7 +95,7 @@ export default function SatelliteGlobe() {
           ['group', 'active'],
           ['group', '1999-025'],
           ['group', 'iridium-33-debris'],
-          ['limit', '1500'],
+          ['limit', '2000'],
         ]);
         const tleText = await (
           await fetch(`/api/tle?${params.toString()}`)
@@ -175,9 +177,9 @@ export default function SatelliteGlobe() {
   // ----------------------
   const colorAccessor = (d: SatellitePoint & { isDebris?: boolean }) => {
     if (d.isDebris) return [180, 180, 180, 180]; // debris gray
-    if (d.alt > 2000) return [0, 255, 0, 255]; // green: high orbit
-    if (d.alt > 1000) return [255, 165, 0, 255]; // orange: MEO
-    return [255, 0, 0, 255]; // red: LEO
+    if (d.alt > 2000) return [0, 255, 0, 160]; // green: high orbit
+    if (d.alt > 1000) return [255, 165, 0, 180]; // orange: MEO
+    return [255, 0, 0, 160]; // red: LEO
   };
 
   const layers = [
@@ -236,31 +238,47 @@ export default function SatelliteGlobe() {
           </div>
         ) : (
           <>
-            <div className="font-medium mb-3 text-cyan-400 text-xs uppercase tracking-wider">
-              Objects Overview
+            <div
+              className="font-medium  text-cyan-400 text-xs uppercase tracking-wider flex justify-between items-center cursor-pointer"
+              onClick={() => setOverviewExpanded(!overviewExpanded)}
+            >
+              <span>Objects Overview</span>
+              <span className="text-cyan-400">
+                {overviewExpanded ? (
+                  <ArrowBigDown className="w-4 h-4" />
+                ) : (
+                  <ArrowBigUp className="w-4 h-4" />
+                )}
+              </span>
             </div>
-            <div className="grid grid-cols-2 gap-x-2 gap-y-2 text-xs">
-              <span className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded-full bg-red-500" /> LEO
-              </span>
-              <span className="text-white ">{stats.leo}</span>
-              <span className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded-full bg-orange-400" /> MEO
-              </span>
-              <span className="text-white ">{stats.meo}</span>
-              <span className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded-full bg-green-500" /> GEO+
-              </span>
-              <span className="text-white ">{stats.geo}</span>
-              <span className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded-full bg-gray-400" /> Debris
-              </span>
-              <span className="text-white ">{stats.debris}</span>
-            </div>
-            <div className="mt-2 text-xs text-cyan-300/70 ">
-              Total objects:{' '}
-              <span className="text-white font-semibold">{stats.total}</span>
-            </div>
+            {overviewExpanded && (
+              <>
+                <div className="grid grid-cols-2 gap-x-2 gap-y-2 mt-3 text-xs">
+                  <span className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded-full bg-red-500" /> LEO
+                  </span>
+                  <span className="text-white ">{stats.leo}</span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded-full bg-orange-400" /> MEO
+                  </span>
+                  <span className="text-white ">{stats.meo}</span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded-full bg-green-500" /> GEO+
+                  </span>
+                  <span className="text-white ">{stats.geo}</span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded-full bg-gray-400" /> Debris
+                  </span>
+                  <span className="text-white ">{stats.debris}</span>
+                </div>
+                <div className="mt-2 text-xs text-cyan-300/70 ">
+                  Total objects:{' '}
+                  <span className="text-white font-semibold">
+                    {stats.total}
+                  </span>
+                </div>
+              </>
+            )}
           </>
         )}
 

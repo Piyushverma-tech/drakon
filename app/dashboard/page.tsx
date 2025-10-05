@@ -14,7 +14,7 @@ export default function DashboardPage() {
       </div>
 
       {/*Globe */}
-      <div className="border md:row-span-2 rounded-xl p-2 bg-card">
+      <div className="border md:row-span-2 rounded-xl p-2 bg-black">
         <h2 className="text-lg font-semibold mb-2 w-full border-b-2">Globe</h2>
         <div className="h-[280px] md:h-[400px] rounded-lg overflow-hidden">
           <SatelliteGlobe />
