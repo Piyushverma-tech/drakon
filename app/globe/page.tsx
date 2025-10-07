@@ -1,7 +1,7 @@
 'use client';
 import SatelliteGlobe from '@/components/SatelliteGlobe';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Search } from 'lucide-react';
 import Image from 'next/image';
 
 export default function GlobePage() {
@@ -11,7 +11,7 @@ export default function GlobePage() {
       <div className="absolute inset-0 bg-gradient-radial from-transparent via-transparent to-blue-950/20" />
 
       {/* Content */}
-      <div className="relative z-10 p-4">
+      <div className="relative z-10 p-2">
         {/* Header */}
         <div className="flex items-center justify-between  mb-4">
           <Link
@@ -27,6 +27,13 @@ export default function GlobePage() {
               Back to Dashboard
             </span>
           </Link>
+          <div className="relative flex-1 max-w-xl ml-4">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <input
+              placeholder="Search..."
+              className="w-full h-8 pl-9 pr-3 rounded-md bg-secondary text-sm border"
+            />
+          </div>
 
           <Image alt="logo" src="/drakon.png" width={170} height={170} />
         </div>

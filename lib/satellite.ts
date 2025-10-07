@@ -22,7 +22,26 @@ export function positionFromTLE(
   return { lat: latitude, lon: longitude, altKm: altitudeKm };
 }
 
+export function tleToLatLonAlt(l1: string, l2: string) {
+  const satrec = satellite.twoline2satrec(l1, l2);
+  const now = new Date();
+  const positionAndVelocity = satellite.propagate(satrec, now);
+  if (!positionAndVelocity) {
+    // Handle the case when positionAndVelocity is null
+    return null;
+  }
+  const positionGd = satellite.eciToGeodetic(
+    positionAndVelocity.position!,
+    satellite.gstime(now)
+  );
+
+  const lat = (positionGd.latitude * 180) / Math.PI;
+  const lon = (positionGd.longitude * 180) / Math.PI;
+  const alt = positionGd.height;
+
+  return { lat, lon, alt };
+}
+
 export function satrecFromTLE(tle1: string, tle2: string) {
   return satellite.twoline2satrec(tle1, tle2);
 }
-

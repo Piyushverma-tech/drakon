@@ -89,34 +89,33 @@ export default function SatelliteGlobe() {
 
   // Fetch TLE once
   useEffect(() => {
-    async function fetchSatellites() {
-      try {
-        const params = new URLSearchParams([
-          ['group', 'active'],
-          ['group', '1999-025'],
-          ['group', 'iridium-33-debris'],
-          ['limit', '2000'],
-        ]);
-        const tleText = await (
-          await fetch(`/api/tle?${params.toString()}`)
-        ).text();
+    const groups = ['active', '1999-025', 'iridium-33-debris'];
+    let cancelled = false;
 
-        const lines = tleText.split(/\r?\n/).filter(Boolean);
-        const entries: TleEntry[] = [];
+    async function fetchAllTLEs() {
+      setLoading(true);
+      const allEntries: TleEntry[] = [];
 
-        for (let i = 0; i + 2 < lines.length; i += 3) {
-          const name = lines[i];
-          const l1 = lines[i + 1];
-          const l2 = lines[i + 2];
-          const id = Number(l1.substring(2, 7));
+      for (const group of groups) {
+        try {
+          const res = await fetch(`/api/tle?group=${group}`);
+          const tleText = await res.text();
+          const lines = tleText.split(/\r?\n/).filter(Boolean);
 
-          const isDebris =
-            name.toLowerCase().includes('debris') ||
-            name.toLowerCase().includes('cosmos') ||
-            name.toLowerCase().includes('iridium');
+          for (let i = 0; i + 2 < lines.length; i += 3) {
+            const name = lines[i];
+            const l1 = lines[i + 1];
+            const l2 = lines[i + 2];
+            const id = Number(l1.substring(2, 7));
 
-          if (Number.isFinite(id)) {
-            entries.push({
+            if (!Number.isFinite(id)) continue;
+
+            const isDebris =
+              name.toLowerCase().includes('debris') ||
+              name.toLowerCase().includes('cosmos') ||
+              name.toLowerCase().includes('iridium');
+
+            allEntries.push({
               id,
               name,
               l1,
@@ -125,23 +124,25 @@ export default function SatelliteGlobe() {
               isDebris,
             });
           }
+        } catch (err) {
+          console.error(`Error loading ${group}`, err);
         }
-
-        tleRef.current = entries;
-        setLoading(false);
-      } catch (err) {
-        console.error('Error fetching satellites', err);
-        setLoading(false);
       }
+
+      if (cancelled) return;
+
+      tleRef.current = allEntries;
+
+      // initial position calc
+      updatePositions();
+      setLoading(false);
     }
 
-    fetchSatellites();
-
-    // Update positions every 5s
-    const tick = () => {
+    function updatePositions() {
       if (!tleRef.current.length) return;
       const now = new Date();
-      const pts: SatellitePoint[] = tleRef.current.slice(0, 1000).map((e) => {
+
+      const pts: SatellitePoint[] = tleRef.current.map((e) => {
         const p = positionFromTLE(e.l1, e.l2, now);
         return {
           id: e.id,
@@ -151,12 +152,19 @@ export default function SatelliteGlobe() {
           isDebris: e.isDebris,
         };
       });
-      setSatellites(pts);
-    };
 
-    tick();
-    const timer = setInterval(tick, 5000);
-    return () => clearInterval(timer);
+      setSatellites(pts);
+    }
+
+    fetchAllTLEs();
+
+    //offload to Web Worker later
+    const timer = setInterval(updatePositions, 10_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, []);
 
   // ----------------------
