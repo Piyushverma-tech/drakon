@@ -1,11 +1,20 @@
+// components/Globe.tsx
 'use client';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   DeckGL,
   _GlobeView as GlobeView,
   BitmapLayer,
   LayersList,
 } from 'deck.gl';
+import { FlyToInterpolator } from '@deck.gl/core';
 import SunCalc from 'suncalc';
 
 const INITIAL_VIEW_STATE = {
@@ -18,7 +27,6 @@ const INITIAL_VIEW_STATE = {
 
 const DAY_TEXTURE = '/earth_day.jpg';
 const NIGHT_TEXTURE = '/earth_night.jpg';
-
 const CANVAS_W = 1024;
 const CANVAS_H = 512;
 
@@ -29,7 +37,6 @@ function computeSubSolarLongitude(date: Date) {
   const lat = (sunPos.altitude * 180) / Math.PI;
   return { lat, lon };
 }
-
 function computeDaylightFactorForLon(
   lon: number,
   subSolarLon: number,
@@ -40,14 +47,42 @@ function computeDaylightFactorForLon(
   return Math.max(0, 1 - diff / terminatorWidthDeg);
 }
 
-type GlobeProps = {
-  layers?: LayersList;
+export type GlobeHandle = {
+  flyTo: (opts: {
+    longitude: number;
+    latitude: number;
+    zoom?: number;
+    durationMs?: number;
+    bearing?: number;
+    pitch?: number;
+  }) => void;
+  getDeck?: () => any;
 };
 
-export default function Globe({ layers = [] }: GlobeProps) {
+type GlobeProps = { layers?: LayersList };
+
+const Globe = forwardRef<GlobeHandle, GlobeProps>(({ layers = [] }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const deckRef = useRef<any>(null);
   const [ready, setReady] = useState(false);
-  const timerRef = useRef<number | null>(null);
+
+  const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
+
+  useImperativeHandle(ref, () => ({
+    flyTo({ longitude, latitude, zoom, durationMs = 1200, bearing, pitch }) {
+      setViewState((prev) => ({
+        ...prev,
+        longitude,
+        latitude,
+        zoom: typeof zoom === 'number' ? zoom : prev.zoom,
+        bearing: typeof bearing === 'number' ? bearing : prev.bearing,
+        pitch: typeof pitch === 'number' ? pitch : prev.pitch,
+        transitionDuration: durationMs,
+        transitionInterpolator: new FlyToInterpolator(),
+      }));
+    },
+    getDeck: () => deckRef.current,
+  }));
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -56,15 +91,17 @@ export default function Globe({ layers = [] }: GlobeProps) {
     canvasEl.width = CANVAS_W;
     canvasEl.height = CANVAS_H;
     canvasRef.current = canvasEl;
-
     const ctx = canvasEl.getContext('2d')!;
+
     const dayImg = new Image();
     const nightImg = new Image();
+    dayImg.src = DAY_TEXTURE;
+    nightImg.src = NIGHT_TEXTURE;
 
     let loaded = 0;
     const tryInit = () => {
       if (loaded < 2) return;
-      setReady(true); // render DeckGL only once canvas ready
+      setReady(true);
 
       const drawNow = () => {
         ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
@@ -87,7 +124,8 @@ export default function Globe({ layers = [] }: GlobeProps) {
       };
 
       drawNow();
-      timerRef.current = window.setInterval(drawNow, 30_000);
+      const timer = window.setInterval(drawNow, 30_000);
+      return () => window.clearInterval(timer);
     };
 
     dayImg.onload = () => {
@@ -98,37 +136,36 @@ export default function Globe({ layers = [] }: GlobeProps) {
       loaded++;
       tryInit();
     };
-    dayImg.src = DAY_TEXTURE;
-    nightImg.src = NIGHT_TEXTURE;
+    // if images are cached, onload may not fire; ensure tryInit logic handles that
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    // cleanup will be handled by returned cleanup in tryInit if needed
   }, []);
 
-  const earthLayer = useMemo(
-    () =>
-      ready
-        ? new BitmapLayer({
-            id: 'earth-daynight',
-            image: canvasRef.current!,
-            bounds: [-180, -85.05113, 180, 85.05113],
-            opacity: 1,
-            updateTriggers: { image: ready },
-          })
-        : null,
-    [ready]
-  );
+  const earthLayer = useMemo(() => {
+    if (!ready) return null;
+    return new BitmapLayer({
+      id: 'earth-daynight',
+      image: canvasRef.current!,
+      bounds: [-180, -85.05113, 180, 85.05113],
+      opacity: 1,
+      updateTriggers: { image: ready },
+    });
+  }, [ready]);
 
   return (
     ready && (
       <DeckGL
+        ref={deckRef}
         views={[new GlobeView()]}
+        viewState={viewState as any}
+        onViewStateChange={({ viewState: vs }: any) => setViewState(vs)}
         style={{ width: '100%', height: '100%', position: 'relative' }}
-        initialViewState={INITIAL_VIEW_STATE as any}
         controller={true}
         layers={[earthLayer!, ...(layers || [])]}
       />
     )
   );
-}
+});
+
+Globe.displayName = 'Globe';
+export default Globe;

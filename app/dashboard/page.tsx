@@ -1,10 +1,12 @@
 import SatelliteGlobe from '@/components/SatelliteGlobe';
 import Link from 'next/link';
 import React from 'react';
+import { TleProvider } from '@/lib/tle-context';
 
 export default function DashboardPage() {
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-[1fr_1.5fr_1fr] auto-rows-min">
+    <TleProvider>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-[1fr_1.5fr_1fr] auto-rows-min">
       {/* Fleet Health */}
       <div className="border rounded-xl p-4 bg-card">
         <h2 className="text-lg font-semibold mb-4">Fleet Health</h2>
@@ -80,6 +82,7 @@ export default function DashboardPage() {
           Widget Content
         </div>
       </div>
-    </div>
+      </div>
+    </TleProvider>
   );
 }

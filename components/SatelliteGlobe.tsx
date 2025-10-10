@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Globe from './Globe';
 import { ScatterplotLayer } from 'deck.gl';
 import { positionFromTLE } from '@/lib/satellite';
 import * as satellite from 'satellite.js';
-import { ArrowBigDown, ArrowBigUp } from 'lucide-react';
+import { ArrowBigDown, ArrowBigUp, X } from 'lucide-react';
+import { TleEntry, useTle } from '@/lib/tle-context';
 
 // ----------------------
 // Types
@@ -15,16 +16,6 @@ type SatellitePoint = {
   lat: number;
   lon: number;
   alt: number; // km
-  isDebris?: boolean;
-};
-
-type TleEntry = {
-  id: number;
-  name: string;
-  l1: string;
-  l2: string;
-  inclination: number;
-  tleEpoch: string;
   isDebris?: boolean;
 };
 
@@ -82,12 +73,13 @@ function classifyOrbit(inclination: number, alt: number): string {
 // ----------------------
 export default function SatelliteGlobe() {
   const [satellites, setSatellites] = useState<SatellitePoint[]>([]);
-  const tleRef = useRef<TleEntry[]>([]);
   const [selected, setSelected] = useState<SelectedMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [overviewExpanded, setOverviewExpanded] = useState(false);
+  const { tleRef, searchResults, setSearchQuery, setSearchResults } = useTle();
+  const globeRef = useRef<any>(null);
 
-  // Fetch TLE once
+  // Fetch TLEs
   useEffect(() => {
     const groups = ['active', '1999-025', 'iridium-33-debris'];
     let cancelled = false;
@@ -183,7 +175,9 @@ export default function SatelliteGlobe() {
   // ----------------------
   // Layers
   // ----------------------
-  const colorAccessor = (d: SatellitePoint & { isDebris?: boolean }) => {
+  const colorAccessor = (
+    d: SatellitePoint & { isDebris?: boolean }
+  ): [number, number, number, number] => {
     if (d.isDebris) return [180, 180, 180, 180]; // debris gray
     if (d.alt > 2000) return [0, 255, 0, 160]; // green: high orbit
     if (d.alt > 1000) return [255, 165, 0, 180]; // orange: MEO
@@ -191,14 +185,20 @@ export default function SatelliteGlobe() {
   };
 
   const layers = [
+    // Main satellite layer
     new ScatterplotLayer<SatellitePoint>({
       id: 'satellite-layer',
       data: satellites,
       getPosition: (d) => [d.lon, d.lat, d.alt * 200],
-      getFillColor: (d) =>
-        d.id === selected?.id ? [0, 0, 255, 255] : (colorAccessor(d) as any),
+      getFillColor: (d): [number, number, number, number] =>
+        d.id === selected?.id ? [0, 150, 255, 255] : colorAccessor(d),
       radiusUnits: 'meters',
-      getRadius: (d) => (d.isDebris ? 30000 : 70000),
+      getRadius: (d) => {
+        if (d.id === selected?.id) {
+          return d.isDebris ? 50000 : 80000; // Larger radius for selected
+        }
+        return d.isDebris ? 30000 : 70000;
+      },
       opacity: 0.85,
       pickable: true,
       onClick: (info) => {
@@ -223,17 +223,124 @@ export default function SatelliteGlobe() {
         });
       },
     }),
+    // Glow effect layer for selected satellite
+    ...(selected
+      ? [
+          new ScatterplotLayer<SatellitePoint>({
+            id: 'selected-glow-layer',
+            data: satellites.filter((s) => s.id === selected.id),
+            getPosition: (d) => [d.lon, d.lat, d.alt * 200],
+            getFillColor: (): [number, number, number, number] => [
+              0, 200, 255, 100,
+            ],
+            radiusUnits: 'meters',
+            getRadius: (d) => (d.isDebris ? 80000 : 150000), //glow radius
+            opacity: 0.6,
+            pickable: false,
+          }),
+        ]
+      : []),
   ];
+
+  function focusSatellite(sat: TleEntry) {
+    // compute current position
+    const p = positionFromTLE(sat.l1, sat.l2, new Date());
+    // fly to it (lon, lat)
+    globeRef.current?.flyTo({
+      longitude: p.lon,
+      latitude: p.lat,
+      zoom: 2.5,
+      durationMs: 1400,
+      // optional: pitch/bearing for better angle
+      pitch: 30,
+      bearing: 0,
+    });
+
+    const vel = velocityFromTLE(sat.l1, sat.l2, new Date());
+    const orbitType = classifyOrbit(sat.inclination, p.altKm);
+
+    setSelected({
+      id: sat.id,
+      name: sat.name ?? 'Unknown',
+      lat: p.lat,
+      lon: p.lon,
+      alt: p.altKm,
+      vel,
+      inclination: sat.inclination,
+      orbitType,
+      tleEpoch: sat.tleEpoch,
+    });
+  }
 
   // ----------------------
   // UI
   // ----------------------
   return (
     <div className="relative w-full h-full flex">
-      <Globe layers={layers} />
-
+      <Globe ref={globeRef} layers={layers} />
+      {searchResults && searchResults.length > 0 && (
+        <div className="absolute top-0 left-1/2 transform -translate-x-1/2 z-20">
+          {/* Corner accents */}
+          <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
+          <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />
+          <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-cyan-400" />
+          <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400" />
+          <div className="w-96 h-64 bg-black/70 backdrop-blur-md border border-gray-700/30 rounded-lg shadow-2xl relative">
+            <div className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-gray-700/30 p-2 text-center">
+              <span className="text-cyan-400 text-sm font-medium uppercase tracking-wider">
+                Search Results ({searchResults.length})
+              </span>
+              <X
+                className="absolute top-2 right-2 cursor-pointer text-gray-400 hover:text-white transition-colors"
+                size={18}
+                onClick={() => {
+                  setSearchQuery?.('');
+                  setSearchResults?.([]);
+                }}
+              />
+            </div>
+            <ul className="overflow-auto h-[calc(100%-3rem)]">
+              {searchResults.map((sat) => (
+                <li
+                  key={sat.id}
+                  onClick={() => focusSatellite(sat)}
+                  className={`p-3 hover:bg-cyan-500/20 cursor-pointer transition-all duration-200 border-b border-gray-700/30 last:border-b-0 ${
+                    selected?.id === sat.id
+                      ? 'bg-cyan-500/30 border-cyan-400/50'
+                      : 'hover:border-cyan-400/30'
+                  }`}
+                >
+                  <div className="flex justify-between items-center">
+                    <span
+                      className={`text-sm truncate ${
+                        selected?.id === sat.id
+                          ? 'text-cyan-300 font-medium'
+                          : 'text-white'
+                      }`}
+                    >
+                      {sat.name}
+                    </span>
+                    <span
+                      className={`text-xs ${
+                        selected?.id === sat.id
+                          ? 'text-cyan-400'
+                          : 'text-gray-400'
+                      }`}
+                    >
+                      #{sat.id}
+                    </span>
+                  </div>
+                  {selected?.id === sat.id && (
+                    <div className="text-xs text-cyan-400 mt-1">Selected</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
       {/* Right Panel */}
-      <div className="absolute right-3 top-3 w-60 bg-black/40 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto z-10">
+      <div className="absolute right-3 top-0 w-60 bg-black/40 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto z-10">
         {/* Corner accents */}
         <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
         <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />

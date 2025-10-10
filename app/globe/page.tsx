@@ -3,8 +3,28 @@ import SatelliteGlobe from '@/components/SatelliteGlobe';
 import Link from 'next/link';
 import { ArrowLeft, Search } from 'lucide-react';
 import Image from 'next/image';
+import { TleProvider, useTle } from '@/lib/tle-context';
 
-export default function GlobePage() {
+function GlobeContent() {
+  const { tleRef, searchQuery, setSearchQuery, setSearchResults } = useTle();
+
+  function handleSearch(query: string) {
+    setSearchQuery(query);
+
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const q = query.toLowerCase();
+
+    const results = tleRef.current.filter(
+      (e) => e.name.toLowerCase().includes(q) || e.id.toString().includes(q)
+    );
+
+    setSearchResults(results.slice(0, 20));
+  }
+
   return (
     <div className="relative min-h-screen bg-black overflow-hidden">
       {/* Subtle space gradient */}
@@ -30,8 +50,10 @@ export default function GlobePage() {
           <div className="relative flex-1 max-w-xl ml-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <input
-              placeholder="Search..."
-              className="w-full h-8 pl-9 pr-3 rounded-md bg-secondary text-sm border"
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              placeholder="Search by name or NORAD ID..."
+              className="w-full h-8 pl-9 pr-3 rounded-md bg-secondary text-sm border outline-accent"
             />
           </div>
 
@@ -56,5 +78,13 @@ export default function GlobePage() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function GlobePage() {
+  return (
+    <TleProvider>
+      <GlobeContent />
+    </TleProvider>
   );
 }
