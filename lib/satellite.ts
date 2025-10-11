@@ -14,7 +14,13 @@ export function positionFromTLE(
   const satrec = satellite.twoline2satrec(tleLine1, tleLine2);
   const gmst = satellite.gstime(date);
   const eci = satellite.propagate(satrec, date);
-  if (!eci.position) throw new Error('propagation failed');
+  
+  // Check if propagation failed
+  if (!eci || !eci.position) {
+    console.warn('Propagation failed for TLE data, returning default position');
+    return { lat: 0, lon: 0, altKm: 0 };
+  }
+  
   const geodetic = satellite.eciToGeodetic(eci.position, gmst);
   const longitude = satellite.degreesLong(geodetic.longitude);
   const latitude = satellite.degreesLat(geodetic.latitude);

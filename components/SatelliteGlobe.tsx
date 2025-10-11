@@ -5,7 +5,7 @@ import Globe from './Globe';
 import { ScatterplotLayer } from 'deck.gl';
 import { positionFromTLE } from '@/lib/satellite';
 import * as satellite from 'satellite.js';
-import { ArrowBigDown, ArrowBigUp, X } from 'lucide-react';
+import { ArrowBigDown, ArrowBigUp, Satellite, X } from 'lucide-react';
 import { TleEntry, useTle } from '@/lib/tle-context';
 
 // ----------------------
@@ -54,11 +54,16 @@ function parseTLEMeta(l1: string, l2: string) {
 }
 
 function velocityFromTLE(l1: string, l2: string, date: Date) {
-  const satrec = satellite.twoline2satrec(l1, l2);
-  const pv = satellite.propagate(satrec, date);
-  const vel = pv?.velocity;
-  if (!vel) return 0;
-  return Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2); // km/s
+  try {
+    const satrec = satellite.twoline2satrec(l1, l2);
+    const pv = satellite.propagate(satrec, date);
+    const vel = pv?.velocity;
+    if (!vel) return 0;
+    return Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2); // km/s
+  } catch (error) {
+    console.warn('Error calculating velocity from TLE:', error);
+    return 0;
+  }
 }
 
 function classifyOrbit(inclination: number, alt: number): string {
@@ -68,14 +73,27 @@ function classifyOrbit(inclination: number, alt: number): string {
   return 'Inclined';
 }
 
+function getOrbitType(alt: number, isDebris?: boolean): string {
+  if (isDebris) return 'Debris';
+  if (alt <= 1000) return 'LEO';
+  if (alt <= 2000) return 'MEO';
+  return 'GEO';
+}
+
 // ----------------------
 // Main Component
 // ----------------------
 export default function SatelliteGlobe() {
   const [satellites, setSatellites] = useState<SatellitePoint[]>([]);
+  const [filteredSatellites, setFilteredSatellites] = useState<
+    SatellitePoint[]
+  >([]);
   const [selected, setSelected] = useState<SelectedMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [overviewExpanded, setOverviewExpanded] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<Set<string>>(
+    new Set(['LEO', 'MEO', 'GEO', 'Debris'])
+  );
   const { tleRef, searchResults, setSearchQuery, setSearchResults } = useTle();
   const globeRef = useRef<any>(null);
 
@@ -130,23 +148,35 @@ export default function SatelliteGlobe() {
       setLoading(false);
     }
 
-    function updatePositions() {
-      if (!tleRef.current.length) return;
-      const now = new Date();
+     function updatePositions() {
+       if (!tleRef.current.length) return;
+       const now = new Date();
 
-      const pts: SatellitePoint[] = tleRef.current.map((e) => {
-        const p = positionFromTLE(e.l1, e.l2, now);
-        return {
-          id: e.id,
-          lat: p.lat,
-          lon: p.lon,
-          alt: p.altKm,
-          isDebris: e.isDebris,
-        };
-      });
+       const pts: SatellitePoint[] = tleRef.current
+         .map((e) => {
+           try {
+             const p = positionFromTLE(e.l1, e.l2, now);
+             // Skip satellites with invalid positions
+             if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
+               console.warn(`Skipping satellite ${e.id} due to invalid position`);
+               return null;
+             }
+             return {
+               id: e.id,
+               lat: p.lat,
+               lon: p.lon,
+               alt: p.altKm,
+               isDebris: e.isDebris,
+             } as SatellitePoint;
+           } catch (error) {
+             console.warn(`Error processing satellite ${e.id}:`, error);
+             return null;
+           }
+         })
+         .filter((pt): pt is SatellitePoint => pt !== null);
 
-      setSatellites(pts);
-    }
+       setSatellites(pts);
+     }
 
     fetchAllTLEs();
 
@@ -159,6 +189,28 @@ export default function SatelliteGlobe() {
     };
   }, []);
 
+  // Filter satellites based on active filters
+  useEffect(() => {
+    const filtered = satellites.filter((sat) => {
+      const orbitType = getOrbitType(sat.alt, sat.isDebris);
+      return activeFilters.has(orbitType);
+    });
+    setFilteredSatellites(filtered);
+  }, [satellites, activeFilters]);
+
+  // Toggle filter function
+  const toggleFilter = (filterType: string) => {
+    setActiveFilters((prev) => {
+      const newFilters = new Set(prev);
+      if (newFilters.has(filterType)) {
+        newFilters.delete(filterType);
+      } else {
+        newFilters.add(filterType);
+      }
+      return newFilters;
+    });
+  };
+
   // ----------------------
   // Stats Computation
   // ----------------------
@@ -169,8 +221,15 @@ export default function SatelliteGlobe() {
       (s) => !s.isDebris && s.alt > 1000 && s.alt <= 2000
     ).length;
     const geo = satellites.filter((s) => !s.isDebris && s.alt > 2000).length;
-    return { debris, leo, meo, geo, total: satellites.length };
-  }, [satellites]);
+    return {
+      debris,
+      leo,
+      meo,
+      geo,
+      total: satellites.length,
+      filtered: filteredSatellites.length,
+    };
+  }, [satellites, filteredSatellites]);
 
   // ----------------------
   // Layers
@@ -188,7 +247,7 @@ export default function SatelliteGlobe() {
     // Main satellite layer
     new ScatterplotLayer<SatellitePoint>({
       id: 'satellite-layer',
-      data: satellites,
+      data: filteredSatellites,
       getPosition: (d) => [d.lon, d.lat, d.alt * 200],
       getFillColor: (d): [number, number, number, number] =>
         d.id === selected?.id ? [0, 150, 255, 255] : colorAccessor(d),
@@ -228,7 +287,7 @@ export default function SatelliteGlobe() {
       ? [
           new ScatterplotLayer<SatellitePoint>({
             id: 'selected-glow-layer',
-            data: satellites.filter((s) => s.id === selected.id),
+            data: filteredSatellites.filter((s) => s.id === selected.id),
             getPosition: (d) => [d.lon, d.lat, d.alt * 200],
             getFillColor: (): [number, number, number, number] => [
               0, 200, 255, 100,
@@ -242,35 +301,46 @@ export default function SatelliteGlobe() {
       : []),
   ];
 
-  function focusSatellite(sat: TleEntry) {
-    // compute current position
-    const p = positionFromTLE(sat.l1, sat.l2, new Date());
-    // fly to it (lon, lat)
-    globeRef.current?.flyTo({
-      longitude: p.lon,
-      latitude: p.lat,
-      zoom: 2.5,
-      durationMs: 1400,
-      // optional: pitch/bearing for better angle
-      pitch: 30,
-      bearing: 0,
-    });
+   function focusSatellite(sat: TleEntry) {
+     try {
+       // compute current position
+       const p = positionFromTLE(sat.l1, sat.l2, new Date());
+       
+       // Check if position is valid
+       if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
+         console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
+         return;
+       }
+       
+       // fly to it (lon, lat)
+       globeRef.current?.flyTo({
+         longitude: p.lon,
+         latitude: p.lat,
+         zoom: 2.5,
+         durationMs: 1400,
+         // optional: pitch/bearing for better angle
+         pitch: 30,
+         bearing: 0,
+       });
 
-    const vel = velocityFromTLE(sat.l1, sat.l2, new Date());
-    const orbitType = classifyOrbit(sat.inclination, p.altKm);
+       const vel = velocityFromTLE(sat.l1, sat.l2, new Date());
+       const orbitType = classifyOrbit(sat.inclination, p.altKm);
 
-    setSelected({
-      id: sat.id,
-      name: sat.name ?? 'Unknown',
-      lat: p.lat,
-      lon: p.lon,
-      alt: p.altKm,
-      vel,
-      inclination: sat.inclination,
-      orbitType,
-      tleEpoch: sat.tleEpoch,
-    });
-  }
+       setSelected({
+         id: sat.id,
+         name: sat.name ?? 'Unknown',
+         lat: p.lat,
+         lon: p.lon,
+         alt: p.altKm,
+         vel,
+         inclination: sat.inclination,
+         orbitType,
+         tleEpoch: sat.tleEpoch,
+       });
+     } catch (error) {
+       console.error(`Error focusing on satellite ${sat.id}:`, error);
+     }
+   }
 
   // ----------------------
   // UI
@@ -353,8 +423,10 @@ export default function SatelliteGlobe() {
           </div>
         ) : (
           <>
+            {/* Orbit Filters */}
+
             <div
-              className="font-medium  text-cyan-400 text-xs uppercase tracking-wider flex justify-between items-center cursor-pointer"
+              className="font-medium text-cyan-400 text-xs uppercase tracking-wider flex justify-between items-center cursor-pointer"
               onClick={() => setOverviewExpanded(!overviewExpanded)}
             >
               <span>Objects Overview</span>
@@ -368,29 +440,50 @@ export default function SatelliteGlobe() {
             </div>
             {overviewExpanded && (
               <>
-                <div className="grid grid-cols-2 gap-x-2 gap-y-2 mt-3 text-xs">
-                  <span className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded-full bg-red-500" /> LEO
-                  </span>
-                  <span className="text-white ">{stats.leo}</span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded-full bg-orange-400" /> MEO
-                  </span>
-                  <span className="text-white ">{stats.meo}</span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded-full bg-green-500" /> GEO+
-                  </span>
-                  <span className="text-white ">{stats.geo}</span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded-full bg-gray-400" /> Debris
-                  </span>
-                  <span className="text-white ">{stats.debris}</span>
+                <div className="grid grid-cols-2 gap-2 my-4">
+                  {[
+                    {
+                      type: 'LEO',
+                      color: 'bg-red-500',
+                      label: 'LEO',
+                      stats: `${stats.leo}`,
+                    },
+                    {
+                      type: 'MEO',
+                      color: 'bg-orange-400',
+                      label: 'MEO',
+                      stats: `${stats.meo}`,
+                    },
+                    {
+                      type: 'GEO',
+                      color: 'bg-green-500',
+                      label: 'GEO',
+                      stats: `${stats.geo}`,
+                    },
+                    {
+                      type: 'Debris',
+                      color: 'bg-gray-400',
+                      label: 'Debris',
+                      stats: `${stats.debris}`,
+                    },
+                  ].map(({ type, color, label, stats }) => (
+                    <button
+                      key={type}
+                      onClick={() => toggleFilter(type)}
+                      className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-all duration-200 cursor-pointer ${
+                        activeFilters.has(type)
+                          ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-400/50'
+                          : 'bg-gray-700/50 text-gray-400 hover:bg-gray-600/50 hover:text-gray-300'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${color}`} />
+                      {label}
+                      <span className="ml-auto text-xs">{stats}</span>
+                    </button>
+                  ))}
                 </div>
-                <div className="mt-2 text-xs text-cyan-300/70 ">
-                  Total objects:{' '}
-                  <span className="text-white font-semibold">
-                    {stats.total}
-                  </span>
+                <div className="text-xs text-cyan-300/70 mt-1">
+                  Showing: {stats.filtered} of {stats.total}
                 </div>
               </>
             )}
@@ -401,10 +494,12 @@ export default function SatelliteGlobe() {
         {selected && !loading && (
           <div className="mt-3 border-t border-emerald-500/30 pt-2">
             <div
-              className="font-medium mb-1 truncate text-emerald-400  text-sm uppercase tracking-wider"
+              className="font-medium mb-1 truncate text-cyan-300  text-sm uppercase tracking-wider"
               title={selected.name}
             >
-              {selected.name}
+              <span className="flex items-center gap-2 mb-2">
+                {selected.name} <Satellite size={18} />
+              </span>
             </div>
             <div className="grid grid-cols-2 text-xs gap-x-2 gap-y-1">
               <span className="text-gray-400">NORAD</span>

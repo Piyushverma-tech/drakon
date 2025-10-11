@@ -1,4 +1,3 @@
-// components/Globe.tsx
 'use client';
 import React, {
   forwardRef,
