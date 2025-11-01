@@ -1,4 +1,5 @@
 import SatelliteGlobe from '@/components/SatelliteGlobe';
+import FleetHealth from '@/components/FleetHealth';
 import Link from 'next/link';
 import React from 'react';
 import { TleProvider } from '@/lib/tle-context';
@@ -10,9 +11,7 @@ export default function DashboardPage() {
       {/* Fleet Health */}
       <div className="border rounded-xl p-4 bg-card">
         <h2 className="text-lg font-semibold mb-4">Fleet Health</h2>
-        <div className="h-40 flex items-center justify-center text-gray-500">
-          Fleet Health Content
-        </div>
+        <FleetHealth />
       </div>
 
       {/*Globe */}
