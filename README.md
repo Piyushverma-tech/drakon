@@ -57,6 +57,7 @@ DRAKON integrates real-time orbit computation, conjunction analysis, and fleet v
 
 ## Project Structure
 
+```bash
 drakon/
 ├─ app/
 │ ├─ dashboard/
@@ -76,6 +77,7 @@ drakon/
 ├─ package.json
 ├─ docker-compose.yml
 └─ Dockerfile
+```
 
 ---
 
