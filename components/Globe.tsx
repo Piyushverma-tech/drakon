@@ -24,6 +24,16 @@ const INITIAL_VIEW_STATE = {
   bearing: 0,
 };
 
+type ViewState = {
+  longitude: number;
+  latitude: number;
+  zoom: number;
+  pitch?: number;
+  bearing?: number;
+  transitionDuration?: number;
+  transitionInterpolator?: FlyToInterpolator;
+};
+
 const DAY_TEXTURE = '/earth_day.jpg';
 const NIGHT_TEXTURE = '/earth_night.jpg';
 const CANVAS_W = 1024;
@@ -55,17 +65,17 @@ export type GlobeHandle = {
     bearing?: number;
     pitch?: number;
   }) => void;
-  getDeck?: () => any;
+  getDeck?: () => unknown;
 };
 
 type GlobeProps = { layers?: LayersList };
 
 const Globe = forwardRef<GlobeHandle, GlobeProps>(({ layers = [] }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const deckRef = useRef<any>(null);
+  const deckRef = useRef<unknown>(null);
   const [ready, setReady] = useState(false);
 
-  const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
+  const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
 
   useImperativeHandle(ref, () => ({
     flyTo({ longitude, latitude, zoom, durationMs = 1200, bearing, pitch }) {
@@ -135,9 +145,6 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(({ layers = [] }, ref) => {
       loaded++;
       tryInit();
     };
-    // if images are cached, onload may not fire; ensure tryInit logic handles that
-
-    // cleanup will be handled by returned cleanup in tryInit if needed
   }, []);
 
   const earthLayer = useMemo(() => {
@@ -151,17 +158,25 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(({ layers = [] }, ref) => {
     });
   }, [ready]);
 
+  const deckglProps = {
+    ref: deckRef,
+    views: [new GlobeView()],
+    viewState,
+    onViewStateChange: ({ viewState: vs }: { viewState: ViewState }): void => {
+      setViewState(vs);
+    },
+    style: {
+      width: '100%',
+      height: '100%',
+      position: 'relative',
+    } as React.CSSProperties,
+    controller: true,
+    layers: [earthLayer!, ...(layers || [])],
+  };
+
   return (
     ready && (
-      <DeckGL
-        ref={deckRef}
-        views={[new GlobeView()]}
-        viewState={viewState as any}
-        onViewStateChange={({ viewState: vs }: any) => setViewState(vs)}
-        style={{ width: '100%', height: '100%', position: 'relative' }}
-        controller={true}
-        layers={[earthLayer!, ...(layers || [])]}
-      />
+      <DeckGL {...(deckglProps as unknown as Parameters<typeof DeckGL>[0])} />
     )
   );
 });

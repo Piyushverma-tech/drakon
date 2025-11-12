@@ -7,9 +7,18 @@ import {
   aggregateFleetHealth,
   generateMockTelemetry,
   type SatelliteHealth,
-  type FleetHealthSummary,
 } from '@/lib/fleet-health';
-import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip } from 'recharts';
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from 'recharts';
 
 // ----------------------
 // Donut Chart Component using Recharts
@@ -21,7 +30,12 @@ type DonutChartProps = {
   total: number;
 };
 
-function HealthDonutChart({ healthy, warning, critical, total }: DonutChartProps) {
+function HealthDonutChart({
+  healthy,
+  warning,
+  critical,
+  total,
+}: DonutChartProps) {
   const data = [
     { name: 'Healthy', value: healthy, color: '#22c55e' },
     { name: 'Warning', value: warning, color: '#eab308' },
@@ -82,10 +96,10 @@ type TrendlineProps = {
 function HealthTrendline({ data, maxPoints = 20 }: TrendlineProps) {
   const displayData = data.slice(-maxPoints).map((entry) => ({
     timestamp: entry.timestamp,
-    time: new Date(entry.timestamp).toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
+    time: new Date(entry.timestamp).toLocaleTimeString('en-US', {
+      hour: '2-digit',
       minute: '2-digit',
-      hour12: false 
+      hour12: false,
     }),
     health: Math.round(entry.value),
   }));
@@ -101,15 +115,18 @@ function HealthTrendline({ data, maxPoints = 20 }: TrendlineProps) {
   return (
     <div className="w-full">
       <ResponsiveContainer width="100%" height={100}>
-        <LineChart data={displayData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-          <XAxis 
-            dataKey="time" 
+        <LineChart
+          data={displayData}
+          margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+        >
+          <XAxis
+            dataKey="time"
             stroke="#6b7280"
             tick={{ fill: '#9ca3af', fontSize: 10 }}
             interval="preserveStartEnd"
             minTickGap={30}
           />
-          <YAxis 
+          <YAxis
             domain={[0, 100]}
             stroke="#6b7280"
             tick={{ fill: '#9ca3af', fontSize: 10 }}
@@ -132,7 +149,12 @@ function HealthTrendline({ data, maxPoints = 20 }: TrendlineProps) {
             stroke="#22c55e"
             strokeWidth={2}
             dot={false}
-            activeDot={{ r: 5, fill: '#22c55e', stroke: '#fff', strokeWidth: 2 }}
+            activeDot={{
+              r: 5,
+              fill: '#22c55e',
+              stroke: '#fff',
+              strokeWidth: 2,
+            }}
           />
         </LineChart>
       </ResponsiveContainer>
@@ -146,7 +168,9 @@ function HealthTrendline({ data, maxPoints = 20 }: TrendlineProps) {
 export default function FleetHealth() {
   const { tleRef } = useTle();
   const [healthStatuses, setHealthStatuses] = useState<SatelliteHealth[]>([]);
-  const [healthHistory, setHealthHistory] = useState<Array<{ timestamp: number; value: number }>>([]);
+  const [healthHistory, setHealthHistory] = useState<
+    Array<{ timestamp: number; value: number }>
+  >([]);
 
   // Update health statuses when TLE data changes
   const updateHealth = useCallback(() => {
@@ -176,7 +200,10 @@ export default function FleetHealth() {
       const summary = aggregateFleetHealth(healthStatuses);
       const now = Date.now();
       setHealthHistory((prev) => {
-        const newHistory = [...prev, { timestamp: now, value: summary.healthPercent }];
+        const newHistory = [
+          ...prev,
+          { timestamp: now, value: summary.healthPercent },
+        ];
         // Keep last 50 points
         return newHistory.slice(-50);
       });
