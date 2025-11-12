@@ -2,11 +2,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
- import { LayoutGrid, Radar, Move3D, ChartPie, Settings } from 'lucide-react';
+import { LayoutGrid, Radar, Move3D, ChartPie, Settings } from 'lucide-react';
 
- const NAV_ITEMS = [
+const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutGrid },
-   { href: '/globe', label: 'Globe', icon: Radar },
+  { href: '/globe', label: 'Globe', icon: Radar },
   { href: '/collision', label: 'Collision Screening', icon: Radar },
   { href: '/maneuvers', label: 'Maneuver Design', icon: Move3D },
   { href: '/reports', label: 'Reports', icon: ChartPie },
@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 export function Sidebar() {
   const pathname = usePathname();
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex flex-col min-h-screen">
       <div className="h-14 px-4 flex items-center border-b/50">
         <Link href="/dashboard" className="font-semibold tracking-tight">
           DRAKON

@@ -95,7 +95,20 @@ export default function SatelliteGlobe() {
     new Set(['LEO', 'MEO', 'GEO', 'Debris'])
   );
   const { tleRef, searchResults, setSearchQuery, setSearchResults } = useTle();
-  const globeRef = useRef<any>(null);
+
+  // Strongly-typed ref for the Globe instance to avoid `any`
+  type GlobeHandle = {
+    flyTo: (opts: {
+      longitude: number;
+      latitude: number;
+      zoom?: number;
+      durationMs?: number;
+      pitch?: number;
+      bearing?: number;
+    }) => void;
+  } | null;
+
+  const globeRef = useRef<GlobeHandle>(null);
 
   // Fetch TLEs
   useEffect(() => {
@@ -148,35 +161,37 @@ export default function SatelliteGlobe() {
       setLoading(false);
     }
 
-     function updatePositions() {
-       if (!tleRef.current.length) return;
-       const now = new Date();
+    function updatePositions() {
+      if (!tleRef.current.length) return;
+      const now = new Date();
 
-       const pts: SatellitePoint[] = tleRef.current
-         .map((e) => {
-           try {
-             const p = positionFromTLE(e.l1, e.l2, now);
-             // Skip satellites with invalid positions
-             if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
-               console.warn(`Skipping satellite ${e.id} due to invalid position`);
-               return null;
-             }
-             return {
-               id: e.id,
-               lat: p.lat,
-               lon: p.lon,
-               alt: p.altKm,
-               isDebris: e.isDebris,
-             } as SatellitePoint;
-           } catch (error) {
-             console.warn(`Error processing satellite ${e.id}:`, error);
-             return null;
-           }
-         })
-         .filter((pt): pt is SatellitePoint => pt !== null);
+      const pts: SatellitePoint[] = tleRef.current
+        .map((e) => {
+          try {
+            const p = positionFromTLE(e.l1, e.l2, now);
+            // Skip satellites with invalid positions
+            if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
+              console.warn(
+                `Skipping satellite ${e.id} due to invalid position`
+              );
+              return null;
+            }
+            return {
+              id: e.id,
+              lat: p.lat,
+              lon: p.lon,
+              alt: p.altKm,
+              isDebris: e.isDebris,
+            } as SatellitePoint;
+          } catch (error) {
+            console.warn(`Error processing satellite ${e.id}:`, error);
+            return null;
+          }
+        })
+        .filter((pt): pt is SatellitePoint => pt !== null);
 
-       setSatellites(pts);
-     }
+      setSatellites(pts);
+    }
 
     fetchAllTLEs();
 
@@ -301,46 +316,46 @@ export default function SatelliteGlobe() {
       : []),
   ];
 
-   function focusSatellite(sat: TleEntry) {
-     try {
-       // compute current position
-       const p = positionFromTLE(sat.l1, sat.l2, new Date());
-       
-       // Check if position is valid
-       if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
-         console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
-         return;
-       }
-       
-       // fly to it (lon, lat)
-       globeRef.current?.flyTo({
-         longitude: p.lon,
-         latitude: p.lat,
-         zoom: 2.5,
-         durationMs: 1400,
-         // optional: pitch/bearing for better angle
-         pitch: 30,
-         bearing: 0,
-       });
+  function focusSatellite(sat: TleEntry) {
+    try {
+      // compute current position
+      const p = positionFromTLE(sat.l1, sat.l2, new Date());
 
-       const vel = velocityFromTLE(sat.l1, sat.l2, new Date());
-       const orbitType = classifyOrbit(sat.inclination, p.altKm);
+      // Check if position is valid
+      if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
+        console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
+        return;
+      }
 
-       setSelected({
-         id: sat.id,
-         name: sat.name ?? 'Unknown',
-         lat: p.lat,
-         lon: p.lon,
-         alt: p.altKm,
-         vel,
-         inclination: sat.inclination,
-         orbitType,
-         tleEpoch: sat.tleEpoch,
-       });
-     } catch (error) {
-       console.error(`Error focusing on satellite ${sat.id}:`, error);
-     }
-   }
+      // fly to it (lon, lat)
+      globeRef.current?.flyTo({
+        longitude: p.lon,
+        latitude: p.lat,
+        zoom: 2.5,
+        durationMs: 1400,
+        // optional: pitch/bearing for better angle
+        pitch: 30,
+        bearing: 0,
+      });
+
+      const vel = velocityFromTLE(sat.l1, sat.l2, new Date());
+      const orbitType = classifyOrbit(sat.inclination, p.altKm);
+
+      setSelected({
+        id: sat.id,
+        name: sat.name ?? 'Unknown',
+        lat: p.lat,
+        lon: p.lon,
+        alt: p.altKm,
+        vel,
+        inclination: sat.inclination,
+        orbitType,
+        tleEpoch: sat.tleEpoch,
+      });
+    } catch (error) {
+      console.error(`Error focusing on satellite ${sat.id}:`, error);
+    }
+  }
 
   // ----------------------
   // UI

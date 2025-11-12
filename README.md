@@ -1,160 +1,156 @@
-DRAKON-01A – Space Object Tracking & Collision Avoidance Platform
+# DRAKON-01A
 
-An interactive satellite operations dashboard that visualizes real-time orbital objects, predicts potential conjunctions, and provides fleet health monitoring.
+### Space Object Tracking & Collision Avoidance Platform
 
-🔭 High-Level Roadmap
+**DRAKON** is an interactive satellite operations dashboard that visualizes real-time orbital objects, predicts potential conjunctions, and monitors fleet health.  
+The platform combines satellite telemetry, orbit propagation, and predictive analytics to enhance situational awareness and operational safety.
 
-MVP (Current Progress ✅):
+---
 
-🌍 Interactive 3D globe with real-time satellite positions (using TLEs + satellite.js)
+## Overview
 
-📊 Fleet Health card with orbit breakdown (LEO / MEO / GEO / Debris)
+DRAKON integrates real-time orbit computation, conjunction analysis, and fleet visualization into a unified interface for satellite operators, researchers, and mission analysts.
 
-📈 Proximity Timeline (next 24h)
+---
 
-🚨 Critical Alerts list
+## Current MVP Features
 
-📉 Historical Trends chart (basic)
+- **Interactive 3D Globe:** Real-time visualization of satellites using TLEs and `satellite.js`.
+- **Fleet Health Overview:** Orbit breakdown (LEO / MEO / GEO / Debris).
+- **Satellite Details Panel:** Display NORAD ID, velocity, inclination, orbit type, and related data.
+- **Proximity Timeline:** Visualize potential close approaches over the next 24 hours.
+- **Critical Alerts:** List of high-risk conjunctions and anomalies.
+- **Historical Trends:** Basic analytics on orbit and event data.
+- **Collision Screening:** Trigger on-demand screening jobs for conjunction checks.
 
-▶️ “Run Collision Screening” action
+---
 
-Next Features (Planned 🔜):
+## Planned Features
 
-Conjunction prediction engine (optimized, spatial indexing)
+- Optimized conjunction prediction engine with spatial indexing.
+- Maneuver planner and Δv cost modeling.
+- Multi-tenant organization support.
+- Enhanced caching and geospatial queries (PostGIS).
+- UI/UX improvements and advanced visual analytics.
+- Real-time updates with WebSockets or managed services.
+- System monitoring using Grafana and Prometheus.
 
-Maneuver planner + cost modeling
+---
 
-Advanced UI/UX polish
+## Tech Stack
 
-Multi-tenant support
+| Layer                 | Technologies                                                                |
+| --------------------- | --------------------------------------------------------------------------- |
+| **Frontend**          | Next.js (App Router), React, Tailwind CSS, shadcn/ui                        |
+| **3D Visualization**  | deck.gl + Mapbox _(alternatives: CesiumJS, three.js)_                       |
+| **Charts**            | Recharts / Chart.js / ApexCharts                                            |
+| **Orbit Propagation** | satellite.js (SGP4)                                                         |
+| **Backend / Jobs**    | Next.js API routes, Node.js worker (BullMQ + Redis)                         |
+| **Database**          | PostgreSQL + PostGIS                                                        |
+| **Realtime**          | Socket.IO / Pusher / Supabase Realtime                                      |
+| **Queue / Cache**     | Redis                                                                       |
+| **Authentication**    | Clerk / NextAuth (optional)                                                 |
+| **CI/CD**             | GitHub Actions → Vercel (frontend), Render / Fly.io / DigitalOcean (worker) |
+| **Monitoring**        | Sentry, Grafana, Prometheus                                                 |
 
-Improved caching + geospatial queries (PostGIS)
+---
 
-🛠️ Tech Stack
+## Project Structure
 
-Frontend: Next.js (App Router) · React · Tailwind CSS · shadcn/ui
-3D Globe: deck.gl + Mapbox (alt: CesiumJS, three.js)
-Charts: Recharts / Chart.js / ApexCharts
-Orbit propagation: satellite.js
-(SGP4)
-Backend / Jobs: Next.js API routes, Node.js worker (BullMQ + Redis)
-Database: PostgreSQL + PostGIS (later)
-Realtime: WebSockets (Socket.IO) or managed service (Pusher / Supabase Realtime)
-Queue / Cache: Redis
-Auth: Clerk / NextAuth (optional)
-CI/CD: GitHub Actions → Vercel (frontend), Render/Fly.io/DigitalOcean (worker/ws)
-Monitoring: Sentry, Grafana, Prometheus
-
-📂 Project Structure
-/drakon
-├─ /app
-│ ├─ /dashboard
+drakon/
+├─ app/
+│ ├─ dashboard/
 │ │ ├─ page.tsx
 │ │ ├─ layout.tsx
 │ │ └─ components/
-│ ├─ /api # serverless endpoints
+│ ├─ api/ # Serverless endpoints
 │ └─ globals.css
-├─ /components # shared UI components
-├─ /lib # helpers (satellite.js, API client)
-├─ /worker # background jobs
+├─ components/ # Shared UI components
+├─ lib/ # Helpers (satellite.js, API client)
+├─ worker/ # Background jobs
 │ ├─ index.ts
 │ ├─ jobs/
 │ └─ queue.ts
-├─ /scripts # fetch TLE scripts
-├─ /db # migrations
+├─ scripts/ # TLE fetchers and automation
+├─ db/ # Migrations and schema
 ├─ package.json
 ├─ docker-compose.yml
 └─ Dockerfile
 
-Data Model (Postgres)
+---
 
-satellites → core satellite info (name, NORAD ID, TLEs, owner)
+## Database Schema (PostgreSQL)
 
-tle_history → historical TLEs per sat
+| Table            | Description                                       |
+| ---------------- | ------------------------------------------------- |
+| **satellites**   | Core satellite data (name, NORAD ID, TLEs, owner) |
+| **tle_history**  | Historical TLE records for satellites             |
+| **positions**    | Computed positions over time                      |
+| **conjunctions** | Close approaches (time, distance, risk)           |
+| **maneuvers**    | Planned burns (Δv, ETA, fuel estimate)            |
+| **alerts**       | Collision warnings and critical events            |
 
-positions → computed positions over time
+---
 
-conjunctions → close approaches (time, distance, risk)
+## API Endpoints (MVP)
 
-maneuvers → planned burns (Δv, ETA, fuel est.)
+| Method | Endpoint                       | Description                                 |
+| ------ | ------------------------------ | ------------------------------------------- |
+| `GET`  | `/api/satellites`              | List all tracked satellites                 |
+| `GET`  | `/api/satellites/:id/position` | Get position of a satellite at a given time |
+| `GET`  | `/api/positions?since=...`     | Stream recent positions                     |
+| `GET`  | `/api/conjunctions?range=24h`  | Get conjunctions within a given time window |
+| `POST` | `/api/run-screening`           | Trigger a collision screening job           |
+| `GET`  | `/api/alerts`                  | Retrieve critical alerts                    |
 
-alerts → critical events + collision warnings
+---
 
-🌐 API Endpoints (MVP)
+## Data Flow
 
-GET /api/satellites → list satellites
+1. Worker periodically fetches TLEs and stores them in the database.
+2. Worker propagates orbits using `satellite.js` and computes live positions.
+3. Screening jobs identify close approaches and insert alerts into Redis/DB.
+4. Frontend subscribes via WebSockets or polling to update the 3D globe and panels.
+5. User-triggered screening initiates async jobs with returned results upon completion.
 
-GET /api/satellites/:id/position → get satellite position at given time
+---
 
-GET /api/positions?since=... → stream recent positions
+## Current Status
 
-GET /api/conjunctions?range=24h → conjunctions in time window
+Interactive 3D globe with real-time satellite visualization ✅
 
-POST /api/run-screening → enqueue screening job
+Fleet overview with LEO/MEO/GEO/Debris classification ✅
 
-GET /api/alerts → list critical alerts
+Satellite details panel ✅
 
-🔄 Data Flow
+Collision screening workflow prototype ✅
 
-Worker fetches TLEs periodically → stores in DB
+Search and filtering ✅
 
-Worker propagates orbits using satellite.js → computes live positions
+Alerts panel and WebSocket-based updates 🔄
 
-Screening job checks for close approaches → inserts alerts into DB/Redis
+---
 
-Frontend subscribes via WebSocket / polling → updates globe + panels
+## Development Setup
 
-User triggers “Run Collision Screening” → async job → results returned
-
-⚡ Development
-Setup
-
-# create project
-
+```bash
+# Create project
 npx create-next-app@latest drakon-dashboard --experimental-app
 cd drakon-dashboard
 
-# install deps
-
+# Install dependencies
 npm install tailwindcss @tailwindcss/forms satellite.js redis bullmq socket.io-client socket.io
 
-Run
-
-# Next.js frontend
-
+# Run frontend
 npm run dev
 
-# Worker (separate terminal)
-
+# Run worker (separate terminal)
 NODE_ENV=development node worker/index.js
 
-Docker (optional)
-docker-compose up --build
+```
 
-📈 Current Status
+---
 
-✅ Interactive 3D globe with live satellites
-✅ Objects overview panel with LEO/MEO/GEO/Debris breakdown
-✅ Satellite details panel (with NORAD, velocity, inclination, orbit, etc.)
-✅ Loading state until API data is ready
-🔜 Search & filtering (in progress)
+**License**
 
-📌 Roadmap
-
-Satellite globe visualization
-
-Object overview + detail panel
-
-Search & filter satellites
-
-Alerts + Proximity Timeline
-
-Historical Trends chart
-
-Collision screening worker
-
-Real-time WebSocket updates
-
-📜 License
-
-MIT License © 2025 DRAKON
+MIT License © 2025 DRAKON Project
