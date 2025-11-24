@@ -4,8 +4,10 @@ import React, { useMemo, useEffect, useState, useCallback } from 'react';
 import { useTle } from '@/lib/tle-context';
 import {
   assessSatelliteHealth,
+  assessSatelliteHealthAsync,
   aggregateFleetHealth,
   generateMockTelemetry,
+  generateMockTelemetryAsync,
   type SatelliteHealth,
 } from '@/lib/fleet-health';
 import {
@@ -174,17 +176,34 @@ export default function FleetHealth() {
 
   // Update health statuses when TLE data changes
   const updateHealth = useCallback(() => {
-    if (!tleRef.current || tleRef.current.length === 0) {
-      setHealthStatuses([]);
-      return;
-    }
+    // async background update
+    (async () => {
+      if (!tleRef.current || tleRef.current.length === 0) {
+        setHealthStatuses([]);
+        return;
+      }
 
-    const statuses = tleRef.current.map((meta) => {
-      const telemetry = generateMockTelemetry(meta, true);
-      return assessSatelliteHealth(meta, telemetry);
-    });
-
-    setHealthStatuses(statuses);
+      try {
+        const statuses = await Promise.all(
+          tleRef.current.map(async (meta) => {
+            const telemetry = await generateMockTelemetryAsync(meta, true);
+            return await assessSatelliteHealthAsync(meta, telemetry);
+          })
+        );
+        setHealthStatuses(statuses as SatelliteHealth[]);
+      } catch (err) {
+        console.error(
+          'Failed to update health via worker, falling back to sync',
+          err
+        );
+        // Fallback synchronous path
+        const statuses = tleRef.current.map((meta) => {
+          const telemetry = generateMockTelemetry(meta, true);
+          return assessSatelliteHealth(meta, telemetry);
+        });
+        setHealthStatuses(statuses);
+      }
+    })();
   }, [tleRef]);
 
   // Initialize and update periodically

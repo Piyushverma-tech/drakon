@@ -4,6 +4,10 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Globe from './Globe';
 import { ScatterplotLayer } from 'deck.gl';
 import { positionFromTLE } from '@/lib/satellite';
+import {
+  positionFromTLEAsync,
+  batchPositionFromTLEAsync,
+} from '@/lib/satelliteWorker';
 import * as satellite from 'satellite.js';
 import { ArrowBigDown, ArrowBigUp, Satellite, X } from 'lucide-react';
 import { TleEntry, useTle } from '@/lib/tle-context';
@@ -66,7 +70,7 @@ function velocityFromTLE(l1: string, l2: string, date: Date) {
   }
 }
 
-function classifyOrbit(inclination: number, alt: number): string {
+function classifyOrbit(inclination: number): string {
   if (inclination < 10) return 'Equatorial';
   if (Math.abs(inclination - 90) < 5) return 'Polar';
   if (inclination >= 96 && inclination <= 99) return 'Sun-synchronous';
@@ -96,7 +100,7 @@ export default function SatelliteGlobe() {
   );
   const { tleRef, searchResults, setSearchQuery, setSearchResults } = useTle();
 
-  // Strongly-typed ref for the Globe instance to avoid `any`
+  // Strongly typed ref for the Globe instance
   type GlobeHandle = {
     flyTo: (opts: {
       longitude: number;
@@ -157,52 +161,93 @@ export default function SatelliteGlobe() {
       tleRef.current = allEntries;
 
       // initial position calc
-      updatePositions();
+      await updatePositions();
       setLoading(false);
     }
 
-    function updatePositions() {
+    async function updatePositions() {
       if (!tleRef.current.length) return;
       const now = new Date();
 
-      const pts: SatellitePoint[] = tleRef.current
-        .map((e) => {
-          try {
-            const p = positionFromTLE(e.l1, e.l2, now);
-            // Skip satellites with invalid positions
-            if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
+      try {
+        const items = tleRef.current.map((e) => ({
+          l1: e.l1,
+          l2: e.l2,
+          date: now,
+        }));
+        const res = await batchPositionFromTLEAsync(items);
+        const pts: SatellitePoint[] = (
+          res as Array<{ lat: number; lon: number; altKm: number } | null>
+        )
+          .map((p, idx: number) => {
+            try {
+              if (!p) return null;
+              if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
+                console.warn(
+                  `Skipping satellite ${tleRef.current[idx].id} due to invalid position`
+                );
+                return null;
+              }
+              return {
+                id: tleRef.current[idx].id,
+                lat: p.lat,
+                lon: p.lon,
+                alt: p.altKm,
+                isDebris: tleRef.current[idx].isDebris,
+              } as SatellitePoint;
+            } catch (err) {
               console.warn(
-                `Skipping satellite ${e.id} due to invalid position`
+                `Error processing satellite ${tleRef.current[idx].id}:`,
+                err
               );
               return null;
             }
-            return {
-              id: e.id,
-              lat: p.lat,
-              lon: p.lon,
-              alt: p.altKm,
-              isDebris: e.isDebris,
-            } as SatellitePoint;
-          } catch (error) {
-            console.warn(`Error processing satellite ${e.id}:`, error);
-            return null;
-          }
-        })
-        .filter((pt): pt is SatellitePoint => pt !== null);
+          })
+          .filter((pt): pt is SatellitePoint => pt !== null);
 
-      setSatellites(pts);
+        setSatellites(pts);
+      } catch (err) {
+        console.warn(
+          'Satellite worker failed, falling back to sync position calc',
+          err
+        );
+        // fallback to synchronous calculation
+        const pts: SatellitePoint[] = tleRef.current
+          .map((e) => {
+            try {
+              const p = positionFromTLE(e.l1, e.l2, now);
+              if (p.lat === 0 && p.lon === 0 && p.altKm === 0) return null;
+              return {
+                id: e.id,
+                lat: p.lat,
+                lon: p.lon,
+                alt: p.altKm,
+                isDebris: e.isDebris,
+              } as SatellitePoint;
+            } catch (error) {
+              console.warn(`Error processing satellite ${e.id}:`, error);
+              return null;
+            }
+          })
+          .filter((pt): pt is SatellitePoint => pt !== null);
+        setSatellites(pts);
+      }
     }
 
     fetchAllTLEs();
 
-    //offload to Web Worker later
-    const timer = setInterval(updatePositions, 10_000);
+    // update positions every 10 seconds
+    const timer = setInterval(() => {
+      updatePositions().catch((err) =>
+        console.warn('updatePositions error', err)
+      );
+    }, 10_000);
 
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [tleRef]);
 
   // Filter satellites based on active filters
   useEffect(() => {
@@ -282,7 +327,7 @@ export default function SatelliteGlobe() {
         if (!meta) return;
 
         const vel = velocityFromTLE(meta.l1, meta.l2, new Date());
-        const orbitType = classifyOrbit(meta.inclination, pt.alt);
+        const orbitType = classifyOrbit(meta.inclination);
 
         setSelected({
           id: pt.id,
@@ -316,37 +361,40 @@ export default function SatelliteGlobe() {
       : []),
   ];
 
-  function focusSatellite(sat: TleEntry) {
+  async function focusSatellite(sat: TleEntry) {
     try {
       // compute current position
-      const p = positionFromTLE(sat.l1, sat.l2, new Date());
+      const p = await positionFromTLEAsync(sat.l1, sat.l2, new Date());
 
-      // Check if position is valid
-      if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
+      if (!p) {
+        console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
+        return;
+      }
+      const pp = p as { lat: number; lon: number; altKm: number };
+      if (pp.lat === 0 && pp.lon === 0 && pp.altKm === 0) {
         console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
         return;
       }
 
       // fly to it (lon, lat)
       globeRef.current?.flyTo({
-        longitude: p.lon,
-        latitude: p.lat,
+        longitude: pp.lon,
+        latitude: pp.lat,
         zoom: 2.5,
         durationMs: 1400,
-        // optional: pitch/bearing for better angle
         pitch: 30,
         bearing: 0,
       });
 
       const vel = velocityFromTLE(sat.l1, sat.l2, new Date());
-      const orbitType = classifyOrbit(sat.inclination, p.altKm);
+      const orbitType = classifyOrbit(sat.inclination);
 
       setSelected({
         id: sat.id,
         name: sat.name ?? 'Unknown',
-        lat: p.lat,
-        lon: p.lon,
-        alt: p.altKm,
+        lat: pp.lat,
+        lon: pp.lon,
+        alt: pp.altKm,
         vel,
         inclination: sat.inclination,
         orbitType,

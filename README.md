@@ -119,19 +119,27 @@ drakon/
 
 ## Current Status
 
-Interactive 3D globe with real-time satellite visualization ✅
+- Interactive 3D globe with real-time satellite visualization ✅
+- Fleet overview with LEO/MEO/GEO/Debris classification ✅
+- Satellite details panel ✅
+- Collision screening workflow prototype ✅
+- Search and filtering ✅
+- Alerts panel and WebSocket-based updates 🔄
 
-Fleet overview with LEO/MEO/GEO/Debris classification ✅
+Progress on performance / heavy-compute offload (24-11-2025):
 
-Satellite details panel ✅
+- Dedicated web worker for orbit propagation implemented (Comlink-based): `lib/workers/satellite.worker.ts` ✅
+- Comlink wrapper + caching and graceful fallbacks added: `lib/satelliteWorker.ts` ✅
+- Batch propagation API (worker) and async wrappers added and used from the UI (bulk propagation, focus-by-satellite): `batchPositionFromTLEAsync`, `positionFromTLEAsync` ✅
+- Moved/added async worker-backed helpers in `lib/fleet-health.ts` (e.g., `assessSatelliteHealthAsync`, `generateMockTelemetryAsync`) ✅
+- Small generic Blob-worker helper (`lib/runInWorker.ts`) retained for pure JS functions and simple offloads ✅
+- Components updated to use async worker APIs with synchronous fallback: `components/SatelliteGlobe.tsx`, `components/FleetHealth.tsx` ✅
 
-Collision screening workflow prototype ✅
+Notes:
 
-Search and filtering ✅
-
-Alerts panel and WebSocket-based updates 🔄
-
----
+- Migration status: core propagation & fleet-health code paths are migrated to use the worker; other heavy computations (conjunction screening, large collision search loops) remain to be moved — still in progress.
+- Caching: in-memory cache (Map) implemented for worker results. Considering LRU/TTL or IndexedDB for persistence across reloads.
+- Transferables: for very large batches, we will use Transferable ArrayBuffers to avoid deep clones.
 
 ## Development Setup
 

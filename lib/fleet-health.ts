@@ -1,4 +1,6 @@
 import { positionFromTLE } from './satellite';
+import { positionFromTLEAsync } from './satelliteWorker';
+import type { PropagatedPosition } from './satellite';
 import { TleEntry } from './tle-context';
 
 // ----------------------
@@ -201,6 +203,113 @@ export function assessSatelliteHealth(
   };
 }
 
+// Async variants that offload propagation to worker when available
+export async function assessSatelliteHealthAsync(
+  meta: TleEntry,
+  telemetry: Telemetry | null
+): Promise<SatelliteHealth> {
+  const now = new Date();
+  const telTime = telemetry?.timestampIso
+    ? new Date(telemetry.timestampIso)
+    : now;
+
+  //worker-backed propagation
+  const predicted = await positionFromTLEAsync(meta.l1, meta.l2, telTime);
+  const predictedP = predicted as PropagatedPosition;
+  const orbitClass = orbitClassFromAlt(predictedP.altKm, meta.isDebris);
+  const cfg = CONFIG.thresholds[orbitClass];
+
+  if (!telemetry || telemetry.timestampIso == null) {
+    return {
+      id: meta.id,
+      name: meta.name,
+      status: 'Critical',
+      deviationKm: null,
+      ageSec: null,
+      reason: 'no_telemetry',
+      orbitClass,
+      predicted: predictedP,
+      observed: null,
+    };
+  }
+
+  const ageSec = (now.getTime() - telTime.getTime()) / 1000;
+  const observed = {
+    lat: telemetry.lat,
+    lon: telemetry.lon,
+    altKm: telemetry.altKm,
+  };
+  const devKm = distanceKm(predictedP, observed);
+
+  if (ageSec > cfg.critAgeSec) {
+    return {
+      id: meta.id,
+      name: meta.name,
+      status: 'Critical',
+      deviationKm: devKm,
+      ageSec,
+      reason: 'stale_telemetry',
+      orbitClass,
+      predicted: predictedP,
+      observed,
+    };
+  }
+
+  if (devKm >= cfg.critKm) {
+    return {
+      id: meta.id,
+      name: meta.name,
+      status: 'Critical',
+      deviationKm: devKm,
+      ageSec,
+      reason: 'large_deviation',
+      orbitClass,
+      predicted: predictedP,
+      observed,
+    };
+  }
+
+  if (devKm >= cfg.warnKm) {
+    return {
+      id: meta.id,
+      name: meta.name,
+      status: 'Warning',
+      deviationKm: devKm,
+      ageSec,
+      reason: 'deviation_warning',
+      orbitClass,
+      predicted: predictedP,
+      observed,
+    };
+  }
+
+  if (ageSec >= cfg.warnAgeSec) {
+    return {
+      id: meta.id,
+      name: meta.name,
+      status: 'Warning',
+      deviationKm: devKm,
+      ageSec,
+      reason: 'stale_warning',
+      orbitClass,
+      predicted: predictedP,
+      observed,
+    };
+  }
+
+  return {
+    id: meta.id,
+    name: meta.name,
+    status: 'Healthy',
+    deviationKm: devKm,
+    ageSec,
+    reason: 'ok',
+    orbitClass,
+    predicted: predictedP,
+    observed,
+  };
+}
+
 // ----------------------
 // Fleet Aggregation
 // ----------------------
@@ -223,8 +332,68 @@ export function aggregateFleetHealth(
 }
 
 // ----------------------
+// Async worker wrappers
+// ----------------------
+import { runInWorker } from './runInWorker';
+
+export async function aggregateFleetHealthAsync(
+  healthStatuses: SatelliteHealth[]
+): Promise<FleetHealthSummary> {
+  return runInWorker(
+    (hs: SatelliteHealth[]) => {
+      const total = hs.length;
+      const healthy = hs.filter((h) => h.status === 'Healthy').length;
+      const warning = hs.filter((h) => h.status === 'Warning').length;
+      const critical = hs.filter((h) => h.status === 'Critical').length;
+      const healthPercent = total > 0 ? (healthy / total) * 100 : 0;
+      return { total, healthy, warning, critical, healthPercent };
+    },
+    [healthStatuses]
+  );
+}
+
+/**
+ * Run distance calculation in a worker for a single pair.
+ */
+export async function distanceKmAsync(
+  posA: { lat: number; lon: number; altKm: number },
+  posB: { lat: number; lon: number; altKm: number }
+): Promise<number> {
+  return runInWorker(
+    (
+      a: { lat: number; lon: number; altKm: number },
+      b: { lat: number; lon: number; altKm: number }
+    ) => {
+      const RAD = Math.PI / 180;
+      const EARTH_RADIUS_KM = 6378.137;
+      const latLonAltToECEF = (
+        latDeg: number,
+        lonDeg: number,
+        altKm: number
+      ) => {
+        const radLat = latDeg * RAD;
+        const radLon = lonDeg * RAD;
+        const r = EARTH_RADIUS_KM + altKm;
+        const x = r * Math.cos(radLat) * Math.cos(radLon);
+        const y = r * Math.cos(radLat) * Math.sin(radLon);
+        const z = r * Math.sin(radLat);
+        return { x, y, z };
+      };
+      const A = latLonAltToECEF(a.lat, a.lon, a.altKm);
+      const B = latLonAltToECEF(b.lat, b.lon, b.altKm);
+      const dx = A.x - B.x;
+      const dy = A.y - B.y;
+      const dz = A.z - B.z;
+      return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    },
+    [posA, posB]
+  );
+}
+
+// ----------------------
 // Mock Telemetry Generator
 // ----------------------
+
 /**
  * Generates mock telemetry data for satellites.
  * In a real system, this would come from a telemetry feed.
@@ -245,9 +414,7 @@ export function generateMockTelemetry(
   // Add realistic noise to simulate telemetry measurement error
   // Most satellites have very accurate telemetry (sub-km)
   const noiseScale = meta.isDebris ? 0.5 : 0.1; // Debris has less accurate tracking
-  const latNoise = addNoise
-    ? (Math.random() - 0.5) * noiseScale
-    : 0;
+  const latNoise = addNoise ? (Math.random() - 0.5) * noiseScale : 0;
   const lonNoise = addNoise ? (Math.random() - 0.5) * noiseScale : 0;
   const altNoise = addNoise ? (Math.random() - 0.5) * noiseScale * 10 : 0;
 
@@ -269,6 +436,44 @@ export function generateMockTelemetry(
     lat: predicted.lat + latNoise * issueMultiplier,
     lon: predicted.lon + lonNoise * issueMultiplier,
     altKm: predicted.altKm + altNoise * issueMultiplier,
+    timestampIso: timestamp.toISOString(),
+    lastContact: timestamp.toISOString(),
+  };
+}
+
+export async function generateMockTelemetryAsync(
+  meta: TleEntry,
+  addNoise: boolean = true
+): Promise<Telemetry | null> {
+  const now = new Date();
+  const predicted = await positionFromTLEAsync(meta.l1, meta.l2, now);
+  const p = predicted as PropagatedPosition;
+
+  // Simulate telemetry availability (95% availability)
+  if (Math.random() < 0.05) {
+    return null; // No telemetry for this satellite
+  }
+
+  const noiseScale = meta.isDebris ? 0.5 : 0.1;
+  const latNoise = addNoise ? (Math.random() - 0.5) * noiseScale : 0;
+  const lonNoise = addNoise ? (Math.random() - 0.5) * noiseScale : 0;
+  const altNoise = addNoise ? (Math.random() - 0.5) * noiseScale * 10 : 0;
+
+  const hasIssue = Math.random() < 0.02;
+  const issueMultiplier = hasIssue ? 5 : 1;
+
+  let timestamp: Date;
+  if (Math.random() < 0.05) {
+    const staleMinutes = 15 + Math.random() * 105;
+    timestamp = new Date(now.getTime() - staleMinutes * 60 * 1000);
+  } else {
+    timestamp = now;
+  }
+
+  return {
+    lat: p.lat + latNoise * issueMultiplier,
+    lon: p.lon + lonNoise * issueMultiplier,
+    altKm: p.altKm + altNoise * issueMultiplier,
     timestampIso: timestamp.toISOString(),
     lastContact: timestamp.toISOString(),
   };
