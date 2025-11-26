@@ -3,26 +3,32 @@ import SatelliteGlobe from '@/components/SatelliteGlobe';
 import Link from 'next/link';
 import { ArrowLeft, Search } from 'lucide-react';
 import Image from 'next/image';
-import { TleProvider, useTle } from '@/lib/tle-context';
+import { useAppSelector, useAppDispatch } from '@/lib/store';
+import {
+  setSearchQuery,
+  setSearchResults,
+} from '@/lib/tle-slice';
 
 function GlobeContent() {
-  const { tleRef, searchQuery, setSearchQuery, setSearchResults } = useTle();
+  const dispatch = useAppDispatch();
+  const searchQuery = useAppSelector((state) => state.tle.searchQuery);
+  const entries = useAppSelector((state) => state.tle.entries);
 
   function handleSearch(query: string) {
-    setSearchQuery(query);
+    dispatch(setSearchQuery(query));
 
     if (!query.trim()) {
-      setSearchResults([]);
+      dispatch(setSearchResults([]));
       return;
     }
 
     const q = query.toLowerCase();
 
-    const results = tleRef.current.filter(
+    const results = entries.filter(
       (e) => e.name.toLowerCase().includes(q) || e.id.toString().includes(q)
     );
 
-    setSearchResults(results.slice(0, 20));
+    dispatch(setSearchResults(results.slice(0, 20)));
   }
 
   return (
@@ -82,9 +88,5 @@ function GlobeContent() {
 }
 
 export default function GlobePage() {
-  return (
-    <TleProvider>
-      <GlobeContent />
-    </TleProvider>
-  );
+  return <GlobeContent />;
 }

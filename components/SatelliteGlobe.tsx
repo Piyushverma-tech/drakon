@@ -10,7 +10,9 @@ import {
 } from '@/lib/satelliteWorker';
 import * as satellite from 'satellite.js';
 import { ArrowBigDown, ArrowBigUp, Satellite, X } from 'lucide-react';
-import { TleEntry, useTle } from '@/lib/tle-context';
+import { TleEntry } from '@/lib/tle-context';
+import { useAppDispatch, useAppSelector } from '@/lib/store';
+import { setEntries, clearSearch } from '@/lib/tle-slice';
 
 // ----------------------
 // Types
@@ -98,7 +100,9 @@ export default function SatelliteGlobe() {
   const [activeFilters, setActiveFilters] = useState<Set<string>>(
     new Set(['LEO', 'MEO', 'GEO', 'Debris'])
   );
-  const { tleRef, searchResults, setSearchQuery, setSearchResults } = useTle();
+  const dispatch = useAppDispatch();
+  const searchResults = useAppSelector((state) => state.tle.searchResults);
+  const entries = useAppSelector((state) => state.tle.entries);
 
   // Strongly typed ref for the Globe instance
   type GlobeHandle = {
@@ -114,8 +118,12 @@ export default function SatelliteGlobe() {
 
   const globeRef = useRef<GlobeHandle>(null);
 
-  // Fetch TLEs
+  // Fetch TLEs once into Redux (if not already loaded)
   useEffect(() => {
+    if (entries.length > 0) {
+      return;
+    }
+
     const groups = ['active', '1999-025', 'iridium-33-debris'];
     let cancelled = false;
 
@@ -158,19 +166,29 @@ export default function SatelliteGlobe() {
 
       if (cancelled) return;
 
-      tleRef.current = allEntries;
-
-      // initial position calc
-      await updatePositions();
+      dispatch(setEntries(allEntries));
       setLoading(false);
     }
 
+    fetchAllTLEs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, entries.length]);
+
+  // Compute satellite positions
+  useEffect(() => {
+    if (!entries.length) return;
+
+    let cancelled = false;
+
     async function updatePositions() {
-      if (!tleRef.current.length) return;
+      if (!entries.length || cancelled) return;
       const now = new Date();
 
       try {
-        const items = tleRef.current.map((e) => ({
+        const items = entries.map((e) => ({
           l1: e.l1,
           l2: e.l2,
           date: now,
@@ -184,20 +202,20 @@ export default function SatelliteGlobe() {
               if (!p) return null;
               if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
                 console.warn(
-                  `Skipping satellite ${tleRef.current[idx].id} due to invalid position`
+                  `Skipping satellite ${entries[idx].id} due to invalid position`
                 );
                 return null;
               }
               return {
-                id: tleRef.current[idx].id,
+                id: entries[idx].id,
                 lat: p.lat,
                 lon: p.lon,
                 alt: p.altKm,
-                isDebris: tleRef.current[idx].isDebris,
+                isDebris: entries[idx].isDebris,
               } as SatellitePoint;
             } catch (err) {
               console.warn(
-                `Error processing satellite ${tleRef.current[idx].id}:`,
+                `Error processing satellite ${entries[idx].id}:`,
                 err
               );
               return null;
@@ -205,14 +223,16 @@ export default function SatelliteGlobe() {
           })
           .filter((pt): pt is SatellitePoint => pt !== null);
 
-        setSatellites(pts);
+        if (!cancelled) {
+          setSatellites(pts);
+        }
       } catch (err) {
         console.warn(
           'Satellite worker failed, falling back to sync position calc',
           err
         );
         // fallback to synchronous calculation
-        const pts: SatellitePoint[] = tleRef.current
+        const pts: SatellitePoint[] = entries
           .map((e) => {
             try {
               const p = positionFromTLE(e.l1, e.l2, now);
@@ -230,11 +250,17 @@ export default function SatelliteGlobe() {
             }
           })
           .filter((pt): pt is SatellitePoint => pt !== null);
-        setSatellites(pts);
+
+        if (!cancelled) {
+          setSatellites(pts);
+        }
       }
     }
 
-    fetchAllTLEs();
+    // initial position calc
+    updatePositions().catch((err) =>
+      console.warn('initial updatePositions error', err)
+    );
 
     // update positions every 10 seconds
     const timer = setInterval(() => {
@@ -247,7 +273,7 @@ export default function SatelliteGlobe() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [tleRef]);
+  }, [entries]);
 
   // Filter satellites based on active filters
   useEffect(() => {
@@ -323,7 +349,7 @@ export default function SatelliteGlobe() {
       onClick: (info) => {
         const pt = info.object as SatellitePoint | null;
         if (!pt) return;
-        const meta = tleRef.current.find((t) => t.id === pt.id);
+        const meta = entries.find((t: TleEntry) => t.id === pt.id);
         if (!meta) return;
 
         const vel = velocityFromTLE(meta.l1, meta.l2, new Date());
@@ -427,8 +453,7 @@ export default function SatelliteGlobe() {
                 className="absolute top-2 right-2 cursor-pointer text-gray-400 hover:text-white transition-colors"
                 size={18}
                 onClick={() => {
-                  setSearchQuery?.('');
-                  setSearchResults?.([]);
+                  dispatch(clearSearch());
                 }}
               />
             </div>

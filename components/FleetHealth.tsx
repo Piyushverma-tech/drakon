@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useEffect, useState, useCallback } from 'react';
-import { useTle } from '@/lib/tle-context';
+import { useAppSelector } from '@/lib/store';
 import {
   assessSatelliteHealth,
   assessSatelliteHealthAsync,
@@ -168,7 +168,7 @@ function HealthTrendline({ data, maxPoints = 20 }: TrendlineProps) {
 // Main Component
 // ----------------------
 export default function FleetHealth() {
-  const { tleRef } = useTle();
+  const entries = useAppSelector((state) => state.tle.entries);
   const [healthStatuses, setHealthStatuses] = useState<SatelliteHealth[]>([]);
   const [healthHistory, setHealthHistory] = useState<
     Array<{ timestamp: number; value: number }>
@@ -178,14 +178,14 @@ export default function FleetHealth() {
   const updateHealth = useCallback(() => {
     // async background update
     (async () => {
-      if (!tleRef.current || tleRef.current.length === 0) {
+      if (!entries || entries.length === 0) {
         setHealthStatuses([]);
         return;
       }
 
       try {
         const statuses = await Promise.all(
-          tleRef.current.map(async (meta) => {
+          entries.map(async (meta) => {
             const telemetry = await generateMockTelemetryAsync(meta, true);
             return await assessSatelliteHealthAsync(meta, telemetry);
           })
@@ -197,14 +197,14 @@ export default function FleetHealth() {
           err
         );
         // Fallback synchronous path
-        const statuses = tleRef.current.map((meta) => {
+        const statuses = entries.map((meta) => {
           const telemetry = generateMockTelemetry(meta, true);
           return assessSatelliteHealth(meta, telemetry);
         });
         setHealthStatuses(statuses);
       }
     })();
-  }, [tleRef]);
+  }, [entries]);
 
   // Initialize and update periodically
   useEffect(() => {
