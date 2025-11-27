@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Globe from './Globe';
-import { ScatterplotLayer } from 'deck.gl';
+import { ScatterplotLayer, PathLayer } from 'deck.gl';
 import { positionFromTLE } from '@/lib/satellite';
 import {
   positionFromTLEAsync,
@@ -35,6 +35,11 @@ type SelectedMeta = {
   inclination: number;
   orbitType: string;
   tleEpoch?: string;
+};
+
+type BandTrack = {
+  id: string;
+  path: [number, number][];
 };
 
 // ----------------------
@@ -86,6 +91,46 @@ function getOrbitType(alt: number, isDebris?: boolean): string {
   return 'GEO';
 }
 
+
+// Generate ground track path for a representative orbit
+function generateGroundTrack(
+  entry: TleEntry,
+  samples: number = 360
+): BandTrack | null {
+  try {
+    const satrec = satellite.twoline2satrec(entry.l1, entry.l2);
+    // satrec.no is mean motion in rad/min
+    const meanMotionRadPerMin = satrec.no;
+    if (!meanMotionRadPerMin || !Number.isFinite(meanMotionRadPerMin)) {
+      return null;
+    }
+    const periodMinutes = (2 * Math.PI) / meanMotionRadPerMin;
+    const periodMs = periodMinutes * 60 * 1000;
+
+    const now = new Date();
+    const path: [number, number][] = [];
+
+    for (let i = 0; i < samples; i++) {
+      const t = new Date(now.getTime() + (i / samples) * periodMs);
+      const pos = positionFromTLE(entry.l1, entry.l2, t);
+      if (!pos) continue;
+      const { lat, lon, altKm } = pos;
+      if (lat === 0 && lon === 0 && altKm === 0) continue;
+      path.push([lon, lat]);
+    }
+
+    if (path.length === 0) return null;
+
+    return {
+      id: `band-track-${entry.id}`,
+      path,
+    };
+  } catch (error) {
+    console.warn('Error generating ground track:', error);
+    return null;
+  }
+}
+
 // ----------------------
 // Main Component
 // ----------------------
@@ -100,6 +145,9 @@ export default function SatelliteGlobe() {
   const [activeFilters, setActiveFilters] = useState<Set<string>>(
     new Set(['LEO', 'MEO', 'GEO', 'Debris'])
   );
+  const [showBands, setShowBands] = useState(false);
+  const [bandInclination, setBandInclination] = useState(53); // e.g. Starlink shell
+  const [bandTolerance] = useState(2); // degrees, simple constant for now
   const dispatch = useAppDispatch();
   const searchResults = useAppSelector((state) => state.tle.searchResults);
   const entries = useAppSelector((state) => state.tle.entries);
@@ -316,31 +364,123 @@ export default function SatelliteGlobe() {
       filtered: filteredSatellites.length,
     };
   }, [satellites, filteredSatellites]);
+  
+  //before heavy loop, we can use a map to look up satellites by id
+  const satById = useMemo(() => {
+    const m = new Map<number, SatellitePoint>();
+    for (const s of satellites) m.set(s.id, s);
+    return m;
+  }, [satellites]);
+
+  // Inclination band membership & stats
+  const {
+    bandSatelliteIds,
+    bandCount,
+    bandAvgAltKm,
+  } = useMemo(() => {
+    if (!showBands || !entries.length) {
+      return {
+        bandSatelliteIds: new Set<number>(),
+        bandCount: 0,
+        bandAvgAltKm: 0,
+      };
+    }
+
+    const ids = new Set<number>();
+    let count = 0;
+    let altSum = 0;
+    let altCount = 0;
+
+    for (const entry of entries) {
+      if (
+        Math.abs(entry.inclination - bandInclination) <= bandTolerance
+      ) {
+        ids.add(entry.id);
+        count += 1;
+        const sat = satById.get(entry.id);
+        if (sat) {
+          altSum += sat.alt;
+          altCount++;
+        }
+      }
+    }
+
+    const avgAlt = altCount > 0 ? altSum / altCount : 0;
+
+    return {
+      bandSatelliteIds: ids,
+      bandCount: count,
+      bandAvgAltKm: avgAlt,
+    };
+  }, [showBands, entries, satById, satellites, bandInclination, bandTolerance]);
+
+  // Ground track for current inclination band
+  //use a cache to avoid recalculating the same track
+  const trackCache = useRef<Map<string, BandTrack | null>>(new Map());
+
+  const bandTrack = useMemo(() => {
+
+    if (!showBands) return null;
+
+    const key = `band-${bandInclination}-${bandTolerance}`;
+    if (trackCache.current.has(key)) return trackCache.current.get(key) ?? null;
+
+    const rep = entries.find(e => Math.abs(e.inclination - bandInclination) <= bandTolerance);
+    const track = rep ? generateGroundTrack(rep, 360) : null;
+    trackCache.current.set(key, track);
+
+    return track;
+  }, [showBands, entries, bandInclination, bandTolerance]);
+  
 
   // ----------------------
   // Layers
   // ----------------------
   const colorAccessor = (
     d: SatellitePoint & { isDebris?: boolean }
-  ): [number, number, number, number] => {
+  ): [number, number, number, number] => {  
     if (d.isDebris) return [180, 180, 180, 180]; // debris gray
     if (d.alt > 2000) return [0, 255, 0, 160]; // green: high orbit
     if (d.alt > 1000) return [255, 165, 0, 180]; // orange: MEO
     return [255, 0, 0, 160]; // red: LEO
   };
 
+
   const layers = [
+    // Inclination band path layer (under satellites)
+    ...(showBands && bandTrack
+      ? [
+          new PathLayer<BandTrack>({
+            id: 'inclination-band',
+            data: [bandTrack],
+            getPath: (d) => d.path,
+            getColor: [0, 200, 255, 180],
+            widthMinPixels: 2,
+            opacity: 0.7,
+            pickable: false,
+          }),
+        ]
+      : []),
     // Main satellite layer
     new ScatterplotLayer<SatellitePoint>({
       id: 'satellite-layer',
       data: filteredSatellites,
       getPosition: (d) => [d.lon, d.lat, d.alt * 200],
-      getFillColor: (d): [number, number, number, number] =>
-        d.id === selected?.id ? [0, 150, 255, 255] : colorAccessor(d),
+      getFillColor: (d): [number, number, number, number] => {
+        if (d.id === selected?.id) return [0, 150, 255, 255];
+        if (showBands && bandSatelliteIds.has(d.id)) {
+          // Highlight satellites in current band
+          return [0, 255, 255, 220];
+        }
+        return colorAccessor(d);
+      },
       radiusUnits: 'meters',
       getRadius: (d) => {
         if (d.id === selected?.id) {
           return d.isDebris ? 50000 : 80000; // Larger radius for selected
+        }
+        if (showBands && bandSatelliteIds.has(d.id)) {
+          return d.isDebris ? 40000 : 90000;
         }
         return d.isDebris ? 30000 : 70000;
       },
@@ -514,11 +654,11 @@ export default function SatelliteGlobe() {
             {/* Orbit Filters */}
 
             <div
-              className="font-medium text-cyan-400 text-xs uppercase tracking-wider flex justify-between items-center cursor-pointer"
+              className="font-medium text-cyan-300 text-xs uppercase tracking-wider flex justify-between items-center cursor-pointer"
               onClick={() => setOverviewExpanded(!overviewExpanded)}
             >
               <span>Objects Overview</span>
-              <span className="text-cyan-400">
+              <span className="text-cyan-300">
                 {overviewExpanded ? (
                   <ArrowBigDown className="w-4 h-4" />
                 ) : (
@@ -570,8 +710,63 @@ export default function SatelliteGlobe() {
                     </button>
                   ))}
                 </div>
-                <div className="text-xs text-cyan-300/70 mt-1">
+                <div className="text-xs text-cyan-300/70 mt-1 mb-3">
                   Showing: {stats.filtered} of {stats.total}
+                </div>
+
+                {/* Inclination bands controls */}
+                <div className="mt-2 pt-2 border-t border-gray-700/60 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-cyan-300 text-xs uppercase tracking-wider">
+                      Inclination Bands
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowBands((v) => !v)}
+                      className={`px-2 py-0.5 rounded text-[11px] border transition-colors ${
+                        showBands
+                          ? 'bg-cyan-500/30 text-cyan-200 border-cyan-400/60'
+                          : 'bg-gray-800/60 text-gray-300 border-gray-600 hover:bg-gray-700/60'
+                      }`}
+                    >
+                      {showBands ? 'On' : 'Off'}
+                    </button>
+                  </div>
+
+                  {showBands && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[11px] text-gray-300">
+                        <span>
+                          Band: {bandInclination.toFixed(1)}° ± {bandTolerance}°
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={120}
+                        step={0.5}
+                        value={bandInclination}
+                        onChange={(e) =>
+                          setBandInclination(parseFloat(e.target.value))
+                        }
+                        className="w-full accent-cyan-400"
+                      />
+
+                      {bandCount > 0 && (
+                        <div className="mt-1 rounded border border-cyan-500/40 bg-black/40 px-2 py-1.5 text-[11px] text-cyan-100 space-y-1">
+                       
+                          <div className="flex  text-xs text-gray-300 justify-between">
+                            <span>Satellites</span>
+                            <span>{bandCount}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Avg Altitude</span>
+                            <span>{Math.round(bandAvgAltKm)} km</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </>
             )}
