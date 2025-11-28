@@ -7,6 +7,7 @@ import { positionFromTLE } from '@/lib/satellite';
 import {
   positionFromTLEAsync,
   batchPositionFromTLEAsync,
+  generateGroundTrackAsync as generateGroundTrackWorker,
 } from '@/lib/satelliteWorker';
 import * as satellite from 'satellite.js';
 import { ArrowBigDown, ArrowBigUp, Satellite, X } from 'lucide-react';
@@ -91,35 +92,14 @@ function getOrbitType(alt: number, isDebris?: boolean): string {
   return 'GEO';
 }
 
-
-// Generate ground track path for a representative orbit
-function generateGroundTrack(
+// Generate ground track path for a representative orbit (async, uses worker)
+async function generateGroundTrackAsync(
   entry: TleEntry,
-  samples: number = 360
-): BandTrack | null {
+  samples: number = 240
+): Promise<BandTrack | null> {
   try {
-    const satrec = satellite.twoline2satrec(entry.l1, entry.l2);
-    // satrec.no is mean motion in rad/min
-    const meanMotionRadPerMin = satrec.no;
-    if (!meanMotionRadPerMin || !Number.isFinite(meanMotionRadPerMin)) {
-      return null;
-    }
-    const periodMinutes = (2 * Math.PI) / meanMotionRadPerMin;
-    const periodMs = periodMinutes * 60 * 1000;
-
-    const now = new Date();
-    const path: [number, number][] = [];
-
-    for (let i = 0; i < samples; i++) {
-      const t = new Date(now.getTime() + (i / samples) * periodMs);
-      const pos = positionFromTLE(entry.l1, entry.l2, t);
-      if (!pos) continue;
-      const { lat, lon, altKm } = pos;
-      if (lat === 0 && lon === 0 && altKm === 0) continue;
-      path.push([lon, lat]);
-    }
-
-    if (path.length === 0) return null;
+    const path = await generateGroundTrackWorker(entry.l1, entry.l2, samples);
+    if (!path || path.length === 0) return null;
 
     return {
       id: `band-track-${entry.id}`,
@@ -147,7 +127,11 @@ export default function SatelliteGlobe() {
   );
   const [showBands, setShowBands] = useState(false);
   const [bandInclination, setBandInclination] = useState(53); // e.g. Starlink shell
-  const [bandTolerance] = useState(2); // degrees, simple constant for now
+  const [bandInclinationDebounced, setBandInclinationDebounced] = useState(53);
+  const [bandTolerance, setBandTolerance] = useState(2); // degrees, user-adjustable
+  const [bandToleranceDebounced, setBandToleranceDebounced] = useState(2);
+  const [bandTrack, setBandTrack] = useState<BandTrack | null>(null);
+  const [bandTrackLoading, setBandTrackLoading] = useState(false);
   const dispatch = useAppDispatch();
   const searchResults = useAppSelector((state) => state.tle.searchResults);
   const entries = useAppSelector((state) => state.tle.entries);
@@ -166,7 +150,7 @@ export default function SatelliteGlobe() {
 
   const globeRef = useRef<GlobeHandle>(null);
 
-  // Fetch TLEs once into Redux (if not already loaded)
+  // Fetch TLEs once into Redux
   useEffect(() => {
     if (entries.length > 0) {
       return;
@@ -364,7 +348,7 @@ export default function SatelliteGlobe() {
       filtered: filteredSatellites.length,
     };
   }, [satellites, filteredSatellites]);
-  
+
   //before heavy loop, we can use a map to look up satellites by id
   const satById = useMemo(() => {
     const m = new Map<number, SatellitePoint>();
@@ -372,12 +356,8 @@ export default function SatelliteGlobe() {
     return m;
   }, [satellites]);
 
-  // Inclination band membership & stats
-  const {
-    bandSatelliteIds,
-    bandCount,
-    bandAvgAltKm,
-  } = useMemo(() => {
+  // Inclination band membership & stats (use debounced value)
+  const { bandSatelliteIds, bandCount, bandAvgAltKm } = useMemo(() => {
     if (!showBands || !entries.length) {
       return {
         bandSatelliteIds: new Set<number>(),
@@ -393,7 +373,8 @@ export default function SatelliteGlobe() {
 
     for (const entry of entries) {
       if (
-        Math.abs(entry.inclination - bandInclination) <= bandTolerance
+        Math.abs(entry.inclination - bandInclinationDebounced) <=
+        bandToleranceDebounced
       ) {
         ids.add(entry.id);
         count += 1;
@@ -412,39 +393,101 @@ export default function SatelliteGlobe() {
       bandCount: count,
       bandAvgAltKm: avgAlt,
     };
-  }, [showBands, entries, satById, satellites, bandInclination, bandTolerance]);
+  }, [
+    showBands,
+    entries,
+    satById,
+    bandInclinationDebounced,
+    bandToleranceDebounced,
+  ]);
 
-  // Ground track for current inclination band
-  //use a cache to avoid recalculating the same track
+  // Debounce slider inputs to prevent expensive recalculations on every drag
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setBandInclinationDebounced(bandInclination);
+    }, 300); // 300ms debounce
+    return () => clearTimeout(timer);
+  }, [bandInclination]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setBandToleranceDebounced(bandTolerance);
+    }, 300); // 300ms debounce
+    return () => clearTimeout(timer);
+  }, [bandTolerance]);
+
+  // Ground track for current inclination band (uses worker)
   const trackCache = useRef<Map<string, BandTrack | null>>(new Map());
 
-  const bandTrack = useMemo(() => {
+  useEffect(() => {
+    let cancelled = false;
 
-    if (!showBands) return null;
+    if (!showBands || !entries.length) {
+      setBandTrack(null);
+      setBandTrackLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
 
-    const key = `band-${bandInclination}-${bandTolerance}`;
-    if (trackCache.current.has(key)) return trackCache.current.get(key) ?? null;
+    const key = `band-${bandInclinationDebounced}-${bandToleranceDebounced}`;
+    if (trackCache.current.has(key)) {
+      setBandTrack(trackCache.current.get(key) ?? null);
+      setBandTrackLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
 
-    const rep = entries.find(e => Math.abs(e.inclination - bandInclination) <= bandTolerance);
-    const track = rep ? generateGroundTrack(rep, 360) : null;
-    trackCache.current.set(key, track);
+    const rep = entries.find(
+      (e) =>
+        Math.abs(e.inclination - bandInclinationDebounced) <=
+        bandToleranceDebounced
+    );
+    if (!rep) {
+      setBandTrack(null);
+      setBandTrackLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
 
-    return track;
-  }, [showBands, entries, bandInclination, bandTolerance]);
-  
+    setBandTrackLoading(true);
+    generateGroundTrackAsync(rep, 240)
+      .then((track) => {
+        if (cancelled) return;
+        trackCache.current.set(key, track);
+        setBandTrack(track);
+        setBandTrackLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn('Failed to generate ground track:', err);
+        setBandTrack(null);
+        setBandTrackLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    showBands,
+    entries,
+    bandInclinationDebounced,
+    bandToleranceDebounced,
+  ]);
 
   // ----------------------
   // Layers
   // ----------------------
   const colorAccessor = (
     d: SatellitePoint & { isDebris?: boolean }
-  ): [number, number, number, number] => {  
+  ): [number, number, number, number] => {
     if (d.isDebris) return [180, 180, 180, 180]; // debris gray
     if (d.alt > 2000) return [0, 255, 0, 160]; // green: high orbit
     if (d.alt > 1000) return [255, 165, 0, 180]; // orange: MEO
     return [255, 0, 0, 160]; // red: LEO
   };
-
 
   const layers = [
     // Inclination band path layer (under satellites)
@@ -723,7 +766,7 @@ export default function SatelliteGlobe() {
                     <button
                       type="button"
                       onClick={() => setShowBands((v) => !v)}
-                      className={`px-2 py-0.5 rounded text-[11px] border transition-colors ${
+                      className={`px-2 py-0.5 rounded text-[11px] border transition-colors cursor-pointer ${
                         showBands
                           ? 'bg-cyan-500/30 text-cyan-200 border-cyan-400/60'
                           : 'bg-gray-800/60 text-gray-300 border-gray-600 hover:bg-gray-700/60'
@@ -734,27 +777,50 @@ export default function SatelliteGlobe() {
                   </div>
 
                   {showBands && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-[11px] text-gray-300">
-                        <span>
-                          Band: {bandInclination.toFixed(1)}° ± {bandTolerance}°
-                        </span>
+                    <div className="space-y-3">
+                      {/* Inclination Slider */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] text-gray-300">
+                          <span>Inclination</span>
+                          <span>{bandInclination.toFixed(1)}°</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={120}
+                          step={0.5}
+                          value={bandInclination}
+                          onChange={(e) =>
+                            setBandInclination(parseFloat(e.target.value))
+                          }
+                          className="w-full accent-cyan-400"
+                        />
                       </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={120}
-                        step={0.5}
-                        value={bandInclination}
-                        onChange={(e) =>
-                          setBandInclination(parseFloat(e.target.value))
-                        }
-                        className="w-full accent-cyan-400"
-                      />
+
+                      {/* Tolerance Slider */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] text-gray-300">
+                          <span>Tolerance (±)</span>
+                          <span>{bandTolerance.toFixed(1)}°</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.5}
+                          max={10}
+                          step={0.5}
+                          value={bandTolerance}
+                          onChange={(e) =>
+                            setBandTolerance(parseFloat(e.target.value))
+                          }
+                          className="w-full accent-cyan-400"
+                        />
+                        <div className="text-[10px] text-gray-400">
+                          {bandInclination.toFixed(1)}° ± {bandTolerance.toFixed(1)}°
+                        </div>
+                      </div>
 
                       {bandCount > 0 && (
                         <div className="mt-1 rounded border border-cyan-500/40 bg-black/40 px-2 py-1.5 text-[11px] text-cyan-100 space-y-1">
-                       
                           <div className="flex  text-xs text-gray-300 justify-between">
                             <span>Satellites</span>
                             <span>{bandCount}</span>

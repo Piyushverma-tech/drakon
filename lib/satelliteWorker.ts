@@ -48,6 +48,11 @@ type SatelliteWorkerProxy = {
   batchPositionFromTLE: (
     items: Array<{ l1: string; l2: string; dateIso?: string }>
   ) => Promise<unknown[]>;
+  generateGroundTrack: (
+    l1: string,
+    l2: string,
+    samples?: number
+  ) => Promise<Array<[number, number]> | null>;
 };
 
 export async function positionFromTLEAsync(
@@ -154,6 +159,38 @@ export async function batchPositionFromTLEAsync(
     }
     // fallback synchronous map
     return items.map((it) => syncPositionFromTLE(it.l1, it.l2, it.date));
+  })();
+
+  cache.set(key, v);
+  if (cache.size > CACHE_MAX) {
+    const it = cache.keys().next();
+    cache.delete(it.value as string);
+  }
+  return v;
+}
+
+export async function generateGroundTrackAsync(
+  l1: string,
+  l2: string,
+  samples: number = 360
+): Promise<Array<[number, number]> | null> {
+  const key = makeKey('generateGroundTrack', [l1, l2, samples]);
+  if (cache.has(key)) return cache.get(key) as Array<[number, number]> | null;
+
+  const v = await (async () => {
+    try {
+      const proxy = await getWorkerProxy();
+      if (proxy) {
+        return await (proxy as SatelliteWorkerProxy).generateGroundTrack(
+          l1,
+          l2,
+          samples
+        );
+      }
+    } catch (err) {
+      console.warn('satellite worker failed for ground track, falling back', err);
+    }   
+    return null;
   })();
 
   cache.set(key, v);

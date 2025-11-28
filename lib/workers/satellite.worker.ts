@@ -57,12 +57,52 @@ async function batchPositionFromTLE(
   return items.map((it) => positionFromTLE(it.l1, it.l2, it.dateIso));
 }
 
+async function generateGroundTrack(
+  l1: string,
+  l2: string,
+  samples: number = 360
+): Promise<Array<[number, number]> | null> {
+  try {
+    const satrec = satellite.twoline2satrec(l1, l2);
+    const meanMotionRadPerMin = satrec.no;
+    if (!meanMotionRadPerMin || !Number.isFinite(meanMotionRadPerMin)) {
+      return null;
+    }
+    const periodMinutes = (2 * Math.PI) / meanMotionRadPerMin;
+    const periodMs = periodMinutes * 60 * 1000;
+
+    const now = new Date();
+    const items: Array<{ l1: string; l2: string; dateIso: string }> = [];
+
+    for (let i = 0; i < samples; i++) {
+      const t = new Date(now.getTime() + (i / samples) * periodMs);
+      items.push({ l1, l2, dateIso: t.toISOString() });
+    }
+
+    const positions = await batchPositionFromTLE(items);
+    const path: [number, number][] = [];
+
+    for (const pos of positions) {
+      if (!pos) continue;
+      const p = pos as PropagatedPosition;
+      if (p.lat === 0 && p.lon === 0 && p.altKm === 0) continue;
+      path.push([p.lon, p.lat]);
+    }
+
+    return path.length > 0 ? path : null;
+  } catch (error) {
+    console.warn('Error generating ground track in worker:', error);
+    return null;
+  }
+}
+
 // Expose the functions via Comlink
 const api = {
   positionFromTLE,
   tleToLatLonAlt,
   satrecFromTLE,
   batchPositionFromTLE,
+  generateGroundTrack,
 };
 
 Comlink.expose(api);
