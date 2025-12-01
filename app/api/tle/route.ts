@@ -13,8 +13,8 @@ export async function GET(request: Request) {
   const format = searchParams.get('format') || 'tle';
 
   const effectiveGroups =
-    groups.length > 0 ? groups : ['visual', '1999-025', 'iridium-33-debris']; // default small set
-
+    groups.length > 0 ? groups : ['active', '1999-025', 'iridium-33-debris', 'cosmos-2251-debris' ]; // default small set
+  
   try {
     const results = [];
     for (const g of effectiveGroups) {

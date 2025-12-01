@@ -37,6 +37,55 @@ import {
   satrecFromTLE as syncSatrecFromTLE,
 } from './satellite';
 
+export type DensityWorkerInput = {
+  id: number;
+  lat: number;
+  lon: number;
+  altKm: number;
+  operator?: string;
+};
+
+export type DensityWorkerOptions = {
+  voxelSizeKm?: number;
+  detectionRadiusKm?: number;
+  gridCellSizeDeg?: number;
+  maxPairs?: number;
+};
+
+export type DensityCell = {
+  lat: number;
+  lon: number;
+  count: number;
+};
+
+export type CandidatePair = {
+  idA: number;
+  idB: number;
+  distanceKm: number;
+  altitudeA: number;
+  altitudeB: number;
+  operatorA?: string;
+  operatorB?: string;
+  latA: number;
+  lonA: number;
+  latB: number;
+  lonB: number;
+};
+
+export type DensityResult = {
+  densityCells: DensityCell[];
+  candidatePairs: CandidatePair[];
+  stats: {
+    totalSatellites: number;
+    totalCells: number;
+    maxCellCount: number;
+    detectionRadiusKm: number;
+    voxelSizeKm: number;
+    gridCellSizeDeg: number;
+  };
+  generatedAt: string;
+};
+
 type SatelliteWorkerProxy = {
   positionFromTLE: (
     l1: string,
@@ -53,6 +102,10 @@ type SatelliteWorkerProxy = {
     l2: string,
     samples?: number
   ) => Promise<Array<[number, number]> | null>;
+  computeCollisionDensity: (
+    items: DensityWorkerInput[],
+    options?: DensityWorkerOptions
+  ) => Promise<DensityResult>;
 };
 
 export async function positionFromTLEAsync(
@@ -191,6 +244,69 @@ export async function generateGroundTrackAsync(
       console.warn('satellite worker failed for ground track, falling back', err);
     }   
     return null;
+  })();
+
+  cache.set(key, v);
+  if (cache.size > CACHE_MAX) {
+    const it = cache.keys().next();
+    cache.delete(it.value as string);
+  }
+  return v;
+}
+
+export async function computeCollisionDensityAsync(
+  items: DensityWorkerInput[],
+  options?: DensityWorkerOptions
+): Promise<DensityResult> {
+  // Create a hash of satellite positions for cache key
+  // Use rounded positions to allow for small floating point variations
+  // This ensures different satellite configurations don't share cache entries
+  const positionHash = items
+    .map((item) => `${item.id}:${Math.round(item.lat * 100)}:${Math.round(item.lon * 100)}:${Math.round(item.altKm * 10)}`)
+    .sort()
+    .join('|');
+  
+  const key = makeKey('computeCollisionDensity', [
+    positionHash,
+    items.length,
+    options?.voxelSizeKm,
+    options?.detectionRadiusKm,
+    options?.gridCellSizeDeg,
+    options?.maxPairs,
+  ]);
+
+  if (cache.has(key)) {
+    return cache.get(key) as DensityResult;
+  }
+
+  const v = await (async () => {
+    try {
+      const proxy = await getWorkerProxy();
+      if (proxy) {
+        return await (proxy as SatelliteWorkerProxy).computeCollisionDensity(
+          items,
+          options
+        );
+      }
+    } catch (err) {
+      console.warn(
+        'satellite worker failed for collision density, returning empty result',
+        err
+      );
+    }
+    return {
+      densityCells: [],
+      candidatePairs: [],
+      stats: {
+        totalSatellites: 0,
+        totalCells: 0,
+        maxCellCount: 0,
+        detectionRadiusKm: options?.detectionRadiusKm ?? 75,
+        voxelSizeKm: options?.voxelSizeKm ?? 50,
+        gridCellSizeDeg: options?.gridCellSizeDeg ?? 2,
+      },
+      generatedAt: new Date().toISOString(),
+    } as DensityResult;
   })();
 
   cache.set(key, v);

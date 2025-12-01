@@ -1,10 +1,12 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { useDispatch, useSelector, TypedUseSelectorHook } from 'react-redux';
 import tleReducer from './tle-slice';
+import visualizationReducer from './visualization-slice';
 
 export const store = configureStore({
   reducer: {
     tle: tleReducer,
+    visualization: visualizationReducer,
   },
 });
 

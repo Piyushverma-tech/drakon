@@ -39,7 +39,7 @@ function GlobeContent() {
       {/* Content */}
       <div className="relative z-10 p-2">
         {/* Header */}
-        <div className="flex items-center justify-between  mb-4">
+        <div className="flex items-center justify-between px-3 mb-4">
           <Link
             href="/dashboard"
             className="flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-md border border-gray-400/30 rounded-md p-3 transition-all"
@@ -59,7 +59,7 @@ function GlobeContent() {
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
               placeholder="Search by name or NORAD ID..."
-              className="w-full h-8 pl-9 pr-3 rounded-md bg-secondary text-sm border outline-accent"
+              className="w-full h-8 pl-9 pr-3 rounded-md bg-secondary border-none text-sm focus:outline-none focus:ring-1 focus:ring-cyan-700"
             />
           </div>
 

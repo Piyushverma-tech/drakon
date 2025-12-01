@@ -2,30 +2,43 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Globe from './Globe';
-import { ScatterplotLayer, PathLayer } from 'deck.gl';
-import { positionFromTLE } from '@/lib/satellite';
 import {
-  positionFromTLEAsync,
-  batchPositionFromTLEAsync,
-  generateGroundTrackAsync as generateGroundTrackWorker,
-} from '@/lib/satelliteWorker';
-import * as satellite from 'satellite.js';
+  ScatterplotLayer,
+  PathLayer,
+  LineLayer,
+  COORDINATE_SYSTEM,
+} from 'deck.gl';
+import { positionFromTLEAsync } from '@/lib/satelliteWorker';
+import { DensityResult } from '@/lib/satelliteWorker';
 import { ArrowBigDown, ArrowBigUp, Satellite, X } from 'lucide-react';
 import { TleEntry } from '@/lib/tle-context';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { setEntries, clearSearch } from '@/lib/tle-slice';
+import {
+  setShowBands,
+  setBandInclination,
+  setBandTolerance,
+  setShowDensity,
+  setDensityRadiusKm,
+  toggleFilter,
+  setOverviewExpanded,
+  setSelectedSatelliteId,
+} from '@/lib/visualization-slice';
+import {
+  formatDistance,
+  parseTLEMeta,
+  velocityFromTLE,
+  classifyOrbit,
+  getOrbitType,
+} from '@/lib/satelliteHelpers';
+import { useSatellitePositions, SatellitePoint } from '@/hooks/useSatellitePositions';
+import { useInclinationBands, BandTrack } from '@/hooks/useInclinationBands';
+import { useCollisionDensity } from '@/hooks/useCollisionDensity';
+import DensityLegend from './DensityLegend';
 
 // ----------------------
 // Types
 // ----------------------
-type SatellitePoint = {
-  id: number;
-  lat: number;
-  lon: number;
-  alt: number; // km
-  isDebris?: boolean;
-};
-
 type SelectedMeta = {
   id: number;
   name: string;
@@ -38,103 +51,57 @@ type SelectedMeta = {
   tleEpoch?: string;
 };
 
-type BandTrack = {
-  id: string;
-  path: [number, number][];
-};
-
-// ----------------------
-// Helpers
-// ----------------------
-function tleEpochToIso(line1: string): string {
-  const epochYear2 = parseInt(line1.slice(18, 20), 10);
-  const epochDay = parseFloat(line1.slice(20, 32));
-  if (Number.isNaN(epochYear2) || Number.isNaN(epochDay)) return '';
-
-  const year = epochYear2 < 57 ? 2000 + epochYear2 : 1900 + epochYear2;
-  const msPerDay = 24 * 60 * 60 * 1000;
-  const epochMillis =
-    Date.UTC(year, 0, 1) + Math.round((epochDay - 1) * msPerDay);
-
-  return new Date(epochMillis).toISOString();
-}
-
-function parseTLEMeta(l1: string, l2: string) {
-  const inclination = parseFloat(l2.slice(8, 16));
-  const tleEpoch = tleEpochToIso(l1);
-  return { inclination, tleEpoch };
-}
-
-function velocityFromTLE(l1: string, l2: string, date: Date) {
-  try {
-    const satrec = satellite.twoline2satrec(l1, l2);
-    const pv = satellite.propagate(satrec, date);
-    const vel = pv?.velocity;
-    if (!vel) return 0;
-    return Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2); // km/s
-  } catch (error) {
-    console.warn('Error calculating velocity from TLE:', error);
-    return 0;
-  }
-}
-
-function classifyOrbit(inclination: number): string {
-  if (inclination < 10) return 'Equatorial';
-  if (Math.abs(inclination - 90) < 5) return 'Polar';
-  if (inclination >= 96 && inclination <= 99) return 'Sun-synchronous';
-  return 'Inclined';
-}
-
-function getOrbitType(alt: number, isDebris?: boolean): string {
-  if (isDebris) return 'Debris';
-  if (alt <= 1000) return 'LEO';
-  if (alt <= 2000) return 'MEO';
-  return 'GEO';
-}
-
-// Generate ground track path for a representative orbit (async, uses worker)
-async function generateGroundTrackAsync(
-  entry: TleEntry,
-  samples: number = 240
-): Promise<BandTrack | null> {
-  try {
-    const path = await generateGroundTrackWorker(entry.l1, entry.l2, samples);
-    if (!path || path.length === 0) return null;
-
-    return {
-      id: `band-track-${entry.id}`,
-      path,
-    };
-  } catch (error) {
-    console.warn('Error generating ground track:', error);
-    return null;
-  }
-}
+type CandidatePairDatum = DensityResult['candidatePairs'][number];
 
 // ----------------------
 // Main Component
 // ----------------------
 export default function SatelliteGlobe() {
-  const [satellites, setSatellites] = useState<SatellitePoint[]>([]);
-  const [filteredSatellites, setFilteredSatellites] = useState<
-    SatellitePoint[]
-  >([]);
-  const [selected, setSelected] = useState<SelectedMeta | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [overviewExpanded, setOverviewExpanded] = useState(false);
-  const [activeFilters, setActiveFilters] = useState<Set<string>>(
-    new Set(['LEO', 'MEO', 'GEO', 'Debris'])
-  );
-  const [showBands, setShowBands] = useState(false);
-  const [bandInclination, setBandInclination] = useState(53); // e.g. Starlink shell
-  const [bandInclinationDebounced, setBandInclinationDebounced] = useState(53);
-  const [bandTolerance, setBandTolerance] = useState(2); // degrees, user-adjustable
-  const [bandToleranceDebounced, setBandToleranceDebounced] = useState(2);
-  const [bandTrack, setBandTrack] = useState<BandTrack | null>(null);
-  const [bandTrackLoading, setBandTrackLoading] = useState(false);
   const dispatch = useAppDispatch();
   const searchResults = useAppSelector((state) => state.tle.searchResults);
   const entries = useAppSelector((state) => state.tle.entries);
+  
+  // Redux state
+  const {
+    activeFilters,
+    overviewExpanded,
+    showBands,
+    bandInclination,
+    bandTolerance,
+    showDensity,
+    densityRadiusKm,
+  } = useAppSelector((state) => state.visualization);
+  
+  const [selected, setSelected] = useState<SelectedMeta | null>(null);
+  const [filteredSatellites, setFilteredSatellites] = useState<SatellitePoint[]>([]);
+  
+  // Custom hooks
+  const { satellites, loading } = useSatellitePositions({ entries });
+  
+  const {
+    bandTrack,
+    bandTrackLoading,
+    bandSatelliteIds,
+    bandCount,
+    bandAvgAltKm,
+  } = useInclinationBands({
+    showBands,
+    bandInclination,
+    bandTolerance,
+    entries,
+    satellites,
+  });
+  
+  const {
+    densityResult,
+    densityLoading,
+    densityError,
+    satelliteDensities,
+  } = useCollisionDensity({
+    showDensity,
+    satellites,
+    densityRadiusKm,
+  });
 
   // Strongly typed ref for the Globe instance
   type GlobeHandle = {
@@ -156,11 +123,10 @@ export default function SatelliteGlobe() {
       return;
     }
 
-    const groups = ['active', '1999-025', 'iridium-33-debris'];
+    const groups = ['active', '1999-025', 'iridium-33-debris', 'cosmos-2251-debris' ];
     let cancelled = false;
 
     async function fetchAllTLEs() {
-      setLoading(true);
       const allEntries: TleEntry[] = [];
 
       for (const group of groups) {
@@ -197,9 +163,7 @@ export default function SatelliteGlobe() {
       }
 
       if (cancelled) return;
-
       dispatch(setEntries(allEntries));
-      setLoading(false);
     }
 
     fetchAllTLEs();
@@ -209,136 +173,33 @@ export default function SatelliteGlobe() {
     };
   }, [dispatch, entries.length]);
 
-  // Compute satellite positions
-  useEffect(() => {
-    if (!entries.length) return;
-
-    let cancelled = false;
-
-    async function updatePositions() {
-      if (!entries.length || cancelled) return;
-      const now = new Date();
-
-      try {
-        const items = entries.map((e) => ({
-          l1: e.l1,
-          l2: e.l2,
-          date: now,
-        }));
-        const res = await batchPositionFromTLEAsync(items);
-        const pts: SatellitePoint[] = (
-          res as Array<{ lat: number; lon: number; altKm: number } | null>
-        )
-          .map((p, idx: number) => {
-            try {
-              if (!p) return null;
-              if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
-                console.warn(
-                  `Skipping satellite ${entries[idx].id} due to invalid position`
-                );
-                return null;
-              }
-              return {
-                id: entries[idx].id,
-                lat: p.lat,
-                lon: p.lon,
-                alt: p.altKm,
-                isDebris: entries[idx].isDebris,
-              } as SatellitePoint;
-            } catch (err) {
-              console.warn(
-                `Error processing satellite ${entries[idx].id}:`,
-                err
-              );
-              return null;
-            }
-          })
-          .filter((pt): pt is SatellitePoint => pt !== null);
-
-        if (!cancelled) {
-          setSatellites(pts);
-        }
-      } catch (err) {
-        console.warn(
-          'Satellite worker failed, falling back to sync position calc',
-          err
-        );
-        // fallback to synchronous calculation
-        const pts: SatellitePoint[] = entries
-          .map((e) => {
-            try {
-              const p = positionFromTLE(e.l1, e.l2, now);
-              if (p.lat === 0 && p.lon === 0 && p.altKm === 0) return null;
-              return {
-                id: e.id,
-                lat: p.lat,
-                lon: p.lon,
-                alt: p.altKm,
-                isDebris: e.isDebris,
-              } as SatellitePoint;
-            } catch (error) {
-              console.warn(`Error processing satellite ${e.id}:`, error);
-              return null;
-            }
-          })
-          .filter((pt): pt is SatellitePoint => pt !== null);
-
-        if (!cancelled) {
-          setSatellites(pts);
-        }
-      }
-    }
-
-    // initial position calc
-    updatePositions().catch((err) =>
-      console.warn('initial updatePositions error', err)
-    );
-
-    // update positions every 10 seconds
-    const timer = setInterval(() => {
-      updatePositions().catch((err) =>
-        console.warn('updatePositions error', err)
-      );
-    }, 10_000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [entries]);
-
   // Filter satellites based on active filters
+  const activeFiltersSet = useMemo(() => new Set(activeFilters), [activeFilters]);
+  
   useEffect(() => {
     const filtered = satellites.filter((sat) => {
-      const orbitType = getOrbitType(sat.alt, sat.isDebris);
-      return activeFilters.has(orbitType);
+      const orbitType = getOrbitType(sat.meanMotion, sat.isDebris);
+      return activeFiltersSet.has(orbitType);
     });
     setFilteredSatellites(filtered);
-  }, [satellites, activeFilters]);
-
-  // Toggle filter function
-  const toggleFilter = (filterType: string) => {
-    setActiveFilters((prev) => {
-      const newFilters = new Set(prev);
-      if (newFilters.has(filterType)) {
-        newFilters.delete(filterType);
-      } else {
-        newFilters.add(filterType);
-      }
-      return newFilters;
-    });
-  };
+  }, [satellites, activeFiltersSet]);
 
   // ----------------------
   // Stats Computation
   // ----------------------
   const stats = useMemo(() => {
-    const debris = satellites.filter((s) => s.isDebris).length;
-    const leo = satellites.filter((s) => !s.isDebris && s.alt <= 1000).length;
-    const meo = satellites.filter(
-      (s) => !s.isDebris && s.alt > 1000 && s.alt <= 2000
+    const debris = entries.filter((e) => e.isDebris).length;
+    const leo = entries.filter(e =>
+      getOrbitType(e.meanMotion, e.isDebris) === "LEO"
     ).length;
-    const geo = satellites.filter((s) => !s.isDebris && s.alt > 2000).length;
+    
+    const meo = entries.filter(e =>
+      getOrbitType(e.meanMotion, e.isDebris) === "MEO"
+    ).length;
+    
+    const geo = entries.filter(e =>
+      getOrbitType(e.meanMotion, e.isDebris) === "GEO"
+    ).length;
     return {
       debris,
       leo,
@@ -347,135 +208,8 @@ export default function SatelliteGlobe() {
       total: satellites.length,
       filtered: filteredSatellites.length,
     };
-  }, [satellites, filteredSatellites]);
+  }, [entries, filteredSatellites]);
 
-  //before heavy loop, we can use a map to look up satellites by id
-  const satById = useMemo(() => {
-    const m = new Map<number, SatellitePoint>();
-    for (const s of satellites) m.set(s.id, s);
-    return m;
-  }, [satellites]);
-
-  // Inclination band membership & stats (use debounced value)
-  const { bandSatelliteIds, bandCount, bandAvgAltKm } = useMemo(() => {
-    if (!showBands || !entries.length) {
-      return {
-        bandSatelliteIds: new Set<number>(),
-        bandCount: 0,
-        bandAvgAltKm: 0,
-      };
-    }
-
-    const ids = new Set<number>();
-    let count = 0;
-    let altSum = 0;
-    let altCount = 0;
-
-    for (const entry of entries) {
-      if (
-        Math.abs(entry.inclination - bandInclinationDebounced) <=
-        bandToleranceDebounced
-      ) {
-        ids.add(entry.id);
-        count += 1;
-        const sat = satById.get(entry.id);
-        if (sat) {
-          altSum += sat.alt;
-          altCount++;
-        }
-      }
-    }
-
-    const avgAlt = altCount > 0 ? altSum / altCount : 0;
-
-    return {
-      bandSatelliteIds: ids,
-      bandCount: count,
-      bandAvgAltKm: avgAlt,
-    };
-  }, [
-    showBands,
-    entries,
-    satById,
-    bandInclinationDebounced,
-    bandToleranceDebounced,
-  ]);
-
-  // Debounce slider inputs to prevent expensive recalculations on every drag
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setBandInclinationDebounced(bandInclination);
-    }, 300); // 300ms debounce
-    return () => clearTimeout(timer);
-  }, [bandInclination]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setBandToleranceDebounced(bandTolerance);
-    }, 300); // 300ms debounce
-    return () => clearTimeout(timer);
-  }, [bandTolerance]);
-
-  // Ground track for current inclination band (uses worker)
-  const trackCache = useRef<Map<string, BandTrack | null>>(new Map());
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!showBands || !entries.length) {
-      setBandTrack(null);
-      setBandTrackLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const key = `band-${bandInclinationDebounced}-${bandToleranceDebounced}`;
-    if (trackCache.current.has(key)) {
-      setBandTrack(trackCache.current.get(key) ?? null);
-      setBandTrackLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const rep = entries.find(
-      (e) =>
-        Math.abs(e.inclination - bandInclinationDebounced) <=
-        bandToleranceDebounced
-    );
-    if (!rep) {
-      setBandTrack(null);
-      setBandTrackLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setBandTrackLoading(true);
-    generateGroundTrackAsync(rep, 240)
-      .then((track) => {
-        if (cancelled) return;
-        trackCache.current.set(key, track);
-        setBandTrack(track);
-        setBandTrackLoading(false);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.warn('Failed to generate ground track:', err);
-        setBandTrack(null);
-        setBandTrackLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    showBands,
-    entries,
-    bandInclinationDebounced,
-    bandToleranceDebounced,
-  ]);
 
   // ----------------------
   // Layers
@@ -483,14 +217,89 @@ export default function SatelliteGlobe() {
   const colorAccessor = (
     d: SatellitePoint & { isDebris?: boolean }
   ): [number, number, number, number] => {
+    const orbitType = getOrbitType(d.meanMotion, d.isDebris);
     if (d.isDebris) return [180, 180, 180, 180]; // debris gray
-    if (d.alt > 2000) return [0, 255, 0, 160]; // green: high orbit
-    if (d.alt > 1000) return [255, 165, 0, 180]; // orange: MEO
-    return [255, 0, 0, 160]; // red: LEO
+    if (orbitType === "GEO")  return [0, 255, 0, 160]; // green: GEO (geosynchronous orbit)
+    if (orbitType === "MEO" ) return [255, 165, 0, 180]; // orange: MEO
+    if (orbitType === "LEO") return [255, 0, 0, 160]; // red: LEO
+    return [180, 180, 180, 180]; // unknown gray
   };
 
+
+  // O(1) density lookup using pre-computed map from hook
+  const getSatelliteDensity = (satId: number): number => {
+    if (!showDensity || satelliteDensities.size === 0) {
+      return 0;
+    }
+    return satelliteDensities.get(satId) || 0;
+  };
+
+
+  const getDensityBasedColor = (
+    normalizedDensity: number
+  ): [number, number, number, number] => {
+    if (normalizedDensity === 0) {
+      // Very low density — cool blue
+      return [80, 160, 255, 180];
+    }
+  
+    // Same nonlinear scaling
+    const t = Math.pow(normalizedDensity, 0.7);
+  
+    if (t < 0.2) {
+      // Blue → Cyan
+      const factor = t / 0.2;
+      const r = Math.round(80 + factor * 20);    // 80 → 100
+      const g = Math.round(160 + factor * 60);   // 160 → 220
+      const b = 255;                              // stays blue-ish
+      return [r, g, b, 180];
+    } else if (t < 0.4) {
+      // Cyan → Green
+      const factor = (t - 0.2) / 0.2;
+      const r = Math.round(100 - factor * 20);   // 100 → 80
+      const g = Math.round(220 - factor * 80);   // 220 → 140
+      const b = Math.round(255 - factor * 155);  // 255 → 100
+      return [r, g, b, 200];
+    } else if (t < 0.7) {
+      // Green → Yellow
+      const factor = (t - 0.4) / 0.3;
+      const r = Math.round(80 + factor * 175);    // 80 → 255
+      const g = Math.round(140 + factor * 115);   // 140 → 255
+      const b = Math.round(100 - factor * 100);   // 100 → 0
+      return [r, g, b, 220];
+    } else {
+      // Yellow → Orange → Red (hot)
+      const factor = (t - 0.7) / 0.3;
+      const r = 255;
+      const g = Math.round(255 - factor * 255);   // 255 → 0
+      const b = Math.round(0);                    // stays 0 for red
+      return [r, g, b, 240];
+    }
+  };
+
+  const densityLayers =
+    showDensity && densityResult && densityResult.candidatePairs.length > 0
+      ? [
+          new LineLayer<CandidatePairDatum>({
+            id: 'collision-candidate-lines',
+            data: densityResult.candidatePairs,
+            pickable: true,
+            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+            wrapLongitude: true,
+            getSourcePosition: (d: CandidatePairDatum) => [d.lonA, d.latA],
+            getTargetPosition: (d: CandidatePairDatum) => [d.lonB, d.latB],
+            getColor: (d: CandidatePairDatum) =>
+              d.distanceKm <= densityRadiusKm / 2
+                ? [255, 80, 200, 220]
+                : [255, 200, 200, 180],
+            getWidth: 2,
+            widthUnits: 'pixels',
+          }),
+        ]
+      : [];
+
   const layers = [
-    // Inclination band path layer (under satellites)
+    // Inclination band path layer
     ...(showBands && bandTrack
       ? [
           new PathLayer<BandTrack>({
@@ -504,6 +313,7 @@ export default function SatelliteGlobe() {
           }),
         ]
       : []),
+    ...densityLayers,
     // Main satellite layer
     new ScatterplotLayer<SatellitePoint>({
       id: 'satellite-layer',
@@ -515,6 +325,11 @@ export default function SatelliteGlobe() {
           // Highlight satellites in current band
           return [0, 255, 255, 220];
         }
+        if (showDensity) {
+          const density = getSatelliteDensity(d.id);
+          return getDensityBasedColor(density);
+        }
+        // Normal orbit-based coloring when density map is off
         return colorAccessor(d);
       },
       radiusUnits: 'meters',
@@ -525,7 +340,16 @@ export default function SatelliteGlobe() {
         if (showBands && bandSatelliteIds.has(d.id)) {
           return d.isDebris ? 40000 : 90000;
         }
-        return d.isDebris ? 30000 : 70000;
+        // Slightly increase size for satellites in dense regions
+        const baseRadius = d.isDebris ? 30000 : 70000;
+        if (showDensity) {
+          const density = getSatelliteDensity(d.id);
+          if (density > 0) {
+            // Increase radius by up to 30% for high density
+            return baseRadius * (1 + density * 0.3);
+          }
+        }
+        return baseRadius;
       },
       opacity: 0.85,
       pickable: true,
@@ -538,7 +362,7 @@ export default function SatelliteGlobe() {
         const vel = velocityFromTLE(meta.l1, meta.l2, new Date());
         const orbitType = classifyOrbit(meta.inclination);
 
-        setSelected({
+        const selectedMeta = {
           id: pt.id,
           name: meta.name ?? 'Unknown',
           lat: pt.lat,
@@ -548,7 +372,9 @@ export default function SatelliteGlobe() {
           inclination: meta.inclination,
           orbitType,
           tleEpoch: meta.tleEpoch,
-        });
+        };
+        setSelected(selectedMeta);
+        dispatch(setSelectedSatelliteId(pt.id));
       },
     }),
     // Glow effect layer for selected satellite
@@ -598,7 +424,7 @@ export default function SatelliteGlobe() {
       const vel = velocityFromTLE(sat.l1, sat.l2, new Date());
       const orbitType = classifyOrbit(sat.inclination);
 
-      setSelected({
+      const selectedMeta = {
         id: sat.id,
         name: sat.name ?? 'Unknown',
         lat: pp.lat,
@@ -608,7 +434,9 @@ export default function SatelliteGlobe() {
         inclination: sat.inclination,
         orbitType,
         tleEpoch: sat.tleEpoch,
-      });
+      };
+      setSelected(selectedMeta);
+      dispatch(setSelectedSatelliteId(sat.id));
     } catch (error) {
       console.error(`Error focusing on satellite ${sat.id}:`, error);
     }
@@ -680,6 +508,63 @@ export default function SatelliteGlobe() {
           </div>
         </div>
       )}
+      {/* Left Panel - Selected Satellite  */}
+      {selected && !loading && (
+      <div className="absolute left-3 top-0 w-60 bg-black/40 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto z-10">
+        {/* Corner accents */}
+        <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
+        <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />
+        <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-cyan-400" />
+        <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400" />
+        
+       
+            <div
+              className="font-medium mb-1 truncate text-cyan-300 mb-3 border-b border-gray-700/60 text-sm uppercase tracking-wider"
+              title={selected.name}
+            >
+              <span className="flex items-center gap-2 mb-2">
+                {selected.name} <Satellite size={18} />
+              </span>
+            </div>
+            <div className="grid grid-cols-2 text-xs gap-x-2 gap-y-1">
+              <span className="text-gray-400">NORAD</span>
+              <span className="text-white ">{selected.id}</span>
+              <span className="text-gray-400">Lat</span>
+              <span className="text-white">{selected.lat.toFixed(2)}°</span>
+              <span className="text-gray-400">Lon</span>
+              <span className="text-white ">{selected.lon.toFixed(2)}°</span>
+              <span className="text-gray-400">Alt</span>
+              <span className="text-white">{Math.round(selected.alt)} km</span>
+              <span className="text-gray-400">Vel</span>
+              <span className="text-white ">
+                {selected.vel.toFixed(2)} km/s
+              </span>
+              <span className="text-gray-400">Inclination</span>
+              <span className="text-white ">
+                {selected.inclination.toFixed(2)}°
+              </span>
+              <span className="text-gray-400">Orbit</span>
+              <span className="text-white">{selected.orbitType}</span>
+              {selected.tleEpoch && (
+                <>
+                  <span className="text-gray-400">TLE epoch</span>
+                  <span className="text-white">{selected.tleEpoch}</span>
+                </>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                setSelected(null);
+                dispatch(setSelectedSatelliteId(null));
+              }}
+              className="mt-2 text-xs text-red-400 hover:text-red-300  underline"
+            >
+              Close
+            </button>
+      </div>
+          )}
+
+          
       {/* Right Panel */}
       <div className="absolute right-3 top-0 w-60 bg-black/40 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto z-10">
         {/* Corner accents */}
@@ -698,7 +583,7 @@ export default function SatelliteGlobe() {
 
             <div
               className="font-medium text-cyan-300 text-xs uppercase tracking-wider flex justify-between items-center cursor-pointer"
-              onClick={() => setOverviewExpanded(!overviewExpanded)}
+              onClick={() => dispatch(setOverviewExpanded(!overviewExpanded))}
             >
               <span>Objects Overview</span>
               <span className="text-cyan-300">
@@ -740,20 +625,20 @@ export default function SatelliteGlobe() {
                   ].map(({ type, color, label, stats }) => (
                     <button
                       key={type}
-                      onClick={() => toggleFilter(type)}
-                      className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-all duration-200 cursor-pointer ${
-                        activeFilters.has(type)
+                      onClick={() => dispatch(toggleFilter(type))}
+                      className={`flex items-center gap-1 px-2 py-1 text-[11px] rounded transition-all duration-200 cursor-pointer ${
+                        activeFiltersSet.has(type)
                           ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-400/50'
                           : 'bg-gray-700/50 text-gray-400 hover:bg-gray-600/50 hover:text-gray-300'
                       }`}
                     >
                       <span className={`w-2 h-2 rounded-full ${color}`} />
                       {label}
-                      <span className="ml-auto text-xs">{stats}</span>
+                      <span className="ml-auto">{stats}</span>
                     </button>
                   ))}
                 </div>
-                <div className="text-xs text-cyan-300/70 mt-1 mb-3">
+                <div className="text-[11px] text-gray-300 mt-1 mb-3">
                   Showing: {stats.filtered} of {stats.total}
                 </div>
 
@@ -765,7 +650,7 @@ export default function SatelliteGlobe() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => setShowBands((v) => !v)}
+                      onClick={() => dispatch(setShowBands(!showBands))}
                       className={`px-2 py-0.5 rounded text-[11px] border transition-colors cursor-pointer ${
                         showBands
                           ? 'bg-cyan-500/30 text-cyan-200 border-cyan-400/60'
@@ -791,7 +676,7 @@ export default function SatelliteGlobe() {
                           step={0.5}
                           value={bandInclination}
                           onChange={(e) =>
-                            setBandInclination(parseFloat(e.target.value))
+                            dispatch(setBandInclination(parseFloat(e.target.value)))
                           }
                           className="w-full accent-cyan-400"
                         />
@@ -810,7 +695,7 @@ export default function SatelliteGlobe() {
                           step={0.5}
                           value={bandTolerance}
                           onChange={(e) =>
-                            setBandTolerance(parseFloat(e.target.value))
+                            dispatch(setBandTolerance(parseFloat(e.target.value)))
                           }
                           className="w-full accent-cyan-400"
                         />
@@ -819,6 +704,12 @@ export default function SatelliteGlobe() {
                         </div>
                       </div>
 
+                      {bandTrackLoading && (
+                        <div className="text-[10px] text-cyan-400/70 mt-2">
+                          Generating ground track...
+                        </div>
+                      )}
+                      
                       {bandCount > 0 && (
                         <div className="mt-1 rounded border border-cyan-500/40 bg-black/40 px-2 py-1.5 text-[11px] text-cyan-100 space-y-1">
                           <div className="flex  text-xs text-gray-300 justify-between">
@@ -833,57 +724,120 @@ export default function SatelliteGlobe() {
                       )}
                     </div>
                   )}
+                  
+                </div>
+                {/* Collision Density Map */}
+                <div className='mt-2 border-t border-gray-700/60 pt-2'>
+                {loading ? (
+          <div className="flex items-center justify-center h-full text-cyan-300/60">
+            Loading Data...
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-cyan-300 uppercase tracking-wider">
+                Collision Density Map
+              </span>
+              <button
+                type="button"
+                onClick={() => dispatch(setShowDensity(!showDensity))}
+                className={`px-2 py-0.5 rounded text-[11px] border transition-colors cursor-pointer ${
+                  showDensity
+                    ? 'bg-amber-500/20 text-amber-200 border-amber-400/60'
+                    : 'bg-gray-800/60 text-gray-300 border-gray-600 hover:bg-gray-700/60'
+                }`}
+              >
+                {showDensity ? 'On' : 'Off'}
+              </button>
+            </div>
+
+            {showDensity && (
+              <div className="space-y-2 text-[11px] text-gray-300">
+                <div className="flex items-center justify-between">
+                  <span>Detection Radius</span>
+                  <span>{densityRadiusKm.toFixed(0)} km</span>
+                </div>
+                <input
+                  type="range"
+                  min={10}
+                  max={250}
+                  step={5}
+                        value={densityRadiusKm}
+                        onChange={(e) =>
+                          dispatch(setDensityRadiusKm(parseFloat(e.target.value)))
+                        }
+                  className="w-full accent-cyan-400"
+                />
+                <div className="text-[10px] text-gray-400">
+                  Larger radius captures more potential close approaches.
+                </div>
+                
+               {/* Density Color Legend */}
+             <DensityLegend/>
+
+                
+                <div className="text-[11px] text-gray-200">
+                  {densityLoading && <span>Analyzing density...</span>}
+                  {!densityLoading && densityResult && (
+                    <div className="space-y-1">
+                      <span>
+                        Hotspots: {densityResult.stats.totalCells} · Top pairs:{' '}
+                        {densityResult.candidatePairs.length}
+                      </span>
+                      <div className="text-[10px] text-gray-400">
+                        Peak density: {densityResult.stats.maxCellCount} sats ·
+                        Radius {densityResult.stats.detectionRadiusKm} km
+                      </div>
+                    </div>
+                  )}
+                  {!densityLoading && densityError && (
+                    <span className="text-red-400">{densityError}</span>
+                  )}
+                </div>
+                {densityResult && densityResult.candidatePairs.length > 0 && (
+                  <div className="mt-4 space-y-1 text-[10px] text-gray-300">
+                    <div className="uppercase tracking-wider text-gray-400">
+                      Top Close Approaches
+                    </div>
+                    <div className="max-h-48 overflow-auto space-y-1 pr-1">
+                      {densityResult.candidatePairs.slice(0, 10).map((pair) => (
+                        <div
+                          key={`${pair.idA}-${pair.idB}`}
+                          className="flex items-center justify-between rounded border border-gray-700/60 px-2 py-1"
+                        >
+                          <div className="flex flex-col text-gray-200">
+                            <span>#{pair.idA} ↔ #{pair.idB}</span>
+                            <span className="text-[9px] text-gray-400">
+                              Alt {Math.round(pair.altitudeA)} / {Math.round(pair.altitudeB)} km
+              </span>
+            </div>
+                          <div className="text-right">
+                            <span
+                              className={
+                                pair.distanceKm <= densityRadiusKm / 2
+                                  ? 'text-red-300'
+                                  : 'text-amber-200'
+                              }
+                            >
+                              {formatDistance(pair.distanceKm)}
+              </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+              )}
+            </div>
+            )}
+          </div>
+        )}
                 </div>
               </>
             )}
           </>
         )}
 
-        {/* Selected Satellite */}
-        {selected && !loading && (
-          <div className="mt-3 border-t border-emerald-500/30 pt-2">
-            <div
-              className="font-medium mb-1 truncate text-cyan-300  text-sm uppercase tracking-wider"
-              title={selected.name}
-            >
-              <span className="flex items-center gap-2 mb-2">
-                {selected.name} <Satellite size={18} />
-              </span>
-            </div>
-            <div className="grid grid-cols-2 text-xs gap-x-2 gap-y-1">
-              <span className="text-gray-400">NORAD</span>
-              <span className="text-white ">{selected.id}</span>
-              <span className="text-gray-400">Lat</span>
-              <span className="text-white">{selected.lat.toFixed(2)}°</span>
-              <span className="text-gray-400">Lon</span>
-              <span className="text-white ">{selected.lon.toFixed(2)}°</span>
-              <span className="text-gray-400">Alt</span>
-              <span className="text-white">{Math.round(selected.alt)} km</span>
-              <span className="text-gray-400">Vel</span>
-              <span className="text-white ">
-                {selected.vel.toFixed(2)} km/s
-              </span>
-              <span className="text-gray-400">Inclination</span>
-              <span className="text-white ">
-                {selected.inclination.toFixed(2)}°
-              </span>
-              <span className="text-gray-400">Orbit</span>
-              <span className="text-white">{selected.orbitType}</span>
-              {selected.tleEpoch && (
-                <>
-                  <span className="text-gray-400">TLE epoch</span>
-                  <span className="text-white">{selected.tleEpoch}</span>
-                </>
-              )}
-            </div>
-            <button
-              onClick={() => setSelected(null)}
-              className="mt-2 text-xs text-red-400 hover:text-red-300  underline"
-            >
-              Close
-            </button>
-          </div>
-        )}
+    
       </div>
     </div>
   );
