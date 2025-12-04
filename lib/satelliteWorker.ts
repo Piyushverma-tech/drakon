@@ -75,10 +75,12 @@ export type CandidatePair = {
 export type DensityResult = {
   densityCells: DensityCell[];
   candidatePairs: CandidatePair[];
+  satelliteDensities?: Record<number, number>;
   stats: {
     totalSatellites: number;
     totalCells: number;
     maxCellCount: number;
+    maxSatelliteDensity?: number;
     detectionRadiusKm: number;
     voxelSizeKm: number;
     gridCellSizeDeg: number;
@@ -241,8 +243,11 @@ export async function generateGroundTrackAsync(
         );
       }
     } catch (err) {
-      console.warn('satellite worker failed for ground track, falling back', err);
-    }   
+      console.warn(
+        'satellite worker failed for ground track, falling back',
+        err
+      );
+    }
     return null;
   })();
 
@@ -262,10 +267,15 @@ export async function computeCollisionDensityAsync(
   // Use rounded positions to allow for small floating point variations
   // This ensures different satellite configurations don't share cache entries
   const positionHash = items
-    .map((item) => `${item.id}:${Math.round(item.lat * 100)}:${Math.round(item.lon * 100)}:${Math.round(item.altKm * 10)}`)
+    .map(
+      (item) =>
+        `${item.id}:${Math.round(item.lat * 100)}:${Math.round(
+          item.lon * 100
+        )}:${Math.round(item.altKm * 10)}`
+    )
     .sort()
     .join('|');
-  
+
   const key = makeKey('computeCollisionDensity', [
     positionHash,
     items.length,

@@ -1,59 +1,17 @@
 import * as Comlink from 'comlink';
 import * as satellite from 'satellite.js';
+import {
+  CandidatePair,
+  DensityCell,
+  DensityResult,
+  DensityWorkerInput,
+  DensityWorkerOptions,
+} from '../satelliteWorker';
 
 export type PropagatedPosition = {
   lat: number;
   lon: number;
   altKm: number;
-};
-
-type DensityWorkerInput = {
-  id: number;
-  lat: number;
-  lon: number;
-  altKm: number;
-  operator?: string;
-};
-
-type DensityWorkerOptions = {
-  voxelSizeKm?: number;
-  detectionRadiusKm?: number;
-  gridCellSizeDeg?: number;
-  maxPairs?: number;
-};
-
-type DensityCell = {
-  lat: number;
-  lon: number;
-  count: number;
-};
-
-type CandidatePair = {
-  idA: number;
-  idB: number;
-  distanceKm: number;
-  altitudeA: number;
-  altitudeB: number;
-  operatorA?: string;
-  operatorB?: string;
-  latA: number;
-  lonA: number;
-  latB: number;
-  lonB: number;
-};
-
-type DensityResult = {
-  densityCells: DensityCell[];
-  candidatePairs: CandidatePair[];
-  stats: {
-    totalSatellites: number;
-    totalCells: number;
-    maxCellCount: number;
-    detectionRadiusKm: number;
-    voxelSizeKm: number;
-    gridCellSizeDeg: number;
-  };
-  generatedAt: string;
 };
 
 const EARTH_RADIUS_KM = 6378.137;
@@ -166,10 +124,7 @@ function getVoxelKey(x: number, y: number, z: number, size: number) {
   return `${ix},${iy},${iz}`;
 }
 
-function getNeighborKeys(
-  baseKey: string,
-  voxelSize: number
-): string[] {
+function getNeighborKeys(baseKey: string, voxelSize: number): string[] {
   const [ix, iy, iz] = baseKey.split(',').map((v) => Number(v));
   const keys: string[] = [];
   for (let dx = -1; dx <= 1; dx++) {
@@ -219,6 +174,10 @@ async function computeCollisionDensity(
     { count: number; latIdx: number; lonIdx: number }
   >();
 
+  // Initialize 3D density map
+  const satDensity = new Map<number, number>();
+  let maxSatDensity = 0;
+
   for (const sat of items) {
     const { x, y, z } = latLonAltToECEF(sat.lat, sat.lon, sat.altKm);
     const key = getVoxelKey(x, y, z, voxelSizeKm);
@@ -253,24 +212,41 @@ async function computeCollisionDensity(
         const neighbors = voxels.get(neighborKey);
         if (!neighbors) continue;
         for (const other of neighbors) {
-          // Use consistent pair ordering (min, max) for duplicate tracking
-          const minId = Math.min(sat.id, other.id);
-          const maxId = Math.max(sat.id, other.id);
-          
-          // Skip if we've already processed this pair (ensures consistent ordering)
-          const pairKey = `${minId},${maxId}`;
-          if (processedPairs.has(pairKey)) continue;
-          
-          // Mark as processed before calculating distance to prevent duplicate processing
-          processedPairs.add(pairKey);
+          // Skip self
+          if (sat.id === other.id) continue;
 
           const dx = sat.x - other.x;
           const dy = sat.y - other.y;
           const dz = sat.z - other.z;
           const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          
+
           // Only include pairs within detection radius and with meaningful distance (> 0.01 km)
           if (dist <= detectionRadiusKm && dist > 0.01) {
+            // Increment 3D density count for this satellite
+            // increment for sat
+            satDensity.set(sat.id, (satDensity.get(sat.id) || 0) + 1);
+
+            // increment for other
+            satDensity.set(other.id, (satDensity.get(other.id) || 0) + 1);
+
+            // update maxSatDensity
+            maxSatDensity = Math.max(
+              maxSatDensity,
+              satDensity.get(sat.id)!,
+              satDensity.get(other.id)!
+            );
+
+            // Use consistent pair ordering (min, max) for duplicate tracking
+            const minId = Math.min(sat.id, other.id);
+            const maxId = Math.max(sat.id, other.id);
+
+            // Skip if we've already processed this pair (ensures consistent ordering)
+            const pairKey = `${minId},${maxId}`;
+            if (processedPairs.has(pairKey)) continue;
+
+            // Mark as processed before calculating distance to prevent duplicate processing
+            processedPairs.add(pairKey);
+
             // Use consistent ordering (minId, maxId) for pair representation
             // Determine which satellite corresponds to minId and maxId
             const satIsMin = sat.id === minId;
@@ -301,19 +277,19 @@ async function computeCollisionDensity(
 
   for (const { count, latIdx, lonIdx } of densityMap.values()) {
     maxCellCount = Math.max(maxCellCount, count);
-    
+
     // Calculate cell center with bounds checking to prevent invalid coordinates
     const latCenter = latIdx * gridCellSizeDeg - 90 + gridCellSizeDeg / 2;
     const lonCenter = lonIdx * gridCellSizeDeg - 180 + gridCellSizeDeg / 2;
-    
+
     // Clamp latitude to valid range [-90, 90]
     const clampedLat = Math.max(-90, Math.min(90, latCenter));
-    
+
     // Normalize longitude to valid range [-180, 180]
     let normalizedLon = lonCenter;
     while (normalizedLon > 180) normalizedLon -= 360;
     while (normalizedLon < -180) normalizedLon += 360;
-    
+
     densityCells.push({
       count,
       lat: clampedLat,
@@ -324,10 +300,12 @@ async function computeCollisionDensity(
   return {
     densityCells,
     candidatePairs: limitedPairs,
+    satelliteDensities: Object.fromEntries(satDensity),
     stats: {
       totalSatellites: items.length,
       totalCells: densityCells.length,
       maxCellCount,
+      maxSatelliteDensity: maxSatDensity,
       detectionRadiusKm,
       voxelSizeKm,
       gridCellSizeDeg,
@@ -335,7 +313,6 @@ async function computeCollisionDensity(
     generatedAt: new Date().toISOString(),
   };
 }
-
 
 const api = {
   positionFromTLE,

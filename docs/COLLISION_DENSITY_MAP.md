@@ -61,6 +61,7 @@ The Collision Density Map panel includes:
 #### Controls
 
 1. **Toggle Switch**
+
    - Enable/disable density analysis and visualization
    - When enabled, all satellites switch to density-based coloring
 
@@ -91,7 +92,7 @@ Displays the top 5 closest satellite pairs with:
 - **Satellite IDs**: NORAD IDs of both satellites in the pair
 - **Altitudes**: Individual altitudes of both satellites
 - **Distance**: Formatted distance (meters for <1km, kilometers for ≥1km)
-- **Color Coding**: 
+- **Color Coding**:
   - Red for pairs within half the detection radius
   - Amber for pairs within full detection radius
 
@@ -127,12 +128,14 @@ Displays the top 5 closest satellite pairs with:
 ### Core Components
 
 - **Worker Implementation**: `lib/workers/satellite.worker.ts`
+
   - `computeCollisionDensity`: Main density computation function
   - `latLonAltToECEF`: Coordinate conversion utility
   - `getVoxelKey`: Voxel grid key generation
   - `getNeighborKeys`: 26-neighbor voxel lookup
 
 - **Async Wrapper**: `lib/satelliteWorker.ts`
+
   - `computeCollisionDensityAsync`: Client-side async wrapper with caching
 
 - **UI Component**: `components/SatelliteGlobe.tsx`
@@ -194,6 +197,7 @@ type DensityResult = {
 ### Close Approach Detection
 
 For each satellite:
+
 1. Get its voxel key
 2. Retrieve 26 neighboring voxel keys (3D grid neighbors)
 3. For each satellite in current + neighbor voxels:
@@ -246,6 +250,7 @@ For each satellite:
 ### Voxel Size
 
 Automatically calculated based on detection radius:
+
 - Small radius (<50km): 20km voxels
 - Medium radius (50-100km): 50-75km voxels
 - Large radius (>100km): 100-150km voxels
@@ -253,9 +258,71 @@ Automatically calculated based on detection radius:
 ### Grid Cell Size
 
 Automatically adjusted based on detection radius:
+
 - Small radius: 2° cells
 - Medium radius: 3° cells
 - Large radius: 4° cells
+
+---
+
+### Overall Data Flow
+
+The system uses a Web Worker to offload heavy 3D spatial calculations, ensuring the UI remains smooth (60 FPS) even when analyzing thousands of satellites.
+
+1. Frontend (React Component) : The SatelliteGlobe component has a list of current satellite positions.
+2. Hook Trigger : The useCollisionDensity hook watches this list. When positions update (debounced), it sends a payload to the worker.
+3. Worker Calculation : The worker runs the computeCollisionDensity algorithm (detailed below).
+4. Result Return : The worker returns a DensityResult object containing:
+   - satelliteDensities : A map of 3D density scores for each satellite.
+   - candidatePairs : A list of satellite pairs that are dangerously close.
+   - densityCells : (Legacy/Visualization) 2D heatmap data.
+5. Visualization : The frontend receives this data and updates the globe:
+   - Satellites are colored red/orange/blue based on their specific 3D density score.
+   - Lines are drawn between close-approach pairs.
+
+### Algorithm: computeCollisionDensity (In Worker)
+
+The core logic has moved from a 2D lat/lon grid to a 3D Voxel Grid to accurately separate orbital shells (LEO vs. GEO).
+Step 1: Input Preparation
+The function receives a list of satellites with their current Geodetic coordinates:
+
+- lat (Latitude)
+- lon (Longitude)
+- altKm (Altitude in km) Step 2: Voxel Grid Construction (Spatial Indexing)
+  To avoid comparing every satellite with every other satellite (which would be $O(N^2)$ and very slow), we map them into 3D space.
+
+1. ECEF Conversion : Each satellite's (lat, lon, alt) is converted to Earth-Centered, Earth-Fixed (ECEF) $(x, y, z)$ coordinates. This represents their true 3D position relative to Earth's center.
+2. Voxel Key Generation : We divide space into 3D cubes (voxels) of a fixed size (e.g., 50km).
+   - key = floor(x/size), floor(y/size), floor(z/size)
+3. Bucketing : We place every satellite into a Map<string, Satellite[]> , where the key is the voxel ID. Step 3: 3D Density & Close Approach Calculation
+   We iterate through every populated voxel and look at its 26 neighbors (3x3x3 grid).
+
+For every satellite $A$ in the current voxel:
+
+1. We look at all satellites $B$ in the current voxel and neighbor voxels.
+2. Distance Check : We calculate the true 3D Euclidean distance:
+   $$dist = \sqrt{(x_A-x_B)^2 + (y_A-y_B)^2 + (z_A-z_B)^2}$$
+3. Threshold Filter : If $dist \le detectionRadius$ (e.g., 75km):
+   - Density Score : We increment the density count for both satellite A and satellite B. This count represents "how many other objects are nearby in 3D space."
+   - Candidate Pair : We record the pair $(A, B)$ as a potential collision risk.
+     Crucial Improvement: Previously, we only grouped by Lat/Lon. Now, a GEO satellite at (0°N, 0°E, 35,000km) will represent a completely different voxel than a LEO satellite at (0°N, 0°E, 500km), so they will not be counted as neighbors.
+     Step 4: Result Packaging
+     The worker packages the results:
+
+- satelliteDensities : A map { satelliteId: count } .
+- maxSatelliteDensity : The highest count found (used for normalization).
+- candidatePairs : The list of close pairs, sorted by distance.
+
+### Frontend Consumption (useCollisionDensity)
+
+The hook receives the result and prepares it for the UI:
+
+1. Priority Check : It checks if satelliteDensities (the 3D data) exists.
+2. Normalization : It creates a normalized map (0.0 to 1.0) for coloring.
+   - normalizedValue = count / maxSatelliteDensity
+3. Fallback : If 3D data is missing (e.g., old worker version), it falls back to the old 2D grid map (but this path is now effectively deprecated).
+
+---
 
 ## Limitations and Considerations
 
@@ -279,4 +346,3 @@ Potential improvements for future versions:
 
 - [Orbital Plane Visualization](./ORBITAL_PLANE_VISUALIZATION.md)
 - [Performance Optimizations](../README.md#performance--heavy-compute-offload)
-
