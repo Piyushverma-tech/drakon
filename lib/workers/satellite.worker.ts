@@ -240,6 +240,10 @@ async function computeCollisionDensity(
             const minId = Math.min(sat.id, other.id);
             const maxId = Math.max(sat.id, other.id);
 
+            // Filter out pairs with very close NORAD IDs (likely same launch/formation flying)
+            // This reduces noise from intentionally clustered satellites (e.g. Starlink trains)
+            if (maxId - minId <= 5) continue;
+
             // Skip if we've already processed this pair (ensures consistent ordering)
             const pairKey = `${minId},${maxId}`;
             if (processedPairs.has(pairKey)) continue;

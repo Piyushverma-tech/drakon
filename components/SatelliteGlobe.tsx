@@ -227,9 +227,9 @@ export default function SatelliteGlobe() {
   ): [number, number, number, number] => {
     const orbitType = getOrbitType(d.meanMotion, d.isDebris);
     if (d.isDebris) return [180, 180, 180, 180]; // debris gray
-    if (orbitType === 'GEO') return [0, 255, 0, 160]; // green: GEO (geosynchronous orbit)
+    if (orbitType === 'GEO') return [0, 255, 0, 180]; // green: GEO (geosynchronous orbit)
     if (orbitType === 'MEO') return [255, 165, 0, 180]; // orange: MEO
-    if (orbitType === 'LEO') return [255, 0, 0, 160]; // red: LEO
+    if (orbitType === 'LEO') return [255, 0, 0, 180]; // red: LEO
     return [180, 180, 180, 180]; // unknown gray
   };
 
@@ -390,9 +390,8 @@ export default function SatelliteGlobe() {
             id: 'selected-glow-layer',
             data: filteredSatellites.filter((s) => s.id === selected.id),
             getPosition: (d) => [d.lon, d.lat, d.alt * 300],
-            getFillColor: (): [number, number, number, number] => [
-              0, 200, 255, 100,
-            ],
+            getFillColor: (): [number, number, number, number] =>
+              showDensity ? [255, 105, 255, 180] : [0, 200, 255, 100],
             radiusUnits: 'meters',
             getRadius: (d) => (d.isDebris ? 80000 : 150000), //glow radius
             opacity: 0.6,
