@@ -9,9 +9,13 @@ import {
   COORDINATE_SYSTEM,
 } from 'deck.gl';
 import { positionFromTLEAsync } from '@/lib/satelliteWorker';
-import { DensityResult } from '@/lib/satelliteWorker';
+import {
+  DensityResult,
+  TleEntry,
+  SatellitePoint,
+  BandTrack,
+} from '@/lib/types';
 import { ArrowBigDown, ArrowBigUp, Satellite, X } from 'lucide-react';
-import { TleEntry } from '@/lib/tle-context';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { setEntries, clearSearch } from '@/lib/tle-slice';
 import {
@@ -31,11 +35,8 @@ import {
   classifyOrbit,
   getOrbitType,
 } from '@/lib/satelliteHelpers';
-import {
-  useSatellitePositions,
-  SatellitePoint,
-} from '@/hooks/useSatellitePositions';
-import { useInclinationBands, BandTrack } from '@/hooks/useInclinationBands';
+import { useSatellitePositions } from '@/hooks/useSatellitePositions';
+import { useInclinationBands } from '@/hooks/useInclinationBands';
 import { useCollisionDensity } from '@/hooks/useCollisionDensity';
 import DensityLegend from './DensityLegend';
 

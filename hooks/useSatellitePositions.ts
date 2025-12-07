@@ -1,20 +1,9 @@
 import { useState, useEffect } from 'react';
-import { TleEntry } from '@/lib/tle-context';
+import { TleEntry, SatellitePoint } from '@/lib/types';
 import { batchPositionFromTLEAsync } from '@/lib/satelliteWorker';
 import { positionFromTLE } from '@/lib/satellite';
 
-export type SatellitePoint = {
-  id: number;
-  meanMotion: number;
-  lat: number;
-  lon: number;
-  alt: number; // km above Earth's surface
-  isDebris?: boolean;
-  operator?: string;
-  name?: string;
-  l1?: string;
-  l2?: string;
-};
+export type { SatellitePoint };
 
 type UseSatellitePositionsOptions = {
   entries: TleEntry[];

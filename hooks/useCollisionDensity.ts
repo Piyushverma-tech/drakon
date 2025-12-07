@@ -3,7 +3,7 @@ import {
   computeCollisionDensityAsync,
   DensityResult,
 } from '@/lib/satelliteWorker';
-import { SatellitePoint } from './useSatellitePositions';
+import { SatellitePoint } from '@/lib/types';
 
 type UseCollisionDensityOptions = {
   showDensity: boolean;

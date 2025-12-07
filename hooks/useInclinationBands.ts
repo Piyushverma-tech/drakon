@@ -1,12 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { TleEntry } from '@/lib/tle-context';
+import { TleEntry, BandTrack, SatellitePoint } from '@/lib/types';
 import { generateGroundTrackAsync as generateGroundTrackWorker } from '@/lib/satelliteWorker';
-import { SatellitePoint } from './useSatellitePositions';
 
-export type BandTrack = {
-  id: string;
-  path: [number, number][];
-};
+export type { BandTrack };
 
 type UseInclinationBandsOptions = {
   showBands: boolean;

@@ -37,58 +37,20 @@ import {
   satrecFromTLE as syncSatrecFromTLE,
 } from './satellite';
 
-export type DensityWorkerInput = {
-  id: number;
-  lat: number;
-  lon: number;
-  altKm: number;
-  operator?: string;
-  name?: string;
-  l1?: string;
-  l2?: string;
-};
+import {
+  CandidatePair,
+  DensityCell,
+  DensityResult,
+  DensityWorkerInput,
+  DensityWorkerOptions,
+} from './types';
 
-export type DensityWorkerOptions = {
-  voxelSizeKm?: number;
-  detectionRadiusKm?: number;
-  gridCellSizeDeg?: number;
-  maxPairs?: number;
-};
-
-export type DensityCell = {
-  lat: number;
-  lon: number;
-  count: number;
-};
-
-export type CandidatePair = {
-  idA: number;
-  idB: number;
-  distanceKm: number;
-  altitudeA: number;
-  altitudeB: number;
-  operatorA?: string;
-  operatorB?: string;
-  latA: number;
-  lonA: number;
-  latB: number;
-  lonB: number;
-};
-
-export type DensityResult = {
-  densityCells: DensityCell[];
-  candidatePairs: CandidatePair[];
-  satelliteDensities?: Record<number, number>;
-  stats: {
-    totalSatellites: number;
-    totalCells: number;
-    maxCellCount: number;
-    maxSatelliteDensity?: number;
-    detectionRadiusKm: number;
-    voxelSizeKm: number;
-    gridCellSizeDeg: number;
-  };
-  generatedAt: string;
+export type {
+  CandidatePair,
+  DensityCell,
+  DensityResult,
+  DensityWorkerInput,
+  DensityWorkerOptions,
 };
 
 type SatelliteWorkerProxy = {

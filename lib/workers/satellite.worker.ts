@@ -6,7 +6,8 @@ import {
   DensityResult,
   DensityWorkerInput,
   DensityWorkerOptions,
-} from '../satelliteWorker';
+  FilterOptions,
+} from '../types';
 
 export type PropagatedPosition = {
   lat: number;
@@ -170,14 +171,6 @@ function relativeSpeedKmS(
     console.warn('Error computing relative speed:', err);
     return Infinity;
   }
-}
-
-interface FilterOptions {
-  sameLaunchIdDiff?: number;
-  relSpeedThresh?: number;
-  separationThreshKm?: number;
-  altDiffThreshKm?: number;
-  requireVelocityCheck?: boolean;
 }
 
 // Filter candidate pairs based on metadata and distance/altitude
