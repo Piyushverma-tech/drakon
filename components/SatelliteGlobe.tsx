@@ -157,6 +157,7 @@ export default function SatelliteGlobe() {
             allEntries.push({
               id,
               name,
+              operator: name.split('-')[0],
               l1,
               l2,
               ...parseTLEMeta(l1, l2),

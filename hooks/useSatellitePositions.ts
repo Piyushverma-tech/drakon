@@ -10,6 +10,10 @@ export type SatellitePoint = {
   lon: number;
   alt: number; // km above Earth's surface
   isDebris?: boolean;
+  operator?: string;
+  name?: string;
+  l1?: string;
+  l2?: string;
 };
 
 type UseSatellitePositionsOptions = {
@@ -24,21 +28,20 @@ const EARTH_RADIUS_KM = 6371;
  * Validate and normalize altitude to ensure it's above Earth's surface
  */
 function normalizeAltitude(altKm: number): number {
-
   if (altKm > 42000) {
     // Convert from center to surface
     return altKm - EARTH_RADIUS_KM;
   }
-  
+
   if (altKm < 80) {
     console.warn(`Unusually low altitude detected: ${altKm} km`);
   }
-  
+
   if (altKm > 50000) {
     console.warn(`Unusually high altitude detected: ${altKm} km`);
     return Math.min(altKm, 50000);
   }
-  
+
   // Already correct - altitude from Earth's surface
   return altKm;
 }
@@ -79,15 +82,19 @@ export function useSatellitePositions({
               if (p.lat === 0 && p.lon === 0 && p.altKm === 0) {
                 return null;
               }
-              
+
               // Normalize altitude to Earth's surface
               const normalizedAlt = normalizeAltitude(p.altKm);
-              
+
               return {
                 id: entries[idx].id,
                 lat: p.lat,
                 lon: p.lon,
                 alt: normalizedAlt,
+                operator: entries[idx].operator || '',
+                name: entries[idx].name || '',
+                l1: entries[idx].l1 || '',
+                l2: entries[idx].l2 || '',
                 meanMotion: entries[idx].meanMotion,
                 isDebris: entries[idx].isDebris,
               } as SatellitePoint;
@@ -116,10 +123,10 @@ export function useSatellitePositions({
             try {
               const p = positionFromTLE(e.l1, e.l2, now);
               if (p.lat === 0 && p.lon === 0 && p.altKm === 0) return null;
-              
+
               // Normalize altitude to Earth's surface
               const normalizedAlt = normalizeAltitude(p.altKm);
-              
+
               return {
                 id: e.id,
                 lat: p.lat,
@@ -127,6 +134,10 @@ export function useSatellitePositions({
                 alt: normalizedAlt,
                 meanMotion: e.meanMotion,
                 isDebris: e.isDebris,
+                operator: e.operator || '',
+                name: e.name || '',
+                l1: e.l1 || '',
+                l2: e.l2 || '',
               } as SatellitePoint;
             } catch (error) {
               console.warn(`Error processing satellite ${e.id}:`, error);

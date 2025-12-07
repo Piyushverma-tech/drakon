@@ -137,6 +137,136 @@ function getNeighborKeys(baseKey: string, voxelSize: number): string[] {
   return keys;
 }
 
+// Helper: name prefix (first token, uppercase)
+function namePrefix(name?: string) {
+  if (!name) return '';
+  // uppercase, remove trailing numeric suffixes and common tokens
+  const s = name.toUpperCase().trim();
+  // remove trailing digits, dashes and parentheses blocks, keep first token
+  const token = s.split(/\s|_/)[0].replace(/[-_()]+/g, '');
+  // strip trailing numbers, common suffixes
+  return token.replace(/\d+$/, '').replace(/-DEPLOY|DEPLOY|STACK|PAYLOAD/g, '');
+}
+
+// Compute relative speed using satellite.js - returns km/s
+function relativeSpeedKmS(
+  l1A: string,
+  l2A: string,
+  l1B: string,
+  l2B: string,
+  date: Date
+): number {
+  try {
+    const recA = satellite.twoline2satrec(l1A, l2A);
+    const recB = satellite.twoline2satrec(l1B, l2B);
+    const pvA = satellite.propagate(recA, date);
+    const pvB = satellite.propagate(recB, date);
+    if (!pvA || !pvA.velocity || !pvB || !pvB.velocity) return Infinity;
+    const vx = pvA.velocity.x - pvB.velocity.x;
+    const vy = pvA.velocity.y - pvB.velocity.y;
+    const vz = pvA.velocity.z - pvB.velocity.z;
+    return Math.sqrt(vx * vx + vy * vy + vz * vz);
+  } catch (err) {
+    console.warn('Error computing relative speed:', err);
+    return Infinity;
+  }
+}
+
+interface FilterOptions {
+  sameLaunchIdDiff?: number;
+  relSpeedThresh?: number;
+  separationThreshKm?: number;
+  altDiffThreshKm?: number;
+  requireVelocityCheck?: boolean;
+}
+
+// Filter candidate pairs based on metadata and distance/altitude
+function filterCandidatePairs(
+  candidatePairs: CandidatePair[],
+  itemsMap: Map<
+    number,
+    { name?: string; operator?: string; l1?: string; l2?: string }
+  >,
+  opts: FilterOptions = {}
+) {
+  const {
+    sameLaunchIdDiff = 5, // <= this difference -> likely same launch
+    relSpeedThresh = 0.001, // km/s -> 0.001 km/s = 1 m/s
+    separationThreshKm = 0.05, // 50 meters
+    altDiffThreshKm = 1, // 1 km altitude difference tolerance for "identical altitude"
+    requireVelocityCheck = true,
+  } = opts;
+
+  const filtered: CandidatePair[] = [];
+  const now = new Date();
+
+  for (const p of candidatePairs) {
+    const metaA = itemsMap.get(p.idA);
+    const metaB = itemsMap.get(p.idB);
+
+    // Quick cheap checks first
+    const idDiff = Math.abs(p.idA - p.idB);
+    const nameA = metaA?.name ?? '';
+    const nameB = metaB?.name ?? '';
+    const opA = (metaA?.operator || '').toUpperCase();
+    const opB = (metaB?.operator || '').toUpperCase();
+
+    // 1) same-launch / id proximity + similar name
+    if (idDiff <= sameLaunchIdDiff) {
+      const prefixA = namePrefix(nameA);
+      const prefixB = namePrefix(nameB);
+      if (prefixA && prefixA === prefixB) {
+        // likely same stack / deployment
+        continue;
+      }
+      if (opA && opA === opB && opA !== '') {
+        // same operator and very near ids -> likely intentional
+        continue;
+      }
+    }
+
+    // 2) same operator + very small separation
+    if (opA && opA === opB && p.distanceKm <= separationThreshKm) {
+      continue;
+    }
+
+    // 3) separation + altitude similarity
+    if (
+      p.distanceKm <= separationThreshKm &&
+      Math.abs(p.altitudeA - p.altitudeB) <= altDiffThreshKm
+    ) {
+      // very close and same altitude - likely attached
+      continue;
+    }
+
+    // 4) relative velocity check (slower expensive check)
+    if (
+      requireVelocityCheck &&
+      metaA?.l1 &&
+      metaA?.l2 &&
+      metaB?.l1 &&
+      metaB?.l2
+    ) {
+      const relV = relativeSpeedKmS(
+        metaA.l1,
+        metaA.l2,
+        metaB.l1,
+        metaB.l2,
+        now
+      );
+      if (relV <= relSpeedThresh) {
+        // nearly zero relative speed -> probably attached or formation flying
+        continue;
+      }
+    }
+
+    // Passed filters, keep it
+    filtered.push(p);
+  }
+
+  return filtered;
+}
+
 async function computeCollisionDensity(
   items: DensityWorkerInput[],
   options?: DensityWorkerOptions
@@ -212,47 +342,32 @@ async function computeCollisionDensity(
         const neighbors = voxels.get(neighborKey);
         if (!neighbors) continue;
         for (const other of neighbors) {
-          // Skip self
           if (sat.id === other.id) continue;
+
+          const minId = Math.min(sat.id, other.id);
+          const maxId = Math.max(sat.id, other.id);
+          const pairKey = `${minId},${maxId}`;
+
+          // Skip if already processed
+          if (processedPairs.has(pairKey)) continue;
 
           const dx = sat.x - other.x;
           const dy = sat.y - other.y;
           const dz = sat.z - other.z;
           const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-          // Only include pairs within detection radius and with meaningful distance (> 0.01 km)
           if (dist <= detectionRadiusKm && dist > 0.01) {
-            // Increment 3D density count for this satellite
-            // increment for sat
-            satDensity.set(sat.id, (satDensity.get(sat.id) || 0) + 1);
-
-            // increment for other
-            satDensity.set(other.id, (satDensity.get(other.id) || 0) + 1);
-
-            // update maxSatDensity
-            maxSatDensity = Math.max(
-              maxSatDensity,
-              satDensity.get(sat.id)!,
-              satDensity.get(other.id)!
-            );
-
-            // Use consistent pair ordering (min, max) for duplicate tracking
-            const minId = Math.min(sat.id, other.id);
-            const maxId = Math.max(sat.id, other.id);
-
-            // Filter out pairs with very close NORAD IDs (likely same launch/formation flying)
-            // This reduces noise from intentionally clustered satellites (e.g. Starlink trains)
-            if (maxId - minId <= 5) continue;
-
-            // Skip if we've already processed this pair (ensures consistent ordering)
-            const pairKey = `${minId},${maxId}`;
-            if (processedPairs.has(pairKey)) continue;
-
-            // Mark as processed before calculating distance to prevent duplicate processing
+            // mark processed before counting or pushing pair
             processedPairs.add(pairKey);
 
-            // Use consistent ordering (minId, maxId) for pair representation
-            // Determine which satellite corresponds to minId and maxId
+            // increment 3D density for both endpoints once
+            const newSatCount = (satDensity.get(sat.id) || 0) + 1;
+            satDensity.set(sat.id, newSatCount);
+            const newOtherCount = (satDensity.get(other.id) || 0) + 1;
+            satDensity.set(other.id, newOtherCount);
+
+            maxSatDensity = Math.max(maxSatDensity, newSatCount, newOtherCount);
+
             const satIsMin = sat.id === minId;
             candidatePairs.push({
               idA: minId,
@@ -273,8 +388,34 @@ async function computeCollisionDensity(
     }
   }
 
-  candidatePairs.sort((a, b) => a.distanceKm - b.distanceKm);
-  const limitedPairs = candidatePairs.slice(0, maxPairs);
+  // itemsMap from original input (items array)
+  const itemsMap = new Map<
+    number,
+    { name?: string; operator?: string; l1?: string; l2?: string }
+  >();
+  for (const it of items) {
+    itemsMap.set(it.id, {
+      name: it.name,
+      operator: it.operator,
+      l1: it.l1,
+      l2: it.l2,
+    });
+  }
+
+  const filteredCandidatePairs = filterCandidatePairs(
+    candidatePairs,
+    itemsMap,
+    {
+      sameLaunchIdDiff: 5,
+      relSpeedThresh: 0.001,
+      separationThreshKm: 0.05,
+      altDiffThreshKm: 1,
+      requireVelocityCheck: true,
+    }
+  );
+
+  filteredCandidatePairs.sort((a, b) => a.distanceKm - b.distanceKm);
+  const limitedPairs = filteredCandidatePairs.slice(0, maxPairs);
 
   const densityCells: DensityCell[] = [];
   let maxCellCount = 0;

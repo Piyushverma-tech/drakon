@@ -3,13 +3,7 @@ import {
   computeCollisionDensityAsync,
   DensityResult,
 } from '@/lib/satelliteWorker';
-
-type SatellitePoint = {
-  id: number;
-  lat: number;
-  lon: number;
-  alt: number;
-};
+import { SatellitePoint } from './useSatellitePositions';
 
 type UseCollisionDensityOptions = {
   showDensity: boolean;
@@ -53,6 +47,10 @@ export function useCollisionDensity({
         lat: sat.lat,
         lon: sat.lon,
         altKm: sat.alt,
+        operator: sat.operator,
+        name: sat.name,
+        l1: sat.l1,
+        l2: sat.l2,
       }));
 
       const voxelSizeKm = Math.max(densityRadiusKm, 20);

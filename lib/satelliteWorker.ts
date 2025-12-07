@@ -43,6 +43,9 @@ export type DensityWorkerInput = {
   lon: number;
   altKm: number;
   operator?: string;
+  name?: string;
+  l1?: string;
+  l2?: string;
 };
 
 export type DensityWorkerOptions = {

@@ -1,18 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { TleEntry } from '@/lib/tle-context';
 import { generateGroundTrackAsync as generateGroundTrackWorker } from '@/lib/satelliteWorker';
+import { SatellitePoint } from './useSatellitePositions';
 
 export type BandTrack = {
   id: string;
   path: [number, number][];
-};
-
-type SatellitePoint = {
-  id: number;
-  lat: number;
-  lon: number;
-  alt: number;
-  isDebris?: boolean;
 };
 
 type UseInclinationBandsOptions = {
