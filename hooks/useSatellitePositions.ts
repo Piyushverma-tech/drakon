@@ -44,8 +44,6 @@ export function useSatellitePositions({
 
   useEffect(() => {
     if (!entries.length) {
-      setSatellites([]);
-      setLoading(false);
       return;
     }
 

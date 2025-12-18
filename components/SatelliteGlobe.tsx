@@ -219,7 +219,7 @@ export default function SatelliteGlobe() {
       total: satellites.length,
       filtered: filteredSatellites.length,
     };
-  }, [entries, filteredSatellites]);
+  }, [entries, filteredSatellites, satellites.length]);
 
   // ----------------------
   // Layers
