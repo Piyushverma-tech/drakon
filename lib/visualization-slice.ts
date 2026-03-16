@@ -4,29 +4,34 @@ export type VisualizationState = {
   // Filter state
   activeFilters: string[];
   overviewExpanded: boolean;
-  
+
   // Inclination bands state
   showBands: boolean;
   bandInclination: number;
   bandTolerance: number;
-  
+
   // Collision density state
   showDensity: boolean;
   densityRadiusKm: number;
-  
+
   // Selected satellite
   selectedSatelliteId: number | null;
+
+ simulationOffsetHours: number;  // 0 = live
+ isSimulating: boolean;           // derived: offset > 0
 };
 
 const initialState: VisualizationState = {
   activeFilters: ['LEO', 'MEO', 'GEO', 'Debris'],
-  overviewExpanded: false,
+  overviewExpanded: true,
   showBands: false,
   bandInclination: 53,
   bandTolerance: 2,
   showDensity: false,
   densityRadiusKm: 75,
   selectedSatelliteId: null,
+  simulationOffsetHours: 0,
+isSimulating: false,
 };
 
 const visualizationSlice = createSlice({
@@ -73,6 +78,15 @@ const visualizationSlice = createSlice({
     setSelectedSatelliteId(state, action: PayloadAction<number | null>) {
       state.selectedSatelliteId = action.payload;
     },
+    // Simulation state
+    setSimulationOffset(state, action: PayloadAction<number>) {
+      state.simulationOffsetHours = action.payload;
+      state.isSimulating = action.payload > 0;
+    },
+    resetSimulation(state) {
+      state.simulationOffsetHours = 0;
+      state.isSimulating = false;
+    },
   },
 });
 
@@ -86,7 +100,8 @@ export const {
   setShowDensity,
   setDensityRadiusKm,
   setSelectedSatelliteId,
+  setSimulationOffset,
+  resetSimulation,
 } = visualizationSlice.actions;
 
 export default visualizationSlice.reducer;
-

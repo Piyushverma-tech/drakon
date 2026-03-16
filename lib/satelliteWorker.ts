@@ -189,6 +189,22 @@ export async function batchPositionFromTLEAsync(
   return v;
 }
 
+// Batch position at offset : a thin wrapper that stamps a future date on every item
+export async function batchPositionAtOffsetAsync(
+  entries: Array<{ l1: string; l2: string }>,
+  offsetMs: number
+): Promise<Array<{ lat: number; lon: number; altKm: number } | null>> {
+  const targetDate = new Date(Date.now() + offsetMs);
+  const items = entries.map((e) => ({
+    l1: e.l1,
+    l2: e.l2,
+    date: targetDate,
+  }));
+  return batchPositionFromTLEAsync(items) as Promise<Array<{ lat: number; lon: number; altKm: number } | null>>;
+}
+
+
+// Generate ground track
 export async function generateGroundTrackAsync(
   l1: string,
   l2: string,

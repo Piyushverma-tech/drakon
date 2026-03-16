@@ -28,14 +28,16 @@ export default function UnderDevelopment() {
           This page is currently under development. We&apos;re working hard to
           bring you an amazing experience!
         </p>
+        <div className="flex flex-col gap-4">
+        <Link href="https://www.piyushverma.dev/drakon" target="_blank" className="text-cyan-400 hover:text-cyan-300">Learn more about DRAKON</Link>
 
         <Link
           href="/globe"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white font-medium rounded-lg transition-colors"
+          className="text-cyan-400 hover:text-cyan-300"
         >
-          <ArrowLeft className="w-4 h-4" />
           Back to Globe
         </Link>
+        </div>
       </div>
     </div>
   );
