@@ -227,7 +227,7 @@ const RightPanel = memo(function RightPanel({
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center justify-between text-xs mb-4">
                       <span className="font-medium text-cyan-300 uppercase tracking-wider">
                         Collision Density Map
                       </span>
@@ -279,7 +279,7 @@ const RightPanel = memo(function RightPanel({
                                 Hotspots: {densityResult.stats.totalCells} · Top
                                 pairs: {densityResult.candidatePairs.length}
                               </span>
-                              <div className="text-[10px] text-gray-400">
+                              <div className="text-[10px] mt-1.5 text-gray-400">
                                 Peak density: {densityResult.stats.maxCellCount}{' '}
                                 sats · Radius{' '}
                                 {densityResult.stats.detectionRadiusKm} km
@@ -343,4 +343,20 @@ const RightPanel = memo(function RightPanel({
   );
 });
 
-export default RightPanel;
+export default memo(RightPanel, (prev, next) => {
+  return (
+    prev.loading === next.loading &&
+    prev.bandCount === next.bandCount &&
+    prev.bandAvgAltKm === next.bandAvgAltKm &&
+    prev.bandTrackLoading === next.bandTrackLoading &&
+    prev.densityLoading === next.densityLoading &&
+    prev.densityError === next.densityError &&
+    prev.densityResult === next.densityResult &&
+    prev.stats.leo === next.stats.leo &&
+    prev.stats.meo === next.stats.meo &&
+    prev.stats.geo === next.stats.geo &&
+    prev.stats.debris === next.stats.debris &&
+    prev.stats.total === next.stats.total &&
+    prev.stats.filtered === next.stats.filtered
+  );
+});

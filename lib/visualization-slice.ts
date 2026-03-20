@@ -17,8 +17,9 @@ export type VisualizationState = {
   // Selected satellite
   selectedSatelliteId: number | null;
 
- simulationOffsetHours: number;  // 0 = live
- isSimulating: boolean;           // derived: offset > 0
+  simulationOffsetHours: number; // 0 = live
+  isSimulating: boolean; // derived: offset > 0
+  simLoading: boolean;
 };
 
 const initialState: VisualizationState = {
@@ -31,7 +32,8 @@ const initialState: VisualizationState = {
   densityRadiusKm: 75,
   selectedSatelliteId: null,
   simulationOffsetHours: 0,
-isSimulating: false,
+  isSimulating: false,
+  simLoading: false,
 };
 
 const visualizationSlice = createSlice({
@@ -87,6 +89,9 @@ const visualizationSlice = createSlice({
       state.simulationOffsetHours = 0;
       state.isSimulating = false;
     },
+    setSimLoading(state, action: PayloadAction<boolean>) {
+      state.simLoading = action.payload;
+    },
   },
 });
 
@@ -102,6 +107,7 @@ export const {
   setSelectedSatelliteId,
   setSimulationOffset,
   resetSimulation,
+  setSimLoading,
 } = visualizationSlice.actions;
 
 export default visualizationSlice.reducer;

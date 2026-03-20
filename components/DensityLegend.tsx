@@ -19,7 +19,8 @@ function getCategoryForT(t: number) {
   } else if (t < 0.6) {
     return {
       category: 'Medium',
-      description: 'Green — Increasing traffic; stay alert for potential close approaches.',
+      description:
+        'Green — Increasing traffic; stay alert for potential close approaches.',
       color: 'rgb(60,200,140)',
     };
   } else if (t < 0.85) {
@@ -31,7 +32,8 @@ function getCategoryForT(t: number) {
   } else {
     return {
       category: 'High',
-      description: 'Orange → Red — Collision-prone region; immediate attention advised.',
+      description:
+        'Orange → Red — Collision-prone region; immediate attention advised.',
       color: 'rgb(255,50,50)',
     };
   }
@@ -79,31 +81,36 @@ export default function DensityLegend() {
   }
 
   // tooltip element (rendered into portalRoot)
-  const tooltipEl = tooltip.visible && portalRoot ? (
-    createPortal(
-      <div
-        // pointer-events none so it doesn't steal hover events from gradient bar
-        className="pointer-events-none fixed z-[9999] transform -translate-x-1/2 -translate-y-full"
-        style={{ left: tooltip.x, top: tooltip.y, minWidth: 220 }}
-        aria-hidden={!tooltip.visible}
-      >
-        <div className="bg-white/6 borde text-white text-xs rounded-md shadow-2xl p-2 backdrop-blur-md">
-          <div className="flex items-center gap-2">
-            <div
-              className="w-3 h-3 rounded-sm border"
-              style={{ backgroundColor: tooltip.color }}
-            />
-            <div className="font-medium text-[12px]">{tooltip.category}</div>
-          </div>
-          <div className="text-[11px] text-gray-200 mt-1">{tooltip.description}</div>
-        </div>
-      </div>,
-      portalRoot
-    )
-  ) : null;
+  const tooltipEl =
+    tooltip.visible && portalRoot
+      ? createPortal(
+          <div
+            // pointer-events none so it doesn't steal hover events from gradient bar
+            className="pointer-events-none fixed z-[9999] transform -translate-x-1/2 -translate-y-full"
+            style={{ left: tooltip.x, top: tooltip.y, minWidth: 220 }}
+            aria-hidden={!tooltip.visible}
+          >
+            <div className="bg-white/6 borde text-white text-xs rounded-md shadow-2xl p-2 backdrop-blur-md">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-3 h-3 rounded-sm border"
+                  style={{ backgroundColor: tooltip.color }}
+                />
+                <div className="font-medium text-[12px]">
+                  {tooltip.category}
+                </div>
+              </div>
+              <div className="text-[11px] text-gray-200 mt-1">
+                {tooltip.description}
+              </div>
+            </div>
+          </div>,
+          portalRoot
+        )
+      : null;
 
   return (
-    <div className="mt-3 pt-2 border-t border-gray-700/40 relative">
+    <div className="my-3 pt-2 border-t border-gray-700/40 relative">
       <div className="text-[10px] text-gray-400 mb-2 uppercase tracking-wider">
         Density Colors
       </div>
@@ -139,8 +146,9 @@ export default function DensityLegend() {
         </div>
       </div>
 
-      <div className="text-[9px] text-gray-500">
-        Satellites in denser regions are colored from cool to warm based on collision risk
+      <div className="text-[9.5px] text-gray-400">
+        Satellites in denser regions are colored from cool to warm based on
+        collision risk
       </div>
 
       {tooltipEl}
