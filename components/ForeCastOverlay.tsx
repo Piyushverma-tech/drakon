@@ -1,3 +1,4 @@
+import { RefreshCcw } from 'lucide-react';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 
 export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
@@ -408,19 +409,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
                     cursor: 'pointer',
                   }}
                 >
-                  <svg
-                    width="8"
-                    height="8"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="1 4 1 10 7 10" />
-                    <path d="M3.51 15a9 9 0 1 0 .49-3" />
-                  </svg>
+                  <RefreshCcw size={10} />
                   Live
                 </button>
               )}
@@ -616,7 +605,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
                     strokeLinejoin="round"
                     style={{
                       flexShrink: 0,
-                      marginTop: '1px',
+                      marginTop: '2px',
                       color: 'rgba(251, 191, 36, 0.7)',
                     }}
                   >
