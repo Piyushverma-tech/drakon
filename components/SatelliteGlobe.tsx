@@ -78,27 +78,20 @@ export default function SatelliteGlobe() {
     showDensity,
     densityRadiusKm,
     simulationOffsetHours,
-    isSimulating,
   } = useAppSelector((state) => state.visualization);
 
   const [selected, setSelected] = useState<SelectedMeta | null>(null);
-  const [filteredSatellites, setFilteredSatellites] = useState<
-    SatellitePoint[]
-  >([]);
 
   // Custom hooks
   const { satellites, loading } = useSatellitePositions({ entries });
 
   const offsetMs = simulationOffsetHours * 60 * 60 * 1000;
 
-  const { satellites: activeSatellites, loading: simLoading } =
-    useSimulatedPositions({
-      entries,
-      offsetMs,
-      liveSatellites: satellites, // from useSatellitePositions
-    });
-
-  const isLoading = loading || simLoading;
+  const { satellites: activeSatellites } = useSimulatedPositions({
+    entries,
+    offsetMs,
+    liveSatellites: satellites, // from useSatellitePositions
+  });
 
   const {
     bandTrack,
@@ -203,13 +196,13 @@ export default function SatelliteGlobe() {
     [activeFilters]
   );
 
-  useEffect(() => {
-    const filtered = activeSatellites.filter((sat) => {
-      const orbitType = getOrbitType(sat.meanMotion, sat.isDebris);
-      return activeFiltersSet.has(orbitType);
-    });
-    setFilteredSatellites(filtered);
-  }, [activeSatellites, activeFiltersSet]);
+  const filteredSatellites = useMemo(
+    () =>
+      activeSatellites.filter((sat) =>
+        activeFiltersSet.has(getOrbitType(sat.meanMotion, sat.isDebris))
+      ),
+    [activeSatellites, activeFiltersSet]
+  );
 
   // ----------------------
   // Stats Computation
@@ -499,21 +492,21 @@ export default function SatelliteGlobe() {
     dispatch(setSelectedSatelliteId(null));
   }, [dispatch]);
 
+  const handleCommitOffset = useCallback(
+    (hours: number) => dispatch(setSimulationOffset(hours)),
+    [dispatch]
+  );
+  const handleReset = useCallback(
+    () => dispatch(resetSimulation()),
+    [dispatch]
+  );
+
   // ----------------------
   // UI
   // ----------------------
   return (
     <div className="relative w-full h-full flex">
       <Globe ref={globeRef} layers={layers} />
-
-      <ForecastOverlay
-        isSimulating={isSimulating}
-        isLoading={isLoading}
-        simulationOffsetHours={simulationOffsetHours}
-        simLoading={simLoading}
-        onCommitOffset={(hours) => dispatch(setSimulationOffset(hours))}
-        onReset={() => dispatch(resetSimulation())}
-      />
 
       {searchResults && searchResults.length > 0 && (
         <div className="absolute top-0 left-1/2 transform -translate-x-1/2 z-20">
@@ -575,16 +568,22 @@ export default function SatelliteGlobe() {
           </div>
         </div>
       )}
+
+      <ForecastOverlay
+        loading={loading}
+        onCommitOffset={handleCommitOffset}
+        onReset={handleReset}
+      />
+
       {/* Left Panel - Selected Satellite  */}
       <LeftPanel
         selected={selected}
         setSelected={setSelected}
-        loading={isLoading}
         onClose={handleDeselectSatellite}
       />
       {/* Right Panel */}
       <RightPanel
-        loading={isLoading}
+        loading={loading}
         stats={stats}
         bandCount={bandCount}
         bandAvgAltKm={bandAvgAltKm}

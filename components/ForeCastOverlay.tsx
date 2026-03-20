@@ -1,22 +1,17 @@
+import { useAppSelector } from '@/lib/store';
 import { RefreshCcw } from 'lucide-react';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 
 export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
-  isSimulating: boolean;
-  simulationOffsetHours: number;
-  simLoading: boolean;
-  isLoading: boolean;
+  loading: boolean;
   onCommitOffset: (hours: number) => void;
   onReset: () => void;
 }) {
-  const {
-    isSimulating,
-    simulationOffsetHours,
-    simLoading,
-    onCommitOffset,
-    onReset,
-    isLoading,
-  } = props;
+  const { onCommitOffset, onReset, loading } = props;
+
+  const { simulationOffsetHours, isSimulating, simLoading } = useAppSelector(
+    (state) => state.visualization
+  );
 
   const [draftHours, setDraftHours] = useState(simulationOffsetHours);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -102,7 +97,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
 
   const tickMarks = [0, 12, 24, 36, 48, 60, 72];
 
-  if (isLoading) return null;
+  if (loading) return null;
 
   return (
     <>

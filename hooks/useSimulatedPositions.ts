@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { TleEntry, SatellitePoint } from '@/lib/types';
 import { batchPositionAtOffsetAsync } from '@/lib/satelliteWorker';
+import { setSimLoading } from '@/lib/visualization-slice';
+import { useAppDispatch } from '@/lib/store';
 
 const EARTH_RADIUS_KM = 6371;
 
@@ -31,13 +33,13 @@ export function useSimulatedPositions({
   const [projectedSatellites, setProjectedSatellites] = useState<
     SatellitePoint[]
   >([]);
-  const [loading, setLoading] = useState(false);
   const hasComputedRef = useRef(false);
+  const dispatch = useAppDispatch();
 
   useEffect(() => {
     if (offsetMs === 0 || entries.length === 0) {
       setProjectedSatellites([]);
-      setLoading(false);
+      dispatch(setSimLoading(false));
       hasComputedRef.current = false;
       return;
     }
@@ -48,7 +50,7 @@ export function useSimulatedPositions({
 
     const compute = async (opts?: { isInitial?: boolean }) => {
       if (opts?.isInitial) {
-        setLoading(true);
+        dispatch(setSimLoading(true));
       }
       try {
         const res = await batchPositionAtOffsetAsync(entries, offsetMs);
@@ -83,7 +85,9 @@ export function useSimulatedPositions({
           setProjectedSatellites([]);
         }
       } finally {
-        if (!cancelled && opts?.isInitial) setLoading(false);
+        if (!cancelled && opts?.isInitial) {
+          dispatch(setSimLoading(false));
+        }
       }
     };
 
@@ -106,11 +110,11 @@ export function useSimulatedPositions({
       if (timeout) clearTimeout(timeout);
       if (interval) clearInterval(interval);
     };
-  }, [entries, offsetMs, debounceMs, updateIntervalMs]);
+  }, [entries, offsetMs, debounceMs, updateIntervalMs, dispatch]);
 
   // When offset is 0, return live positions directly — no stale state
   const activeSatellites =
     offsetMs === 0 ? liveSatellites : projectedSatellites;
 
-  return { satellites: activeSatellites, loading };
+  return { satellites: activeSatellites };
 }

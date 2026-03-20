@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { Satellite } from 'lucide-react';
+import { Satellite, X } from 'lucide-react';
 
 type SelectedMeta = {
   id: number;
@@ -16,68 +16,118 @@ type SelectedMeta = {
 type Props = {
   selected: SelectedMeta | null;
   setSelected: (meta: SelectedMeta | null) => void;
-  loading: boolean;
   onClose: () => void;
 };
 
-const LeftPanel = memo(function LeftPanel({
-  selected,
-  loading,
-  onClose,
-}: Props) {
-  if (!selected || loading) return null;
+function StatRow({
+  label,
+  value,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between py-1 group">
+      <span className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">
+        {label}
+      </span>
+      <span
+        className={`text-xs text-end tabular-nums ${accent ? 'text-cyan-300' : 'text-gray-200'}`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 mb-1 mt-3 first:mt-0">
+      <span className="text-[9px] uppercase tracking-[0.2em] text-cyan-400 font-semibold">
+        {children}
+      </span>
+      <div className="flex-1 h-px bg-gray-700/60" />
+    </div>
+  );
+}
+
+const LeftPanel = memo(function LeftPanel({ selected, onClose }: Props) {
+  if (!selected) return null;
 
   return (
-    <>
-      {selected && !loading && (
-        <div className="absolute left-3 top-0 w-60 bg-black/40 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto z-10">
-          {/* Corner accents */}
-          <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
-          <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />
-          <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-cyan-400" />
-          <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400" />
+    <div className="absolute left-3 top-3 w-56 z-10 select-none">
+      {/* Outer shell */}
+      <div className="relative bg-black/40 backdrop-blur-md border border-white/10">
+        {/* Corner accents */}
+        <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
+        <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />
+        <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-cyan-400" />
+        <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400" />
 
-          <div
-            className="font-medium mb-1 truncate text-cyan-300 border-b border-gray-700/60 text-sm uppercase tracking-wider"
-            title={selected.name}
-          >
-            <span className="flex items-center gap-2 mb-2">
-              {selected.name} <Satellite size={18} />
+        {/* Header */}
+        <div className="flex items-center justify-between px-3 pt-3 pb-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Satellite size={18} className="text-cyan-400 shrink-0" />
+            <span
+              className="text-[14px] font-semibold uppercase tracking-widest text-cyan-300 truncate"
+              title={selected.name}
+            >
+              {selected.name}
             </span>
-          </div>
-          <div className="grid grid-cols-2 text-xs gap-x-2 gap-y-1.5">
-            <span className="text-gray-400">NORAD</span>
-            <span className="text-white ">{selected.id}</span>
-            <span className="text-gray-400">Lat</span>
-            <span className="text-white">{selected.lat.toFixed(2)}°</span>
-            <span className="text-gray-400">Lon</span>
-            <span className="text-white ">{selected.lon.toFixed(2)}°</span>
-            <span className="text-gray-400">Alt</span>
-            <span className="text-white">{Math.round(selected.alt)} km</span>
-            <span className="text-gray-400">Vel</span>
-            <span className="text-white ">{selected.vel.toFixed(2)} km/s</span>
-            <span className="text-gray-400">Inclination</span>
-            <span className="text-white ">
-              {selected.inclination.toFixed(2)}°
-            </span>
-            <span className="text-gray-400">Orbit</span>
-            <span className="text-white">{selected.orbitType}</span>
-            {selected.tleEpoch && (
-              <>
-                <span className="text-gray-400">TLE epoch</span>
-                <span className="text-white">{selected.tleEpoch}</span>
-              </>
-            )}
           </div>
           <button
             onClick={onClose}
-            className="mt-2 text-xs text-red-400 hover:text-red-300  underline"
+            className="ml-2 shrink-0 text-gray-600 hover:text-red-400 transition-colors duration-150"
           >
-            Close
+            <X size={14} />
           </button>
         </div>
-      )}
-    </>
+
+        {/* Body */}
+        <div className="px-3 pb-3 pt-1">
+          {/* ID badge */}
+          <div className="flex items-center gap-2 py-2">
+            <span className="text-[10px] uppercase tracking-widest text-gray-400">
+              NORAD
+            </span>
+            <span className="ml-auto text-[11px] font-mono text-white/90 bg-white/5 border border-white/10 px-1.5 py-0.5 tracking-wider">
+              #{selected.id}
+            </span>
+          </div>
+
+          {/* Position */}
+          <SectionLabel>Position</SectionLabel>
+          <StatRow label="Lat" value={`${selected.lat.toFixed(4)}°`} />
+          <StatRow label="Lon" value={`${selected.lon.toFixed(4)}°`} />
+          <StatRow
+            label="Alt"
+            value={`${Math.round(selected.alt).toLocaleString()} km`}
+            accent
+          />
+
+          {/* Dynamics */}
+          <SectionLabel>Dynamics</SectionLabel>
+          <StatRow
+            label="Velocity"
+            value={`${selected.vel.toFixed(3)} km/s`}
+            accent
+          />
+          <StatRow
+            label="Incl."
+            value={`${selected.inclination.toFixed(2)}°`}
+          />
+
+          {/* Orbit */}
+          <SectionLabel>Orbit</SectionLabel>
+          <StatRow label="Type" value={selected.orbitType} accent />
+          {selected.tleEpoch && (
+            <StatRow label="TLE Epoch" value={selected.tleEpoch} />
+          )}
+        </div>
+      </div>
+    </div>
   );
 });
 
