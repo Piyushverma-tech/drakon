@@ -39,6 +39,12 @@ import { useSatellitePositions } from '@/hooks/useSatellitePositions';
 import { useInclinationBands } from '@/hooks/useInclinationBands';
 import { useCollisionDensity } from '@/hooks/useCollisionDensity';
 import DensityLegend from './DensityLegend';
+import { useSimulatedPositions } from '@/hooks/useSimulatedPositions';
+import {
+  setSimulationOffset,
+  resetSimulation,
+} from '@/lib/visualization-slice';
+import { ForecastOverlay } from './ForeCastOverlay';
 
 // ----------------------
 // Types
@@ -74,6 +80,8 @@ export default function SatelliteGlobe() {
     bandTolerance,
     showDensity,
     densityRadiusKm,
+    simulationOffsetHours,
+    isSimulating,
   } = useAppSelector((state) => state.visualization);
 
   const [selected, setSelected] = useState<SelectedMeta | null>(null);
@@ -83,6 +91,17 @@ export default function SatelliteGlobe() {
 
   // Custom hooks
   const { satellites, loading } = useSatellitePositions({ entries });
+
+  const offsetMs = simulationOffsetHours * 60 * 60 * 1000;
+
+  const { satellites: activeSatellites, loading: simLoading } =
+    useSimulatedPositions({
+      entries,
+      offsetMs,
+      liveSatellites: satellites, // from useSatellitePositions
+    });
+
+  const isLoading = loading || simLoading;
 
   const {
     bandTrack,
@@ -95,13 +114,13 @@ export default function SatelliteGlobe() {
     bandInclination,
     bandTolerance,
     entries,
-    satellites,
+    satellites: activeSatellites,
   });
 
   const { densityResult, densityLoading, densityError, satelliteDensities } =
     useCollisionDensity({
       showDensity,
-      satellites,
+      satellites: activeSatellites,
       densityRadiusKm,
     });
 
@@ -188,12 +207,12 @@ export default function SatelliteGlobe() {
   );
 
   useEffect(() => {
-    const filtered = satellites.filter((sat) => {
+    const filtered = activeSatellites.filter((sat) => {
       const orbitType = getOrbitType(sat.meanMotion, sat.isDebris);
       return activeFiltersSet.has(orbitType);
     });
     setFilteredSatellites(filtered);
-  }, [satellites, activeFiltersSet]);
+  }, [activeSatellites, activeFiltersSet]);
 
   // ----------------------
   // Stats Computation
@@ -216,10 +235,10 @@ export default function SatelliteGlobe() {
       leo,
       meo,
       geo,
-      total: satellites.length,
+      total: activeSatellites.length,
       filtered: filteredSatellites.length,
     };
-  }, [entries, filteredSatellites, satellites.length]);
+  }, [entries, filteredSatellites, activeSatellites.length]);
 
   // ----------------------
   // Layers
@@ -337,6 +356,7 @@ export default function SatelliteGlobe() {
           const density = getSatelliteDensity(d.id);
           return getDensityBasedColor(density);
         }
+
         // Normal orbit-based coloring when density map is off
         return colorAccessor(d);
       },
@@ -367,7 +387,11 @@ export default function SatelliteGlobe() {
         const meta = entries.find((t: TleEntry) => t.id === pt.id);
         if (!meta) return;
 
-        const vel = velocityFromTLE(meta.l1, meta.l2, new Date());
+        const targetDate = new Date(
+          Date.now() + simulationOffsetHours * 60 * 60 * 1000
+        );
+
+        const vel = velocityFromTLE(meta.l1, meta.l2, targetDate);
         const orbitType = classifyOrbit(meta.inclination);
 
         const selectedMeta = {
@@ -405,8 +429,11 @@ export default function SatelliteGlobe() {
 
   async function focusSatellite(sat: TleEntry) {
     try {
-      // compute current position
-      const p = await positionFromTLEAsync(sat.l1, sat.l2, new Date());
+      const targetDate = new Date(
+        Date.now() + simulationOffsetHours * 60 * 60 * 1000
+      );
+
+      const p = await positionFromTLEAsync(sat.l1, sat.l2, targetDate);
 
       if (!p) {
         console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
@@ -418,7 +445,6 @@ export default function SatelliteGlobe() {
         return;
       }
 
-      // fly to it (lon, lat)
       globeRef.current?.flyTo({
         longitude: pp.lon,
         latitude: pp.lat,
@@ -428,7 +454,7 @@ export default function SatelliteGlobe() {
         bearing: 0,
       });
 
-      const vel = velocityFromTLE(sat.l1, sat.l2, new Date());
+      const vel = velocityFromTLE(sat.l1, sat.l2, targetDate);
       const orbitType = classifyOrbit(sat.inclination);
 
       const selectedMeta = {
@@ -455,6 +481,16 @@ export default function SatelliteGlobe() {
   return (
     <div className="relative w-full h-full flex">
       <Globe ref={globeRef} layers={layers} />
+
+      <ForecastOverlay
+        isSimulating={isSimulating}
+        isLoading={isLoading}
+        simulationOffsetHours={simulationOffsetHours}
+        simLoading={simLoading}
+        onCommitOffset={(hours) => dispatch(setSimulationOffset(hours))}
+        onReset={() => dispatch(resetSimulation())}
+      />
+
       {searchResults && searchResults.length > 0 && (
         <div className="absolute top-0 left-1/2 transform -translate-x-1/2 z-20">
           {/* Corner accents */}
@@ -516,7 +552,7 @@ export default function SatelliteGlobe() {
         </div>
       )}
       {/* Left Panel - Selected Satellite  */}
-      {selected && !loading && (
+      {selected && !isLoading && (
         <div className="absolute left-3 top-0 w-60 bg-black/40 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto z-10">
           {/* Corner accents */}
           <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
@@ -532,7 +568,7 @@ export default function SatelliteGlobe() {
               {selected.name} <Satellite size={18} />
             </span>
           </div>
-          <div className="grid grid-cols-2 text-xs gap-x-2 gap-y-1">
+          <div className="grid grid-cols-2 text-xs gap-x-2 gap-y-1.5">
             <span className="text-gray-400">NORAD</span>
             <span className="text-white ">{selected.id}</span>
             <span className="text-gray-400">Lat</span>
@@ -576,7 +612,7 @@ export default function SatelliteGlobe() {
         <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-cyan-400" />
         <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400" />
 
-        {loading ? (
+        {isLoading ? (
           <div className="flex items-center justify-center h-full text-cyan-300/60">
             Loading Data...
           </div>
@@ -735,7 +771,7 @@ export default function SatelliteGlobe() {
                 </div>
                 {/* Collision Density Map */}
                 <div className="mt-2 border-t border-gray-700/60 pt-2">
-                  {loading ? (
+                  {isLoading ? (
                     <div className="flex items-center justify-center h-full text-cyan-300/60">
                       Loading Data...
                     </div>
@@ -750,7 +786,7 @@ export default function SatelliteGlobe() {
                           onClick={() => dispatch(setShowDensity(!showDensity))}
                           className={`px-2 py-0.5 rounded text-[11px] border transition-colors cursor-pointer ${
                             showDensity
-                              ? 'bg-amber-500/20 text-amber-200 border-amber-400/60'
+                              ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/60'
                               : 'bg-gray-800/60 text-gray-300 border-gray-600 hover:bg-gray-700/60'
                           }`}
                         >
@@ -839,7 +875,7 @@ export default function SatelliteGlobe() {
                                               pair.distanceKm <=
                                               densityRadiusKm / 2
                                                 ? 'text-red-300'
-                                                : 'text-amber-200'
+                                                : 'text-cyan-200'
                                             }
                                           >
                                             {formatDistance(pair.distanceKm)}
