@@ -1,4 +1,4 @@
-# DRAKON-01A (in development)
+# DRAKON (in development)
 
 ### Space Object Tracking & Collision Avoidance Platform
 
@@ -65,7 +65,7 @@ drakon/
 │ │ └─ layout.tsx
 │ ├─ globe/
 │ │ └─ page.tsx
-│ ├─ api/                    # Serverless API endpoints              
+│ ├─ api/                    # Serverless API endpoints
 │ │ └─ tle/                # TLE data proxy (Celestrak)
 │ ├─ layout.tsx              # Root layout with Redux Provider
 │ └─ globals.css
@@ -80,6 +80,7 @@ drakon/
 │ ├─ useSatellitePositions.ts    # Satellite position updates
 │ ├─ useInclinationBands.ts      # Inclination band logic
 │ └─ useCollisionDensity.ts     # Collision density computation
+│ └─ useSimulatedPositions.ts     # replaces useSatellitePositions when simulating
 ├─ lib/                      # Core libraries and utilities
 │ ├─ store.ts                # Redux store configuration
 │ ├─ tle-slice.ts            # Redux slice for TLE data
@@ -172,7 +173,7 @@ drakon/
 A powerful tool for analyzing satellite constellations and orbital shells. Features include:
 
 - **Ground Track Rendering**: Cyan-colored orbital paths rendered using deck.gl `PathLayer`
-- **Interactive Controls**: 
+- **Interactive Controls**:
   - Inclination slider (0-120°) for targeting specific orbital planes
   - Tolerance control (±0.5-10°) for adjusting band width
   - Toggle switch for enabling/disabling visualization
@@ -188,7 +189,7 @@ Real-time spatial analysis for identifying crowded orbital regions and potential
 
 - **Density Visualization**: All satellites colored by local collision density (blue = safe, purple = high risk)
 - **Close Approach Detection**: Voxel-based algorithm identifies satellite pairs within configurable detection radius
-- **Visual Indicators**: 
+- **Visual Indicators**:
   - Density-based satellite coloring with 5-zone gradient
   - Line visualization for candidate close-approach pairs
   - Color-coded risk levels (red/pink for high risk, amber for moderate)
@@ -204,6 +205,7 @@ Real-time spatial analysis for identifying crowded orbital regions and potential
 ### Performance Optimizations ✅
 
 **Worker-Based Computation:**
+
 - Dedicated web worker for orbit propagation: `lib/workers/satellite.worker.ts` (Comlink-based)
 - Async wrappers with caching: `lib/satelliteWorker.ts`
 - Batch propagation APIs: `batchPositionFromTLEAsync`, `positionFromTLEAsync`
@@ -211,20 +213,24 @@ Real-time spatial analysis for identifying crowded orbital regions and potential
 - Collision density computation: `computeCollisionDensityAsync` (voxel-based spatial analysis)
 
 **UI Responsiveness:**
+
 - Debounced slider inputs (300ms for inclination bands, 500ms for density map)
 - Intelligent caching for worker results (in-memory Map-based)
 - Optimized data structures (Map-based lookups, O(1) operations)
 - Smooth 60fps UI interactions even with thousands of satellites
 
 **Migration Status:**
+
 - ✅ Core orbit propagation
 - ✅ Fleet health assessment
 - ✅ Ground track generation
 - ✅ Collision density computation
+- ✅ Predictive time simulation
 - 🔄 Conjunction screening (in progress)
 - 🔄 Large collision search loops (in progress)
 
 **Future Enhancements:**
+
 - LRU/TTL cache or IndexedDB for persistence across reloads
 - Transferable ArrayBuffers for very large batches
 - Predictive density analysis with time projection
