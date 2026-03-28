@@ -43,6 +43,8 @@ import {
   DensityResult,
   DensityWorkerInput,
   DensityWorkerOptions,
+  SatelliteTrack,
+  TrackSegment,
 } from './types';
 
 export type {
@@ -73,6 +75,15 @@ type SatelliteWorkerProxy = {
     items: DensityWorkerInput[],
     options?: DensityWorkerOptions
   ) => Promise<DensityResult>;
+  generateSatelliteTrack: (
+    l1: string,
+    l2: string,
+    centerDateIso: string,
+    samples?: number
+  ) => Promise<{
+    past: Array<[number, number, number]>;
+    future: Array<[number, number, number]>;
+  } | null>;
 };
 
 export async function positionFromTLEAsync(
@@ -200,9 +211,10 @@ export async function batchPositionAtOffsetAsync(
     l2: e.l2,
     date: targetDate,
   }));
-  return batchPositionFromTLEAsync(items) as Promise<Array<{ lat: number; lon: number; altKm: number } | null>>;
+  return batchPositionFromTLEAsync(items) as Promise<
+    Array<{ lat: number; lon: number; altKm: number } | null>
+  >;
 }
-
 
 // Generate ground track
 export async function generateGroundTrackAsync(
@@ -238,6 +250,70 @@ export async function generateGroundTrackAsync(
     cache.delete(it.value as string);
   }
   return v;
+}
+
+// Split a path at antimeridian crossings (lon jumps > 180°)
+// Input: [lon, lat, t][] — Output: [lon, lat, t][][]
+function splitAtAntimeridian(
+  points: Array<[number, number, number]>
+): Array<Array<[number, number, number]>> {
+  const segments: Array<Array<[number, number, number]>> = [[]];
+  for (let i = 0; i < points.length; i++) {
+    segments.at(-1)!.push(points[i]);
+    if (i < points.length - 1) {
+      const lonDiff = Math.abs(points[i + 1][0] - points[i][0]);
+      if (lonDiff > 180) segments.push([]);
+    }
+  }
+  return segments.filter((s) => s.length > 1);
+}
+
+export async function generateSatelliteTrackAsync(
+  l1: string,
+  l2: string,
+  centerDate: Date,
+  samples: number = 120
+): Promise<SatelliteTrack | null> {
+  try {
+    const proxy = await getWorkerProxy();
+    if (!proxy) return null;
+
+    const raw = await (proxy as SatelliteWorkerProxy).generateSatelliteTrack(
+      l1,
+      l2,
+      centerDate.toISOString(),
+      samples
+    );
+    if (!raw) return null;
+
+    const pastSegments = splitAtAntimeridian(raw.past);
+    const futureSegments = splitAtAntimeridian(raw.future);
+
+    // Convert to TrackSegment[] — strip the t value from coords, use it for opacity
+    const toSegments = (
+      segs: Array<Array<[number, number, number]>>,
+      invertOpacity: boolean // past: oldest points are most faded
+    ): TrackSegment[] =>
+      segs.map((seg) => {
+        // opacity of segment = avg of endpoint t values, inverted for past
+        const avgT = (seg[0][2] + seg[seg.length - 1][2]) / 2;
+        const opacity = invertOpacity ? 1 - avgT * 0.85 : 1 - avgT * 0.85;
+        return {
+          path: seg.map(([lon, lat]) => [lon, lat] as [number, number]),
+          opacity,
+        };
+      });
+
+    const satId = Number(l1.substring(2, 7));
+    return {
+      satId,
+      past: toSegments(pastSegments, true),
+      future: toSegments(futureSegments, false),
+    };
+  } catch (err) {
+    console.warn('generateSatelliteTrackAsync failed', err);
+    return null;
+  }
 }
 
 export async function computeCollisionDensityAsync(

@@ -106,6 +106,67 @@ async function generateGroundTrack(
   }
 }
 
+// Generate satellite track segments for past and future, with opacity encoding distance from current position
+async function generateSatelliteTrack(
+  l1: string,
+  l2: string,
+  centerDateIso: string,
+  samples: number = 120 // per direction — 120 past + 120 future
+): Promise<{
+  past: Array<[number, number, number]>;
+  future: Array<[number, number, number]>;
+} | null> {
+  try {
+    const satrec = satellite.twoline2satrec(l1, l2);
+    const meanMotionRadPerMin = satrec.no;
+    if (!meanMotionRadPerMin || !Number.isFinite(meanMotionRadPerMin))
+      return null;
+
+    const periodMs = ((2 * Math.PI) / meanMotionRadPerMin) * 60 * 1000;
+    const centerTime = new Date(centerDateIso).getTime();
+
+    // Past: from centerTime - 1 period → centerTime
+    const pastItems = Array.from({ length: samples }, (_, i) => {
+      const t = new Date(centerTime - periodMs + (i / samples) * periodMs);
+      return { l1, l2, dateIso: t.toISOString() };
+    });
+
+    // Future: from centerTime → centerTime + 1 period
+    const futureItems = Array.from({ length: samples }, (_, i) => {
+      const t = new Date(centerTime + (i / samples) * periodMs);
+      return { l1, l2, dateIso: t.toISOString() };
+    });
+
+    const [pastPos, futurePos] = await Promise.all([
+      batchPositionFromTLE(pastItems),
+      batchPositionFromTLE(futureItems),
+    ]);
+
+    // Build [lon, lat, normalizedT] — normalizedT encodes opacity distance
+    // Past: normalizedT goes 1.0 (oldest) → 0.0 (at satellite)
+    const past: [number, number, number][] = pastPos
+      .map((p, i) => {
+        if (!p || (p.lat === 0 && p.lon === 0)) return null;
+        const t = 1.0 - i / (samples - 1); // 1 at start, 0 at end
+        return [p.lon, p.lat, t] as [number, number, number];
+      })
+      .filter((p): p is [number, number, number] => p !== null);
+
+    // Future: normalizedT goes 0.0 (at satellite) → 1.0 (furthest)
+    const future: [number, number, number][] = futurePos
+      .map((p, i) => {
+        if (!p || (p.lat === 0 && p.lon === 0)) return null;
+        const t = i / (samples - 1);
+        return [p.lon, p.lat, t] as [number, number, number];
+      })
+      .filter((p): p is [number, number, number] => p !== null);
+
+    return { past, future };
+  } catch {
+    return null;
+  }
+}
+
 function latLonAltToECEF(latDeg: number, lonDeg: number, altKm: number) {
   const latRad = (latDeg * Math.PI) / 180;
   const lonRad = (lonDeg * Math.PI) / 180;
@@ -458,6 +519,7 @@ const api = {
   satrecFromTLE,
   batchPositionFromTLE,
   generateGroundTrack,
+  generateSatelliteTrack,
   computeCollisionDensity,
 };
 

@@ -89,3 +89,14 @@ export interface FilterOptions {
   altDiffThreshKm?: number;
   requireVelocityCheck?: boolean;
 }
+
+export type TrackSegment = {
+  path: [number, number][]; // [lon, lat] pairs, antimeridian-split
+  opacity: number; // 0–1, used as getColor alpha multiplier
+};
+
+export type SatelliteTrack = {
+  satId: number;
+  past: TrackSegment[]; // array because antimeridian split produces N segments
+  future: TrackSegment[]; // same
+};
