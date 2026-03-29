@@ -227,7 +227,7 @@ const RightPanel = memo(function RightPanel({
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs mb-4">
+                    <div className="flex items-center justify-between text-xs mb-3">
                       <span className="font-medium text-cyan-300 uppercase tracking-wider">
                         Collision Density Map
                       </span>
@@ -296,7 +296,7 @@ const RightPanel = memo(function RightPanel({
                               <div className="uppercase tracking-wider text-gray-400">
                                 Top Close Approaches
                               </div>
-                              <div className="max-h-48 overflow-auto space-y-1 pr-1">
+                              <div className="max-h-52 overflow-auto space-y-1 pr-1">
                                 {densityResult.candidatePairs
                                   .slice(0, 10)
                                   .map((pair) => (
