@@ -591,15 +591,12 @@ export default function SatelliteGlobe() {
   );
 
   const selectedReentryRisk = selected
-    ? (reentryRisks.get(selected.id) ??
-      (showReentry
-        ? null
-        : entries.find((e) => e.id === selected.id)
-          ? getReentryRisk(
-              entries.find((e) => e.id === selected.id)!,
-              selected.alt
-            )
-          : null))
+    ? (() => {
+        const fromMap = reentryRisks.get(selected.id);
+        if (fromMap) return fromMap;
+        const entry = entries.find((e) => e.id === selected.id);
+        return entry ? getReentryRisk(entry, selected.alt) : null;
+      })()
     : null;
 
   // ----------------------

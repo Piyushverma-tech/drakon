@@ -36,7 +36,7 @@ type Props = {
   onFocusSatellite: (sat: TleEntry) => void;
 };
 
-const RightPanel = memo(function RightPanel({
+function RightPanel({
   loading,
   stats,
   bandCount,
@@ -474,7 +474,7 @@ const RightPanel = memo(function RightPanel({
       )}
     </div>
   );
-});
+}
 
 export default memo(RightPanel, (prev, next) => {
   return (
