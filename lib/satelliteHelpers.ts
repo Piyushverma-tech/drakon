@@ -95,16 +95,24 @@ export function getOrbitType(meanMotion: number, isDebris?: boolean): string {
 // Parse BSTAR drag term from TLE line 1
 export function parseBSTAR(l1: string): number {
   try {
-    const field = l1.substring(53, 61).trim();
-    if (!field || field === '00000-0' || field === '00000+0') return 0;
+    // TLE line 1, columns 54-61 (1-indexed), 0-indexed: 53-60
+    // Format: ±NNNNN±N where ± is space (positive) or '-' (negative)
+    // Represents: 0.NNNNN × 10^(±N)
+    const raw = l1.substring(53, 61).trim();
+    if (!raw || raw === '00000-0' || raw === '00000+0') return 0;
 
-    // Format: ±NNNNN±N  (no decimal point — implied before the digits)
-    const mantissaSign = field[0] === '-' ? -1 : 1;
-    const mantissa = parseFloat('0.' + field.substring(1, 6)) * mantissaSign;
-    const expSign = field[6] === '-' ? -1 : 1;
-    const exp = parseInt(field[7], 10) * expSign;
+    // Handle both space-for-positive and explicit sign
+    const padded = raw.padStart(8, ' ');
 
-    const result = mantissa * Math.pow(10, exp);
+    const mantissaSign = padded[0] === '-' ? -1 : 1;
+    const mantissaDigits = padded.substring(1, 6); // 5 digits
+    const expSign = padded[6] === '-' ? -1 : 1;
+    const expDigit = parseInt(padded[7], 10);
+
+    if (isNaN(expDigit)) return 0;
+
+    const mantissa = parseFloat('0.' + mantissaDigits) * mantissaSign;
+    const result = mantissa * Math.pow(10, expSign * expDigit);
     return Number.isFinite(result) ? result : 0;
   } catch {
     return 0;
@@ -129,63 +137,73 @@ export function getReentryRisk(
   const altKm =
     currentAltKm ?? estimateAltitudeFromMeanMotion(entry.meanMotion);
 
+  const stable: ReentryRisk = {
+    satId: entry.id,
+    bstar,
+    altKm,
+    decayRateKmPerDay: 0,
+    estimatedDaysRemaining: null,
+    tier: 'stable',
+  };
+
   // GEO / deep space — not re-entering
-  const periodMin = 1440 / entry.meanMotion;
-  if (periodMin > 600 || altKm > 35000) {
-    return {
-      satId: entry.id,
-      bstar,
-      altKm,
-      decayRateKmPerDay: 0,
-      estimatedDaysRemaining: null,
-      tier: 'stable',
-    };
-  }
+  const periodMin = 1440 / Math.max(entry.meanMotion, 0.001);
+  if (periodMin > 600 || altKm > 2000) return stable;
 
-  // No meaningful drag — stable
-  if (Math.abs(bstar) < 1e-6) {
-    return {
-      satId: entry.id,
-      bstar,
-      altKm,
-      decayRateKmPerDay: 0,
-      estimatedDaysRemaining: null,
-      tier: 'stable',
-    };
-  }
+  // Only screen debris and rocket bodies for re-entry risk
+  // Active satellites with propulsion have meaningless BSTAR values
+  const nameUpper = entry.name.toUpperCase();
+  const isRocketBody =
+    nameUpper.includes('R/B') || nameUpper.includes('ROCKET');
+  const isDebrisObject =
+    entry.isDebris || nameUpper.includes('DEB') || nameUpper.includes('DEBRIS');
 
-  // Rough decay rate from BSTAR + velocity
-  // At LEO altitudes, orbital velocity ≈ sqrt(MU / (EARTH_R + alt))
+  const isLikelyActive = !isDebrisObject && !isRocketBody;
+  if (isLikelyActive) return stable;
+
+  // No meaningful drag
+  if (Math.abs(bstar) < 1e-5) return stable;
+
+  // da/dt = -3π × B* × ρ_ref × (a/R_e) × v  [km/day]
+  const R_EARTH = 6378.137;
   const MU = 398600.4418;
-  const v = Math.sqrt(MU / (6371 + altKm)); // km/s
-  // Drag deceleration ≈ BSTAR × v² (km/s² in ECI)
-  // Convert to altitude loss: da/dt ≈ -2a × dv/dt / v (vis-viva)
-  // Simplified: decay rate ∝ bstar × v² × 86400 (seconds per day)
-  const dragAccel = Math.abs(bstar) * v * v; // km/s²
-  const decayRateKmPerDay = dragAccel * 86400 * 0.5;
-  // The 0.5 factor is an empirical fudge — BSTAR alone overestimates
-  // because it doesn't account for atmospheric density variation.
-  // This gives results within the right order of magnitude for screening.
+  const v_km_s = Math.sqrt(MU / (R_EARTH + altKm));
 
-  // Rough lifetime: current altitude above ~120km reentry threshold
-  const reentryAlt = 120; // km — ballpark karman + drag domination
+  // Scale height correction — drag increases exponentially as alt decreases
+  // H ≈ 60km scale height for 300-600km range
+  const H_SCALE = 60;
+  const REF_ALT = 400; // km — reference altitude where formula is calibrated
+  const densityFactor = Math.exp((REF_ALT - altKm) / H_SCALE);
+
+  // Base decay at reference altitude: 1 B* unit → ~7.4e5 km/day
+  // (derived from SGP4 ρ₀ = 2.461e-5 kg/m²/Re, R_earth = 6378km)
+  const BASE_FACTOR = 7.4e5;
+  const decayRateKmPerDay =
+    Math.abs(bstar) * BASE_FACTOR * densityFactor * (v_km_s / 7.905); // normalize to circular velocity at sea level
+
+  // Sanity cap - anything above 20 km/day is data anomaly
+  if (decayRateKmPerDay > 20) return stable;
+
+  const reentryAlt = 120;
   const altAboveReentry = Math.max(0, altKm - reentryAlt);
 
-  let estimatedDaysRemaining: number | null = null;
-  if (decayRateKmPerDay > 0.001) {
-    estimatedDaysRemaining = Math.round(altAboveReentry / decayRateKmPerDay);
-  }
+  if (decayRateKmPerDay < 1e-4) return stable;
+
+  const rawDays = altAboveReentry / decayRateKmPerDay;
+
+  // Beyond 10 years — effectively stable for screening purposes
+  if (rawDays > 3650) return stable;
+
+  const estimatedDaysRemaining = Math.max(1, Math.ceil(rawDays));
 
   const tier: ReentryRisk['tier'] =
-    estimatedDaysRemaining === null
-      ? 'stable'
-      : estimatedDaysRemaining < 30
-        ? 'critical'
-        : estimatedDaysRemaining < 180
-          ? 'warning'
-          : estimatedDaysRemaining < 365
-            ? 'nominal'
-            : 'stable';
+    estimatedDaysRemaining < 30
+      ? 'critical'
+      : estimatedDaysRemaining < 180
+        ? 'warning'
+        : estimatedDaysRemaining < 365
+          ? 'nominal'
+          : 'stable';
 
   return {
     satId: entry.id,

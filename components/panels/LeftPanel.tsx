@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
 import { Satellite, X } from 'lucide-react';
+import { ReentryRisk } from '@/lib/types';
 
 type SelectedMeta = {
   id: number;
@@ -17,6 +18,7 @@ type Props = {
   selected: SelectedMeta | null;
   setSelected: (meta: SelectedMeta | null) => void;
   onClose: () => void;
+  reentryRisk: ReentryRisk | null;
 };
 
 function StatRow({
@@ -53,7 +55,11 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-const LeftPanel = memo(function LeftPanel({ selected, onClose }: Props) {
+const LeftPanel = memo(function LeftPanel({
+  selected,
+  onClose,
+  reentryRisk,
+}: Props) {
   if (!selected) return null;
 
   return (
@@ -122,8 +128,47 @@ const LeftPanel = memo(function LeftPanel({ selected, onClose }: Props) {
           {/* Orbit */}
           <SectionLabel>Orbit</SectionLabel>
           <StatRow label="Type" value={selected.orbitType} accent />
+
+          {/* Re-entry risk */}
+          {reentryRisk && reentryRisk.tier !== 'stable' && (
+            <>
+              <SectionLabel>Re-entry</SectionLabel>
+              <div className="flex items-center justify-between py-1">
+                <span className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">
+                  Risk
+                </span>
+                <span
+                  className={`text-xs font-semibold capitalize ${
+                    reentryRisk.tier === 'critical'
+                      ? 'text-red-400'
+                      : reentryRisk.tier === 'warning'
+                        ? 'text-amber-400'
+                        : 'text-yellow-300'
+                  }`}
+                >
+                  {reentryRisk.tier}
+                </span>
+              </div>
+              {reentryRisk.estimatedDaysRemaining !== null && (
+                <StatRow
+                  label="Est. lifetime"
+                  value={`~${reentryRisk.estimatedDaysRemaining}d`}
+                  accent={reentryRisk.tier === 'critical'}
+                />
+              )}
+              <StatRow
+                label="BSTAR"
+                value={reentryRisk.bstar.toExponential(2)}
+              />
+              <StatRow
+                label="Decay rate"
+                value={`${reentryRisk.decayRateKmPerDay.toFixed(2)} km/day`}
+              />
+            </>
+          )}
+          <SectionLabel>TLE</SectionLabel>
           {selected.tleEpoch && (
-            <StatRow label="TLE Epoch" value={selected.tleEpoch} />
+            <StatRow label="Epoch" value={selected.tleEpoch} />
           )}
         </div>
       </div>
