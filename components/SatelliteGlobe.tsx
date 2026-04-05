@@ -21,6 +21,7 @@ import {
   SatellitePoint,
   BandTrack,
   ReentryRisk,
+  TrackSegment,
 } from '@/lib/types';
 import { X } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
@@ -45,6 +46,7 @@ import {
 import { ForecastOverlay } from './ForeCastOverlay';
 import RightPanel from './panels/RightPanel';
 import LeftPanel from './panels/LeftPanel';
+import { useSelectedSatelliteTrack } from '@/hooks/useSelectedSatelliteTrack';
 
 // ----------------------
 // Types
@@ -116,6 +118,13 @@ export default function SatelliteGlobe() {
       satellites: activeSatellites,
       densityRadiusKm,
     });
+
+  const selectedId = useAppSelector((s) => s.visualization.selectedSatelliteId);
+
+  const { track, trackLoading } = useSelectedSatelliteTrack({
+    entries,
+    selectedId,
+  });
 
   // Strongly typed ref for the Globe instance
   type GlobeHandle = {
@@ -343,6 +352,45 @@ export default function SatelliteGlobe() {
     [showDensity, densityResult, densityRadiusKm]
   );
 
+  // Create path layers for past and future track segments
+  const trackLayers = useMemo(() => {
+    if (!track) return [];
+
+    const makePath = (
+      segments: TrackSegment[],
+      color: [number, number, number],
+      idSuffix: string
+    ) =>
+      segments.map(
+        (seg, i) =>
+          new PathLayer<TrackSegment>({
+            id: `sat-track-${idSuffix}-${i}`,
+            data: [seg],
+            getPath: (d) => d.path,
+            getColor: () =>
+              [...color, Math.round(seg.opacity * 200)] as [
+                number,
+                number,
+                number,
+                number,
+              ],
+            getWidth: 3,
+            widthMinPixels: 1.5,
+            widthMaxPixels: 3.5,
+            widthUnits: 'pixels',
+            opacity: seg.opacity,
+            pickable: false,
+            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+            wrapLongitude: true,
+          })
+      );
+
+    return [
+      ...makePath(track.past, [80, 220, 180], 'past'), // teal
+      ...makePath(track.future, [40, 120, 255], 'future'), // blue
+    ];
+  }, [track]);
+
   const layers = useMemo(
     () => [
       // Inclination band path layer
@@ -360,6 +408,7 @@ export default function SatelliteGlobe() {
           ]
         : []),
       ...densityLayers,
+      ...trackLayers,
       // Main satellite layer
       new ScatterplotLayer<SatellitePoint>({
         id: 'satellite-layer',
@@ -475,6 +524,7 @@ export default function SatelliteGlobe() {
       simulationOffsetHours,
       getSatelliteDensity,
       showReentry,
+      trackLayers,
     ]
   );
 

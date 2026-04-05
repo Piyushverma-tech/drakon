@@ -101,4 +101,13 @@ export type ReentryRisk = {
   // warning   = 30–180 days
   // nominal   = 180–365 days
   // stable    = > 365 days or BSTAR ≈ 0 or GEO
+export type TrackSegment = {
+  path: [number, number][]; // [lon, lat] pairs, antimeridian-split
+  opacity: number; // 0–1, used as getColor alpha multiplier
+};
+
+export type SatelliteTrack = {
+  satId: number;
+  past: TrackSegment[]; // array because antimeridian split produces N segments
+  future: TrackSegment[]; // same
 };

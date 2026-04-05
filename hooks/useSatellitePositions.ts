@@ -37,7 +37,7 @@ function normalizeAltitude(altKm: number): number {
 
 export function useSatellitePositions({
   entries,
-  updateIntervalMs = 10000,
+  updateIntervalMs = 5000,
 }: UseSatellitePositionsOptions) {
   const [satellites, setSatellites] = useState<SatellitePoint[]>([]);
   const [loading, setLoading] = useState(true);
