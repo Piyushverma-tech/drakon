@@ -164,9 +164,6 @@ export function getReentryRisk(
   // No meaningful drag
   if (Math.abs(bstar) < 1e-5) return stable;
 
-  // Filter out active maneuvers
-  if (bstar <= 0) return stable;
-
   // da/dt = -3π × B* × ρ_ref × (a/R_e) × v  [km/day]
   const R_EARTH = 6378.137;
   const MU = 398600.4418;
@@ -187,20 +184,16 @@ export function getReentryRisk(
   // Sanity cap - anything above 20 km/day is data anomaly
   if (decayRateKmPerDay > 20) return stable;
 
-  const reentryAlt = 120;
-  const altAboveReentry = Math.max(0, altKm - reentryAlt);
-
+  const altAboveReentry = Math.max(0, altKm - 120);
   if (decayRateKmPerDay < 1e-4) return stable;
-
-  const rawDays = altAboveReentry / decayRateKmPerDay;
-
-  // Beyond 10 years — effectively stable for screening purposes
-  if (rawDays > 3650) return stable;
 
   // Atmospheric density increases as altitude decreases.
   // Use 0.67 as a standard "Drag Acceleration" multiplier.
   const linearDays = altAboveReentry / decayRateKmPerDay;
-  const estimatedDaysRemaining = Math.max(1, Math.ceil(linearDays * 0.6));
+  if (linearDays > 3650) return stable;
+
+  // 2/3 correction: accounts for increasing drag as altitude decreases.
+  const estimatedDaysRemaining = Math.max(1, Math.ceil(linearDays * (2 / 3)));
 
   const tier: ReentryRisk['tier'] =
     estimatedDaysRemaining < 30
