@@ -90,6 +90,18 @@ export interface FilterOptions {
   requireVelocityCheck?: boolean;
 }
 
+export type ReentryRisk = {
+  satId: number;
+  bstar: number; // raw BSTAR drag term
+  altKm: number; // current altitude (from meanMotion)
+  decayRateKmPerDay: number; // estimated altitude loss per day
+  estimatedDaysRemaining: number | null; // null = stable / indeterminate
+  tier: 'critical' | 'warning' | 'nominal' | 'stable';
+  // critical  = < 30 days
+  // warning   = 30–180 days
+  // nominal   = 180–365 days
+  // stable    = > 365 days or BSTAR ≈ 0 or GEO
+};
 export type TrackSegment = {
   path: [number, number][]; // [lon, lat] pairs, antimeridian-split
   opacity: number; // 0–1, used as getColor alpha multiplier

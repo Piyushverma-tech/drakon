@@ -20,6 +20,8 @@ export type VisualizationState = {
   simulationOffsetHours: number; // 0 = live
   isSimulating: boolean; // derived: offset > 0
   simLoading: boolean;
+
+  showReentry: boolean;
 };
 
 const initialState: VisualizationState = {
@@ -34,6 +36,7 @@ const initialState: VisualizationState = {
   simulationOffsetHours: 0,
   isSimulating: false,
   simLoading: false,
+  showReentry: false,
 };
 
 const visualizationSlice = createSlice({
@@ -59,6 +62,7 @@ const visualizationSlice = createSlice({
       // disable density when bands are enabled
       if (action.payload) {
         state.showDensity = false;
+        state.showReentry = false;
       }
     },
     setBandInclination(state, action: PayloadAction<number>) {
@@ -72,6 +76,7 @@ const visualizationSlice = createSlice({
       // disable bands when density is enabled
       if (action.payload) {
         state.showBands = false;
+        state.showReentry = false;
       }
     },
     setDensityRadiusKm(state, action: PayloadAction<number>) {
@@ -92,6 +97,14 @@ const visualizationSlice = createSlice({
     setSimLoading(state, action: PayloadAction<boolean>) {
       state.simLoading = action.payload;
     },
+    setShowReentry(state, action: PayloadAction<boolean>) {
+      state.showReentry = action.payload;
+      // disable bands when reentry is enabled
+      if (action.payload) {
+        state.showBands = false;
+        state.showDensity = false;
+      }
+    },
   },
 });
 
@@ -108,6 +121,7 @@ export const {
   setSimulationOffset,
   resetSimulation,
   setSimLoading,
+  setShowReentry,
 } = visualizationSlice.actions;
 
 export default visualizationSlice.reducer;

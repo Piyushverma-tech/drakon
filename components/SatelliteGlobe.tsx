@@ -20,6 +20,7 @@ import {
   TleEntry,
   SatellitePoint,
   BandTrack,
+  ReentryRisk,
   TrackSegment,
 } from '@/lib/types';
 import { X } from 'lucide-react';
@@ -32,6 +33,7 @@ import {
   velocityFromTLE,
   classifyOrbit,
   getOrbitType,
+  getReentryRisk,
 } from '@/lib/satelliteHelpers';
 import { useSatellitePositions } from '@/hooks/useSatellitePositions';
 import { useInclinationBands } from '@/hooks/useInclinationBands';
@@ -70,6 +72,7 @@ export default function SatelliteGlobe() {
   const dispatch = useAppDispatch();
   const searchResults = useAppSelector((state) => state.tle.searchResults);
   const entries = useAppSelector((state) => state.tle.entries);
+  const { showReentry } = useAppSelector((s) => s.visualization);
 
   // Redux state
   const {
@@ -239,6 +242,24 @@ export default function SatelliteGlobe() {
     };
   }, [entries, filteredSatellites.length, activeSatellites.length]);
 
+  // Uses estimated altitude from meanMotion
+  const reentryRisks = useMemo((): Map<number, ReentryRisk> => {
+    if (!showReentry) return new Map();
+    const map = new Map<number, ReentryRisk>();
+    for (const entry of entries) {
+      const risk = getReentryRisk(entry); // no currentAltKm arg — uses meanMotion
+      if (risk.tier !== 'stable') {
+        map.set(entry.id, risk);
+      }
+    }
+    return map;
+  }, [showReentry, entries]);
+
+  const reentryRisksRef = useRef(reentryRisks);
+  useEffect(() => {
+    reentryRisksRef.current = reentryRisks;
+  }, [reentryRisks]);
+
   // ----------------------
   // Layers
   // ----------------------
@@ -395,13 +416,26 @@ export default function SatelliteGlobe() {
         getPosition: (d) => [d.lon, d.lat, d.alt * 300],
         getFillColor: (d): [number, number, number, number] => {
           if (d.id === selected?.id) return [0, 150, 255, 255];
-          if (showBands && bandSatelliteIds.has(d.id)) {
+          if (showBands) {
             // Highlight satellites in current band
-            return [0, 255, 255, 220];
+            const inBand = bandSatelliteIds.has(d.id);
+            if (inBand) return [0, 255, 255, 220];
+            // Dim everything else
+            return [60, 60, 80, 100];
           }
           if (showDensity) {
             const density = getSatelliteDensity(d.id);
             return getDensityBasedColor(density);
+          }
+          //For reentry mode
+          if (showReentry) {
+            const risk = reentryRisksRef.current.get(d.id);
+            if (risk) {
+              if (risk.tier === 'critical') return [255, 60, 40, 230]; // red-orange
+              if (risk.tier === 'warning') return [255, 160, 30, 210]; // amber
+              if (risk.tier === 'nominal') return [255, 220, 80, 180]; // yellow
+            }
+            return [60, 60, 80, 100]; // dim everything else
           }
 
           // Normal orbit-based coloring when density map is off
@@ -415,8 +449,12 @@ export default function SatelliteGlobe() {
           if (showBands && bandSatelliteIds.has(d.id)) {
             return d.isDebris ? 40000 : 90000;
           }
+          if (showReentry && reentryRisksRef.current.has(d.id)) {
+            return 60000; // All are debris & rocket bodies
+          }
           // Slightly increase size for satellites in dense regions
           const baseRadius = d.isDebris ? 30000 : 70000;
+
           if (showDensity) {
             const density = getSatelliteDensity(d.id);
             if (density > 0) {
@@ -485,6 +523,7 @@ export default function SatelliteGlobe() {
       entries,
       simulationOffsetHours,
       getSatelliteDensity,
+      showReentry,
       trackLayers,
     ]
   );
@@ -550,6 +589,18 @@ export default function SatelliteGlobe() {
     () => dispatch(resetSimulation()),
     [dispatch]
   );
+
+  const selectedReentryRisk = selected
+    ? (reentryRisks.get(selected.id) ??
+      (showReentry
+        ? null
+        : entries.find((e) => e.id === selected.id)
+          ? getReentryRisk(
+              entries.find((e) => e.id === selected.id)!,
+              selected.alt
+            )
+          : null))
+    : null;
 
   // ----------------------
   // UI
@@ -630,6 +681,7 @@ export default function SatelliteGlobe() {
         selected={selected}
         setSelected={setSelected}
         onClose={handleDeselectSatellite}
+        reentryRisk={selectedReentryRisk}
       />
       {/* Right Panel */}
       <RightPanel
@@ -642,6 +694,9 @@ export default function SatelliteGlobe() {
         densityLoading={densityLoading}
         densityError={densityError}
         formatDistance={formatDistance}
+        reentryRisks={reentryRisks}
+        showReentry={showReentry}
+        onFocusSatellite={focusSatellite}
       />
     </div>
   );

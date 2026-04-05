@@ -1,5 +1,5 @@
 import { useAppDispatch, useAppSelector } from '@/lib/store';
-import { DensityResult } from '@/lib/types';
+import { DensityResult, ReentryRisk, TleEntry } from '@/lib/types';
 import {
   setBandInclination,
   setBandTolerance,
@@ -7,6 +7,7 @@ import {
   setOverviewExpanded,
   setShowBands,
   setShowDensity,
+  setShowReentry,
   toggleFilter,
 } from '@/lib/visualization-slice';
 import { ArrowBigDown, ArrowBigUp } from 'lucide-react';
@@ -30,6 +31,9 @@ type Props = {
   densityLoading: boolean;
   densityError: string | null;
   formatDistance: (d: number) => string;
+  reentryRisks: Map<number, ReentryRisk>;
+  showReentry: boolean;
+  onFocusSatellite: (sat: TleEntry) => void;
 };
 
 const RightPanel = memo(function RightPanel({
@@ -42,6 +46,9 @@ const RightPanel = memo(function RightPanel({
   densityLoading,
   densityError,
   formatDistance,
+  reentryRisks,
+  showReentry,
+  onFocusSatellite,
 }: Props) {
   const dispatch = useAppDispatch();
   const {
@@ -53,6 +60,7 @@ const RightPanel = memo(function RightPanel({
     showDensity,
     densityRadiusKm,
   } = useAppSelector((state) => state.visualization);
+  const entries = useAppSelector((state) => state.tle.entries);
 
   const activeFiltersSet = new Set(activeFilters);
 
@@ -219,6 +227,123 @@ const RightPanel = memo(function RightPanel({
                   </div>
                 )}
               </div>
+              {/* Re-entry Risk Screening */}
+              <div className="mt-2 border-t border-gray-700/60 pt-2">
+                <div className="flex items-center justify-between text-xs mb-3">
+                  <span className="font-medium text-cyan-300 uppercase tracking-wider">
+                    Re-entry Risk
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => dispatch(setShowReentry(!showReentry))}
+                    className={`px-2 py-0.5 rounded text-[11px] border transition-colors cursor-pointer ${
+                      showReentry
+                        ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/60'
+                        : 'bg-gray-800/60 text-gray-300 border-gray-600 hover:bg-gray-700/60'
+                    }`}
+                  >
+                    {showReentry ? 'On' : 'Off'}
+                  </button>
+                </div>
+
+                {showReentry && (
+                  <div className="space-y-2 text-[11px] text-gray-300">
+                    {/* Summary counts */}
+                    <div className="grid grid-cols-3 gap-1 text-center">
+                      {(['critical', 'warning', 'nominal'] as const).map(
+                        (tier) => {
+                          const count = [...reentryRisks.values()].filter(
+                            (r) => r.tier === tier
+                          ).length;
+                          const colors = {
+                            critical: 'text-red-400',
+                            warning: 'text-amber-400',
+                            nominal: 'text-yellow-300',
+                          };
+                          return (
+                            <div
+                              key={tier}
+                              className="rounded border border-gray-700/60 px-1 py-1.5"
+                            >
+                              <div
+                                className={`text-sm font-semibold ${colors[tier]}`}
+                              >
+                                {count}
+                              </div>
+                              <div className="text-[9px] text-gray-400 capitalize">
+                                {tier}
+                              </div>
+                            </div>
+                          );
+                        }
+                      )}
+                    </div>
+
+                    {/* Disclaimer */}
+                    <div className="text-[9px] text-gray-500 leading-relaxed">
+                      Estimates from BSTAR drag term only. Accuracy ±order of
+                      magnitude. Solar activity not modeled.
+                    </div>
+
+                    {/* Top at-risk list */}
+                    {reentryRisks.size > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <div className="uppercase tracking-wider text-gray-400 text-[10px]">
+                          Soonest re-entry
+                        </div>
+                        <div className="max-h-52 overflow-auto space-y-1 pr-1">
+                          {[...reentryRisks.values()]
+                            .filter((r) => r.estimatedDaysRemaining !== null)
+                            .sort(
+                              (a, b) =>
+                                (a.estimatedDaysRemaining ?? Infinity) -
+                                (b.estimatedDaysRemaining ?? Infinity)
+                            )
+                            .slice(0, 10)
+                            .map((risk) => {
+                              const entry = entries.find(
+                                (e) => e.id === risk.satId
+                              );
+                              const tierColor =
+                                risk.tier === 'critical'
+                                  ? 'text-red-400'
+                                  : risk.tier === 'warning'
+                                    ? 'text-amber-400'
+                                    : 'text-yellow-300';
+
+                              return (
+                                <div
+                                  key={risk.satId}
+                                  className="flex items-center justify-between rounded border border-gray-700/60 px-2 py-1 cursor-pointer hover:border-cyan-400/30 hover:bg-cyan-500/10 transition-colors"
+                                  onClick={() =>
+                                    entry && onFocusSatellite(entry)
+                                  }
+                                >
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="text-gray-200 truncate text-[10px]">
+                                      {entry?.name ?? `#${risk.satId}`}
+                                    </span>
+                                    <span className="text-[9px] text-gray-400">
+                                      {Math.round(risk.altKm)} km alt
+                                    </span>
+                                  </div>
+
+                                  <div
+                                    className={`text-right shrink-0 ml-2 ${tierColor}`}
+                                  >
+                                    {risk.estimatedDaysRemaining === 0
+                                      ? '<1d'
+                                      : `~${risk.estimatedDaysRemaining}d`}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               {/* Collision Density Map */}
               <div className="mt-2 border-t border-gray-700/60 pt-2">
                 {loading ? (
@@ -227,7 +352,7 @@ const RightPanel = memo(function RightPanel({
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs mb-3">
+                    <div className="flex items-center justify-between text-xs mb-2">
                       <span className="font-medium text-cyan-300 uppercase tracking-wider">
                         Collision Density Map
                       </span>
@@ -245,7 +370,7 @@ const RightPanel = memo(function RightPanel({
                     </div>
 
                     {showDensity && (
-                      <div className="space-y-2 text-[11px] text-gray-300">
+                      <div className="space-y-2 mt-3 text-[11px] text-gray-300">
                         <div className="flex items-center justify-between">
                           <span>Detection Radius</span>
                           <span>{densityRadiusKm.toFixed(0)} km</span>
@@ -292,41 +417,49 @@ const RightPanel = memo(function RightPanel({
                         </div>
                         {densityResult &&
                           densityResult.candidatePairs.length > 0 && (
-                            <div className="mt-4 space-y-1 text-[10px] text-gray-300">
+                            <div className="mt-3 space-y-1 text-[10px] text-gray-300">
                               <div className="uppercase tracking-wider text-gray-400">
                                 Top Close Approaches
                               </div>
-                              <div className="max-h-52 overflow-auto space-y-1 pr-1">
+                              <div className="max-h-40 overflow-auto space-y-1 pr-1">
                                 {densityResult.candidatePairs
                                   .slice(0, 10)
-                                  .map((pair) => (
-                                    <div
-                                      key={`${pair.idA}-${pair.idB}`}
-                                      className="flex items-center justify-between rounded border border-gray-700/60 px-2 py-1"
-                                    >
-                                      <div className="flex flex-col text-gray-200">
-                                        <span>
-                                          #{pair.idA} ↔ #{pair.idB}
-                                        </span>
-                                        <span className="text-[9px] text-gray-400">
-                                          Alt {Math.round(pair.altitudeA)} /{' '}
-                                          {Math.round(pair.altitudeB)} km
-                                        </span>
+                                  .map((pair) => {
+                                    const entryA = entries.find(
+                                      (e) => e.id === pair.idA
+                                    );
+                                    return (
+                                      <div
+                                        key={`${pair.idA}-${pair.idB}`}
+                                        onClick={() =>
+                                          entryA && onFocusSatellite(entryA)
+                                        }
+                                        className="flex items-center justify-between rounded border cursor-pointer border-gray-700/60 px-2 py-1 hover:border-cyan-400/30 hover:bg-cyan-500/10 transition-colors"
+                                      >
+                                        <div className="flex flex-col text-gray-200">
+                                          <span>
+                                            #{pair.idA} ↔ #{pair.idB}
+                                          </span>
+                                          <span className="text-[9px] text-gray-400">
+                                            Alt {Math.round(pair.altitudeA)} /{' '}
+                                            {Math.round(pair.altitudeB)} km
+                                          </span>
+                                        </div>
+                                        <div className="text-right">
+                                          <span
+                                            className={
+                                              pair.distanceKm <=
+                                              densityRadiusKm / 2
+                                                ? 'text-red-300'
+                                                : 'text-cyan-200'
+                                            }
+                                          >
+                                            {formatDistance(pair.distanceKm)}
+                                          </span>
+                                        </div>
                                       </div>
-                                      <div className="text-right">
-                                        <span
-                                          className={
-                                            pair.distanceKm <=
-                                            densityRadiusKm / 2
-                                              ? 'text-red-300'
-                                              : 'text-cyan-200'
-                                          }
-                                        >
-                                          {formatDistance(pair.distanceKm)}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                               </div>
                             </div>
                           )}
@@ -357,6 +490,8 @@ export default memo(RightPanel, (prev, next) => {
     prev.stats.geo === next.stats.geo &&
     prev.stats.debris === next.stats.debris &&
     prev.stats.total === next.stats.total &&
-    prev.stats.filtered === next.stats.filtered
+    prev.stats.filtered === next.stats.filtered &&
+    prev.showReentry === next.showReentry &&
+    prev.reentryRisks === next.reentryRisks
   );
 });
