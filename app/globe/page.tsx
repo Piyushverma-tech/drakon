@@ -4,10 +4,7 @@ import Link from 'next/link';
 import { ArrowLeft, Search } from 'lucide-react';
 import Image from 'next/image';
 import { useAppSelector, useAppDispatch } from '@/lib/store';
-import {
-  setSearchQuery,
-  setSearchResults,
-} from '@/lib/tle-slice';
+import { setSearchQuery, setSearchResults } from '@/lib/tle-slice';
 
 function GlobeContent() {
   const dispatch = useAppDispatch();
@@ -39,7 +36,7 @@ function GlobeContent() {
       {/* Content */}
       <div className="relative z-10 p-2">
         {/* Header */}
-        <div className="flex items-center justify-between px-3 mb-4">
+        <div className="flex items-center justify-between px-3 mb-3">
           <Link
             href="/dashboard"
             className="flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-md border border-gray-400/30 rounded-md p-3 transition-all"

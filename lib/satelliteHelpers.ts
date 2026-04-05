@@ -164,6 +164,9 @@ export function getReentryRisk(
   // No meaningful drag
   if (Math.abs(bstar) < 1e-5) return stable;
 
+  // Filter out active maneuvers
+  if (bstar <= 0) return stable;
+
   // da/dt = -3π × B* × ρ_ref × (a/R_e) × v  [km/day]
   const R_EARTH = 6378.137;
   const MU = 398600.4418;
@@ -194,7 +197,10 @@ export function getReentryRisk(
   // Beyond 10 years — effectively stable for screening purposes
   if (rawDays > 3650) return stable;
 
-  const estimatedDaysRemaining = Math.max(1, Math.ceil(rawDays));
+  // Atmospheric density increases as altitude decreases.
+  // Use 0.67 as a standard "Drag Acceleration" multiplier.
+  const linearDays = altAboveReentry / decayRateKmPerDay;
+  const estimatedDaysRemaining = Math.max(1, Math.ceil(linearDays * 0.6));
 
   const tier: ReentryRisk['tier'] =
     estimatedDaysRemaining < 30

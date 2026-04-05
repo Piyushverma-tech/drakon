@@ -368,7 +368,7 @@ export default function SatelliteGlobe() {
             data: [seg],
             getPath: (d) => d.path,
             getColor: () =>
-              [...color, Math.round(seg.opacity * 200)] as [
+              [...color, Math.round(seg.opacity * 100)] as [
                 number,
                 number,
                 number,
