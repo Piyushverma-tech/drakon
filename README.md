@@ -226,11 +226,15 @@ Real-time spatial analysis for identifying crowded orbital regions and potential
 - ✅ Ground track generation
 - ✅ Collision density computation
 - ✅ Predictive time simulation
+- ✅ Re-entry Risk Screening
 - 🔄 Conjunction screening (in progress)
 - 🔄 Large collision search loops (in progress)
 
 **Future Enhancements:**
 
+- Solar activity (F10.7 flux) correction to re-entry estimates
+- Multi-epoch BSTAR trending (schema already defined)
+- Conjunction screening with CDM data from Space-Track (requires backend job + account)
 - LRU/TTL cache or IndexedDB for persistence across reloads
 - Transferable ArrayBuffers for very large batches
 - Predictive density analysis with time projection
