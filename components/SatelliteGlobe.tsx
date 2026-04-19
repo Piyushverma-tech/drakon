@@ -146,49 +146,50 @@ export default function SatelliteGlobe() {
       return;
     }
 
-    const groups = [
-      'active',
-      '1999-025',
-      'iridium-33-debris',
-      'cosmos-2251-debris',
-    ];
+    // const groups = [
+    //   'active',
+    //   '1999-025',
+    //   'iridium-33-debris',
+    //   'cosmos-2251-debris',
+    // ];
     let cancelled = false;
 
     async function fetchAllTLEs() {
       const allEntries: TleEntry[] = [];
 
-      for (const group of groups) {
-        try {
-          const res = await fetch(`/api/tle?group=${group}`);
-          const tleText = await res.text();
-          const lines = tleText.split(/\r?\n/).filter(Boolean);
+      try {
+        const res = await fetch('/api/tle');
+        const tleText = await res.text();
+        const lines = tleText.split(/\r?\n/).filter(Boolean);
 
-          for (let i = 0; i + 2 < lines.length; i += 3) {
-            const name = lines[i];
-            const l1 = lines[i + 1];
-            const l2 = lines[i + 2];
-            const id = Number(l1.substring(2, 7));
+        for (let i = 0; i + 2 < lines.length; i += 3) {
+          const name = lines[i].trim();
+          const l1 = lines[i + 1];
+          const l2 = lines[i + 2];
 
-            if (!Number.isFinite(id)) continue;
+          // Skip if not valid TLE lines
+          if (!l1.startsWith('1 ') || !l2.startsWith('2 ')) continue;
 
-            const isDebris =
-              name.toLowerCase().includes('debris') ||
-              name.toLowerCase().includes('cosmos') ||
-              name.toLowerCase().includes('iridium');
+          const id = Number(l1.substring(2, 7));
+          if (!Number.isFinite(id)) continue;
 
-            allEntries.push({
-              id,
-              name,
-              operator: name.split('-')[0],
-              l1,
-              l2,
-              ...parseTLEMeta(l1, l2),
-              isDebris,
-            });
-          }
-        } catch (err) {
-          console.error(`Error loading ${group}`, err);
+          const isDebris =
+            name.toLowerCase().includes('debris') ||
+            name.toLowerCase().includes('cosmos') ||
+            name.toLowerCase().includes('iridium');
+
+          allEntries.push({
+            id,
+            name,
+            operator: name.split('-')[0],
+            l1,
+            l2,
+            ...parseTLEMeta(l1, l2),
+            isDebris,
+          });
         }
+      } catch (err) {
+        console.error('Error loading TLEs:', err);
       }
 
       if (cancelled) return;
