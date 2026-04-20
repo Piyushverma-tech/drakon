@@ -1,40 +1,125 @@
 import { NextResponse } from 'next/server';
+import redis from '@/lib/redis';
 
-// Proxy TLEs from Celestrak. Supports multiple groups and a limit.
-// Examples:
-//   /api/tle?group=visual
-//   /api/tle?group=starlink&group=oneweb
-//   /api/tle?group=1999-025   (Cosmos-2251 debris)
-//   /api/tle?group=iridium-33-debris
-//   /api/tle?group=active&limit=1000
+const GROUPS = [
+  'active',
+  '1999-025',
+  'iridium-33-debris',
+  'cosmos-2251-debris',
+];
+const CACHE_KEY = 'tle:combined';
+const STALE_CACHE_KEY = 'tle:combined:stale';
+const CACHE_TTL_SECONDS = 7200;
+
+// Upstash JSON-encodes all values, which can escape newlines in multiline strings.
+// This normalizes them back to real newline characters.
+function normalizeNewlines(str: string): string {
+  return str
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\n');
+}
+
+async function fetchFromCelestrak(
+  groups: string[],
+  format: string
+): Promise<string> {
+  const results: string[] = [];
+  for (const g of groups) {
+    try {
+      const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${encodeURIComponent(g)}&FORMAT=${format}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (res.ok) {
+        results.push(await res.text());
+      } else {
+        console.warn(`[TLE] Celestrak returned ${res.status} for group ${g}`);
+      }
+    } catch (err) {
+      console.error(`[TLE] Failed to fetch group ${g}:`, err);
+    }
+    await new Promise((r) => setTimeout(r, 1100));
+  }
+  return results.filter(Boolean).join('\n');
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const groups = searchParams.getAll('group');
   const format = searchParams.get('format') || 'tle';
+  const effectiveGroups = groups.length > 0 ? groups : GROUPS;
 
-  const effectiveGroups =
-    groups.length > 0 ? groups : ['active', '1999-025', 'iridium-33-debris', 'cosmos-2251-debris' ]; // default small set
-  
-  try {
-    const results = [];
-    for (const g of effectiveGroups) {
-      const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${encodeURIComponent(
-        g
-      )}&FORMAT=${format}`;
-      const res = await fetch(url, { cache: 'no-store' });
-      if (res.ok) {
-        results.push(await res.text());
+  const isDefaultGroups =
+    JSON.stringify([...effectiveGroups].sort()) ===
+    JSON.stringify([...GROUPS].sort());
+
+  // Step 1: Try Redis cache
+  if (isDefaultGroups) {
+    try {
+      const cached = await redis.get<string>(CACHE_KEY);
+      if (cached && cached.trim()) {
+        console.log(`[TLE] Cache HIT (${cached.length} bytes)`);
+        return new NextResponse(normalizeNewlines(cached), {
+          headers: {
+            'content-type': 'text/plain',
+            'x-cache': 'HIT',
+          },
+        });
       }
-      // Small delay to avoid rate limiting
-      await new Promise((r) => setTimeout(r, 200));
+      console.log('[TLE] Cache MISS');
+    } catch (err) {
+      console.warn('[TLE] Redis GET failed:', err);
+    }
+  }
+
+  // Step 2: Fetch from Celestrak
+  const combined = await fetchFromCelestrak(effectiveGroups, format);
+
+  if (!combined.trim()) {
+    // Celestrak blocked — serve stale
+    console.warn('[TLE] Celestrak empty — trying stale cache');
+    try {
+      const stale = await redis.get<string>(STALE_CACHE_KEY);
+      // Log first 200 chars to diagnose newline encoding
+      console.log(
+        '[TLE] Stale sample:',
+        JSON.stringify((stale ?? '').substring(0, 200))
+      );
+      if (stale && stale.trim()) {
+        console.warn('[TLE] Serving stale TLE data');
+        return new NextResponse(normalizeNewlines(stale), {
+          headers: {
+            'content-type': 'text/plain',
+            'x-cache': 'STALE',
+          },
+        });
+      }
+    } catch (err) {
+      console.warn('[TLE] Stale cache read failed:', err);
     }
 
-    const combined = results.filter(Boolean).join('\n');
-    return new NextResponse(combined, {
-      headers: { 'content-type': 'text/plain' },
-    });
-  } catch (err) {
-    console.error('Error fetching TLE data', err);
-    return NextResponse.json({ error: 'failed to fetch tle' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'No TLE data available from Celestrak or cache' },
+      { status: 502 }
+    );
   }
+
+  // Step 3: Fresh data — write cache
+  if (isDefaultGroups) {
+    try {
+      await redis.set(CACHE_KEY, combined, { ex: CACHE_TTL_SECONDS });
+      await redis.set(STALE_CACHE_KEY, combined);
+      console.log(
+        `[TLE] Cached ${combined.length} bytes, TTL ${CACHE_TTL_SECONDS}s`
+      );
+    } catch (err) {
+      console.warn('[TLE] Cache write failed:', err);
+    }
+  }
+
+  return new NextResponse(combined, {
+    headers: {
+      'content-type': 'text/plain',
+      'x-cache': 'MISS',
+    },
+  });
 }
