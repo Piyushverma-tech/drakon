@@ -3,29 +3,30 @@ import SatelliteGlobe from '@/components/SatelliteGlobe';
 import Link from 'next/link';
 import { ArrowLeft, Search } from 'lucide-react';
 import Image from 'next/image';
-import { useAppSelector, useAppDispatch } from '@/lib/store';
-import { setSearchQuery, setSearchResults } from '@/lib/tle-slice';
+import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
+import { useMemo, useState } from 'react';
+import type { TleEntry } from '@/lib/types';
+
+const EMPTY_ENTRIES: TleEntry[] = [];
 
 function GlobeContent() {
-  const dispatch = useAppDispatch();
-  const searchQuery = useAppSelector((state) => state.tle.searchQuery);
-  const entries = useAppSelector((state) => state.tle.entries);
+  const [searchQuery, setSearchQuery] = useState('');
+  const { data: queriedEntries } = useTleEntriesQuery();
+  const entries = queriedEntries ?? EMPTY_ENTRIES;
 
-  function handleSearch(query: string) {
-    dispatch(setSearchQuery(query));
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
 
-    if (!query.trim()) {
-      dispatch(setSearchResults([]));
-      return;
-    }
+    return entries
+      .filter(
+        (e) => e.name.toLowerCase().includes(query) || e.id.toString().includes(query)
+      )
+      .slice(0, 20);
+  }, [entries, searchQuery]);
 
-    const q = query.toLowerCase();
-
-    const results = entries.filter(
-      (e) => e.name.toLowerCase().includes(q) || e.id.toString().includes(q)
-    );
-
-    dispatch(setSearchResults(results.slice(0, 20)));
+  function handleClearSearch() {
+    setSearchQuery('');
   }
 
   return (
@@ -54,7 +55,7 @@ function GlobeContent() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <input
               value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name or NORAD ID..."
               className="w-full h-8 pl-9 pr-3 rounded-md bg-secondary border-none text-sm focus:outline-none focus:ring-1 focus:ring-cyan-700"
             />
@@ -65,7 +66,10 @@ function GlobeContent() {
 
         {/* Globe Container */}
         <div className="h-[90vh] overflow-hidden ">
-          <SatelliteGlobe />
+          <SatelliteGlobe
+            searchResults={searchResults}
+            onClearSearch={handleClearSearch}
+          />
         </div>
       </div>
 

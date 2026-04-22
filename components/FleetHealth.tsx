@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useMemo, useEffect, useState, useCallback } from 'react';
-import { useAppSelector } from '@/lib/store';
 import {
   assessSatelliteHealth,
   assessSatelliteHealthAsync,
@@ -21,6 +20,7 @@ import {
   YAxis,
   Tooltip,
 } from 'recharts';
+import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 
 // ----------------------
 // Donut Chart Component using Recharts
@@ -168,7 +168,8 @@ function HealthTrendline({ data, maxPoints = 20 }: TrendlineProps) {
 // Main Component
 // ----------------------
 export default function FleetHealth() {
-  const entries = useAppSelector((state) => state.tle.entries);
+  const { data: queriedEntries } = useTleEntriesQuery();
+  const entries = queriedEntries ?? [];
   const [healthStatuses, setHealthStatuses] = useState<SatelliteHealth[]>([]);
   const [healthHistory, setHealthHistory] = useState<
     Array<{ timestamp: number; value: number }>

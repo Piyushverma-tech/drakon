@@ -13,6 +13,7 @@ import {
 import { ArrowBigDown, ArrowBigUp } from 'lucide-react';
 import { memo } from 'react';
 import DensityLegend from '../DensityLegend';
+import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 
 type Props = {
   loading: boolean;
@@ -60,7 +61,8 @@ function RightPanel({
     showDensity,
     densityRadiusKm,
   } = useAppSelector((state) => state.visualization);
-  const entries = useAppSelector((state) => state.tle.entries);
+  const { data: queriedEntries } = useTleEntriesQuery();
+  const entries = queriedEntries ?? [];
 
   const activeFiltersSet = new Set(activeFilters);
 

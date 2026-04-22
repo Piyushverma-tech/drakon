@@ -25,11 +25,9 @@ import {
 } from '@/lib/types';
 import { X } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
-import { setEntries, clearSearch } from '@/lib/tle-slice';
 import { setSelectedSatelliteId } from '@/lib/visualization-slice';
 import {
   formatDistance,
-  parseTLEMeta,
   velocityFromTLE,
   classifyOrbit,
   getOrbitType,
@@ -47,6 +45,7 @@ import { ForecastOverlay } from './ForeCastOverlay';
 import RightPanel from './panels/RightPanel';
 import LeftPanel from './panels/LeftPanel';
 import { useSelectedSatelliteTrack } from '@/hooks/useSelectedSatelliteTrack';
+import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 
 // ----------------------
 // Types
@@ -64,15 +63,24 @@ type SelectedMeta = {
 };
 
 type CandidatePairDatum = DensityResult['candidatePairs'][number];
+const EMPTY_ENTRIES: TleEntry[] = [];
+
+type Props = {
+  searchResults?: TleEntry[];
+  onClearSearch?: () => void;
+};
 
 // ----------------------
 // Main Component
 // ----------------------
-export default function SatelliteGlobe() {
+export default function SatelliteGlobe({
+  searchResults = EMPTY_ENTRIES,
+  onClearSearch,
+}: Props) {
   const dispatch = useAppDispatch();
-  const searchResults = useAppSelector((state) => state.tle.searchResults);
-  const entries = useAppSelector((state) => state.tle.entries);
   const { showReentry } = useAppSelector((s) => s.visualization);
+  const { data: queriedEntries } = useTleEntriesQuery();
+  const entries = queriedEntries ?? EMPTY_ENTRIES;
 
   // Redux state
   const {
@@ -139,69 +147,6 @@ export default function SatelliteGlobe() {
   } | null;
 
   const globeRef = useRef<GlobeHandle>(null);
-
-  // Fetch TLEs once into Redux
-  useEffect(() => {
-    if (entries.length > 0) {
-      return;
-    }
-
-    // const groups = [
-    //   'active',
-    //   '1999-025',
-    //   'iridium-33-debris',
-    //   'cosmos-2251-debris',
-    // ];
-    let cancelled = false;
-
-    async function fetchAllTLEs() {
-      const allEntries: TleEntry[] = [];
-
-      try {
-        const res = await fetch('/api/tle');
-        const tleText = await res.text();
-        const lines = tleText.split(/\r?\n/).filter(Boolean);
-
-        for (let i = 0; i + 2 < lines.length; i += 3) {
-          const name = lines[i].trim();
-          const l1 = lines[i + 1];
-          const l2 = lines[i + 2];
-
-          // Skip if not valid TLE lines
-          if (!l1.startsWith('1 ') || !l2.startsWith('2 ')) continue;
-
-          const id = Number(l1.substring(2, 7));
-          if (!Number.isFinite(id)) continue;
-
-          const isDebris =
-            name.toLowerCase().includes('debris') ||
-            name.toLowerCase().includes('cosmos') ||
-            name.toLowerCase().includes('iridium');
-
-          allEntries.push({
-            id,
-            name,
-            operator: name.split('-')[0],
-            l1,
-            l2,
-            ...parseTLEMeta(l1, l2),
-            isDebris,
-          });
-        }
-      } catch (err) {
-        console.error('Error loading TLEs:', err);
-      }
-
-      if (cancelled) return;
-      dispatch(setEntries(allEntries));
-    }
-
-    fetchAllTLEs();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [dispatch, entries.length]);
 
   // Filter satellites based on active filters
   const activeFiltersSet = useMemo(
@@ -607,7 +552,7 @@ export default function SatelliteGlobe() {
     <div className="relative w-full h-full flex">
       <Globe ref={globeRef} layers={layers} />
 
-      {searchResults && searchResults.length > 0 && (
+      {searchResults.length > 0 && (
         <div className="absolute top-0 left-1/2 transform -translate-x-1/2 z-20">
           {/* Corner accents */}
           <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
@@ -622,9 +567,7 @@ export default function SatelliteGlobe() {
               <X
                 className="absolute top-2 right-2 cursor-pointer text-gray-400 hover:text-white transition-colors"
                 size={18}
-                onClick={() => {
-                  dispatch(clearSearch());
-                }}
+                onClick={onClearSearch ? onClearSearch : undefined}
               />
             </div>
             <ul className="overflow-auto h-[calc(100%-3rem)]">
