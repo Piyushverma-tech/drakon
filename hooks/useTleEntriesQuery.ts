@@ -20,10 +20,13 @@ function parseTleText(tleText: string): TleEntry[] {
     if (!Number.isFinite(id)) continue;
 
     const lowerName = name.toLowerCase();
-    const isDebris =
-      lowerName.includes('debris') ||
-      lowerName.includes('cosmos') ||
-      lowerName.includes('iridium');
+   const isDebris =
+  lowerName.includes('deb') ||      // catches "DEB", "DEBRIS", "DEBRI"
+  lowerName.includes('r/b') ||      // rocket bodies
+  lowerName.includes('rkt') ||      // some older catalog names
+  lowerName.includes('rocket') ||
+  lowerName.includes('payload') ||  // some catalogs use this
+  lowerName.includes('platform');   // defunct platforms
 
     allEntries.push({
       id,
@@ -48,8 +51,8 @@ export function useTleEntriesQuery() {
   return useQuery({
     queryKey: ['tle-entries'],
     queryFn: fetchTleEntries,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
+    staleTime: 2 * 60 * 60 * 1000, // 2 hours to match redis cache TTL
+    gcTime: 4 * 60 * 60 * 1000, // 4 hours to keep old data around for a while
     refetchOnWindowFocus: false,
   });
 }

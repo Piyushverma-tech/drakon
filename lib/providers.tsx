@@ -6,7 +6,15 @@ import { store } from './store';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 function makeQueryClient() {
-  return new QueryClient();
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 60 * 1000,
+        retry: 1,
+        refetchOnWindowFocus: false,
+      },
+    },
+  });
 }
 
 let browserQueryClient: QueryClient | undefined = undefined;
@@ -32,5 +40,3 @@ export function Providers({ children }: { children: React.ReactNode }) {
     </QueryClientProvider>
   );
 }
-
-

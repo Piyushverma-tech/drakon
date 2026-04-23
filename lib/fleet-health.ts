@@ -1,7 +1,6 @@
 import { positionFromTLE } from './satellite';
 import { positionFromTLEAsync } from './satelliteWorker';
 import type { PropagatedPosition } from './satellite';
-import { TleEntry } from './tle-context';
 
 // ----------------------
 // Types
@@ -335,6 +334,7 @@ export function aggregateFleetHealth(
 // Async worker wrappers
 // ----------------------
 import { runInWorker } from './runInWorker';
+import { TleEntry } from './types';
 
 export async function aggregateFleetHealthAsync(
   healthStatuses: SatelliteHealth[]

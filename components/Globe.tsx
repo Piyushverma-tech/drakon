@@ -74,6 +74,7 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(({ layers = [] }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const deckRef = useRef<unknown>(null);
   const [ready, setReady] = useState(false);
+  const [drawTick, setDrawTick] = useState(0); // Used to trigger re-render when the day/night texture updates
 
   const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
 
@@ -133,7 +134,10 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(({ layers = [] }, ref) => {
       };
 
       drawNow();
-      const timer = window.setInterval(drawNow, 30_000);
+      const timer = window.setInterval(() => {
+        drawNow();
+        setDrawTick((t) => t + 1);
+      }, 30_000);
       return () => window.clearInterval(timer);
     };
 
@@ -154,9 +158,9 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(({ layers = [] }, ref) => {
       image: canvasRef.current!,
       bounds: [-180, -85.05113, 180, 85.05113],
       opacity: 1,
-      updateTriggers: { image: ready },
+      updateTriggers: { image: drawTick },
     });
-  }, [ready]);
+  }, [ready, drawTick]);
 
   const deckglProps = {
     ref: deckRef,

@@ -3,9 +3,9 @@ import redis from '@/lib/redis';
 
 const GROUPS = [
   'active',
-  '1999-025',
   'iridium-33-debris',
   'cosmos-2251-debris',
+  'fengyun-1c-debris',
 ];
 const CACHE_KEY = 'tle:combined';
 const STALE_CACHE_KEY = 'tle:combined:stale';
@@ -25,15 +25,45 @@ async function fetchFromCelestrak(
   format: string
 ): Promise<string> {
   const results: string[] = [];
+
   for (const g of groups) {
     try {
       const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${encodeURIComponent(g)}&FORMAT=${format}`;
+
       const res = await fetch(url, { cache: 'no-store' });
-      if (res.ok) {
-        results.push(await res.text());
-      } else {
+
+      if (!res.ok) {
         console.warn(`[TLE] Celestrak returned ${res.status} for group ${g}`);
+        continue;
       }
+
+      const text = await res.text();
+
+      // Celestrak returns 200 with error text for invalid groups
+      if (
+        text.trim().startsWith('Invalid query') ||
+        text.trim().startsWith('No GP data')
+      ) {
+        console.warn(
+          `[TLE] Celestrak rejected group ${g}: ${text.slice(0, 80)}`
+        );
+        continue;
+      }
+
+      // Sanity check — valid TLE text should have lines starting with "1 " and "2 "
+      const lines = text.split('\n').filter(Boolean);
+      const hasTleLines = lines.some(
+        (l) => l.startsWith('1 ') || l.startsWith('2 ')
+      );
+      if (!hasTleLines) {
+        console.warn(`[TLE] Celestrak returned non-TLE content for group ${g}`);
+        continue;
+      }
+
+      results.push(text);
+      console.log(
+        `[TLE] Fetched group ${g}: ~${Math.floor(lines.length / 3)} objects`
+      );
     } catch (err) {
       console.error(`[TLE] Failed to fetch group ${g}:`, err);
     }
@@ -73,6 +103,11 @@ export async function GET(request: Request) {
 
   // Step 2: Fetch from Celestrak
   const combined = await fetchFromCelestrak(effectiveGroups, format);
+
+  const lines = combined.split('\n').filter(Boolean);
+  console.log(
+    `[TLE] Combined fetch: ${Math.floor(lines.length / 3)} objects total`
+  );
 
   if (!combined.trim()) {
     // Celestrak blocked — serve stale

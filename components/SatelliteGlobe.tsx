@@ -474,53 +474,56 @@ export default function SatelliteGlobe({
     ]
   );
 
-  async function focusSatellite(sat: TleEntry) {
-    try {
-      const targetDate = new Date(
-        Date.now() + simulationOffsetHours * 60 * 60 * 1000
-      );
+  const focusSatellite = useCallback(
+    async (sat: TleEntry) => {
+      try {
+        const targetDate = new Date(
+          Date.now() + simulationOffsetHours * 60 * 60 * 1000
+        );
 
-      const p = await positionFromTLEAsync(sat.l1, sat.l2, targetDate);
+        const p = await positionFromTLEAsync(sat.l1, sat.l2, targetDate);
 
-      if (!p) {
-        console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
-        return;
+        if (!p) {
+          console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
+          return;
+        }
+        const pp = p as { lat: number; lon: number; altKm: number };
+        if (pp.lat === 0 && pp.lon === 0 && pp.altKm === 0) {
+          console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
+          return;
+        }
+
+        globeRef.current?.flyTo({
+          longitude: pp.lon,
+          latitude: pp.lat,
+          zoom: 2,
+          durationMs: 1400,
+          pitch: 30,
+          bearing: 0,
+        });
+
+        const vel = velocityFromTLE(sat.l1, sat.l2, targetDate);
+        const orbitType = classifyOrbit(sat.inclination);
+
+        const selectedMeta = {
+          id: sat.id,
+          name: sat.name ?? 'Unknown',
+          lat: pp.lat,
+          lon: pp.lon,
+          alt: pp.altKm,
+          vel,
+          inclination: sat.inclination,
+          orbitType,
+          tleEpoch: sat.tleEpoch,
+        };
+        setSelected(selectedMeta);
+        dispatch(setSelectedSatelliteId(sat.id));
+      } catch (error) {
+        console.error(`Error focusing on satellite ${sat.id}:`, error);
       }
-      const pp = p as { lat: number; lon: number; altKm: number };
-      if (pp.lat === 0 && pp.lon === 0 && pp.altKm === 0) {
-        console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
-        return;
-      }
-
-      globeRef.current?.flyTo({
-        longitude: pp.lon,
-        latitude: pp.lat,
-        zoom: 2,
-        durationMs: 1400,
-        pitch: 30,
-        bearing: 0,
-      });
-
-      const vel = velocityFromTLE(sat.l1, sat.l2, targetDate);
-      const orbitType = classifyOrbit(sat.inclination);
-
-      const selectedMeta = {
-        id: sat.id,
-        name: sat.name ?? 'Unknown',
-        lat: pp.lat,
-        lon: pp.lon,
-        alt: pp.altKm,
-        vel,
-        inclination: sat.inclination,
-        orbitType,
-        tleEpoch: sat.tleEpoch,
-      };
-      setSelected(selectedMeta);
-      dispatch(setSelectedSatelliteId(sat.id));
-    } catch (error) {
-      console.error(`Error focusing on satellite ${sat.id}:`, error);
-    }
-  }
+    },
+    [dispatch, simulationOffsetHours]
+  );
 
   const handleDeselectSatellite = useCallback(() => {
     setSelected(null);

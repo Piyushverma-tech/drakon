@@ -494,6 +494,7 @@ export default memo(RightPanel, (prev, next) => {
     prev.stats.total === next.stats.total &&
     prev.stats.filtered === next.stats.filtered &&
     prev.showReentry === next.showReentry &&
-    prev.reentryRisks === next.reentryRisks
+    prev.reentryRisks === next.reentryRisks &&
+    prev.onFocusSatellite === next.onFocusSatellite
   );
 });
