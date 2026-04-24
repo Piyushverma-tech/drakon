@@ -13,6 +13,18 @@ DRAKON integrates real-time orbit computation, conjunction analysis, and fleet v
 
 ---
 
+## 📸 Screenshots / Demo
+
+<div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+    <img src="public/Demo/GlobeView.png" alt="3D Globe View" width="45%">
+    <img src="public/Demo/OrbitalPlane.png" alt="Orbital Plane Rendering" width="45%">
+      <img src="public/Demo/OrbitalPlane2.png" alt="Orbital Plane Rendering" width="45%">
+    <img src="public/Demo/Re-Entry_Screening.png" alt="Re-Entry Risk Screening" width="45%">
+    <img src="public/Demo/Collision_Density.png" alt="Collision Density Screening" width="45%">
+</div>
+
+---
+
 ## Current MVP Features
 
 - **Interactive 3D Globe:** Real-time visualization of satellites using TLEs and `satellite.js`.
