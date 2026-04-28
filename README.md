@@ -50,19 +50,17 @@ DRAKON integrates real-time orbit computation, conjunction analysis, and fleet v
 
 ## Tech Stack
 
-| Layer                 | Technologies                                                                |
-| --------------------- | --------------------------------------------------------------------------- |
-| **Frontend**          | Next.js (App Router), React, Tailwind CSS, shadcn/ui                        |
-| **3D Visualization**  | deck.gl + Mapbox _(alternatives: CesiumJS, three.js)_                       |
-| **Charts**            | Recharts / Chart.js / ApexCharts                                            |
-| **Orbit Propagation** | satellite.js (SGP4)                                                         |
-| **Backend / Jobs**    | Next.js API routes, Node.js worker (BullMQ + Redis)                         |
-| **Database**          | PostgreSQL + PostGIS                                                        |
-| **Realtime**          | Socket.IO / Pusher / Supabase Realtime                                      |
-| **Queue / Cache**     | Redis                                                                       |
-| **Authentication**    | Clerk / NextAuth (optional)                                                 |
-| **CI/CD**             | GitHub Actions → Vercel (frontend), Render / Fly.io / DigitalOcean (worker) |
-| **Monitoring**        | Sentry, Grafana, Prometheus                                                 |
+| Layer                 | Technologies                                                                                  |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| **Frontend**          | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, shadcn/ui                        |
+| **3D Visualization**  | deck.gl (GlobeView) + BitmapLayer day/night Earth texture                                     |
+| **Charts**            | Recharts                                                                                      |
+| **Orbit Propagation** | satellite.js (SGP4), Comlink Web Workers                                                      |
+| **State Management**  | Redux Toolkit (visualization state) + TanStack Query v5 (TLE data fetching)                   |
+| **Backend / API**     | Next.js API Routes (serverless)                                                               |
+| **Cache**             | Upstash Redis (HTTP-based, serverless-compatible) — 2h TTL + permanent stale fallback         |
+| **TLE Source**        | Celestrak NORAD GP catalog (active, iridium-33-debris, cosmos-2251-debris, fengyun-1c-debris) |
+| **CI/CD**             | GitHub Actions → Vercel                                                                       |
 
 ---
 
@@ -71,63 +69,233 @@ DRAKON integrates real-time orbit computation, conjunction analysis, and fleet v
 ```bash
 drakon/
 ├─ app/
-│ ├─ dashboard/
-│ │ ├─ page.tsx
-│ │ └─ layout.tsx
-│ ├─ globe/
-│ │ └─ page.tsx
-│ ├─ api/                    # Serverless API endpoints
-│ │ └─ tle/                # TLE data proxy (Celestrak)
-│ ├─ layout.tsx              # Root layout with Redux Provider
-│ └─ globals.css
-├─ components/                # React UI components
-│ ├─ SatelliteGlobe.tsx      # Main 3D globe visualization
-│ ├─ Globe.tsx                # Deck.gl globe wrapper
-│ ├─ FleetHealth.tsx         # Fleet health dashboard
-│ └─ layout/                 # Layout components
-│   ├─ Sidebar.tsx
-│   └─ Topbar.tsx
-├─ hooks/                    # Custom React hooks
-│ ├─ useSatellitePositions.ts    # Satellite position updates
-│ ├─ useInclinationBands.ts      # Inclination band logic
-│ └─ useCollisionDensity.ts     # Collision density computation
-│ └─ useSimulatedPositions.ts     # replaces useSatellitePositions when simulating
-├─ lib/                      # Core libraries and utilities
-│ ├─ store.ts                # Redux store configuration
-│ ├─ tle-slice.ts            # Redux slice for TLE data
-│ ├─ visualization-slice.ts   # Redux slice for visualization state
-│ ├─ satellite.ts            # Satellite.js sync helpers
-│ ├─ satelliteWorker.ts      # Worker async wrappers with caching
-│ ├─ satelliteHelpers.ts     # TLE parsing, orbit classification
-│ ├─ fleet-health.ts         # Fleet health assessment
-│ ├─ providers.tsx            # Redux Provider wrapper
-│ ├─ utils.ts                # General utilities
-│ └─ workers/                # Web Worker implementations
-│   └─ satellite.worker.ts   # Comlink-based worker (SGP4, density)
-├─ docs/                     # Documentation
-│ ├─ ORBITAL_PLANE_VISUALIZATION.md
-│ └─ COLLISION_DENSITY_MAP.md
-├─ public/                   # Static assets
+│  ├─ dashboard/
+│  │  ├─ page.tsx               # Dashboard with FleetHealth + mini globe
+│  │  └─ layout.tsx             # Sidebar + Topbar layout
+│  ├─ globe/
+│  │  └─ page.tsx               # Full-screen globe with search
+│  ├─ api/
+│  │  └─ tle/
+│  │     └─ route.ts            # TLE proxy: Celestrak → Upstash Redis → client
+│  ├─ layout.tsx                # Root layout with Redux + TanStack Query providers
+│  └─ globals.css
+├─ components/
+│  ├─ SatelliteGlobe.tsx        # Main globe: layers, filters, panels, simulation
+│  ├─ Globe.tsx                 # deck.gl DeckGL + GlobeView + day/night BitmapLayer
+│  ├─ FleetHealth.tsx           # Fleet health donut chart + trendline
+│  ├─ ForeCastOverlay.tsx       # Simulation time scrubber (T+0 → T+72h)
+│  ├─ DensityLegend.tsx         # Collision density color legend with hover tooltip
+│  └─ panels/
+│     ├─ LeftPanel.tsx          # Selected satellite detail panel
+│     └─ RightPanel.tsx         # Controls: filters, bands, re-entry, density
+├─ hooks/
+│  ├─ useTleEntriesQuery.ts     # TanStack Query hook — fetches + parses TLE text
+│  ├─ useSatellitePositions.ts  # Live SGP4 positions, 5s interval
+│  ├─ useSimulatedPositions.ts  # Projected positions at T+offset (600ms debounce)
+│  ├─ useSelectedSatelliteTrack.ts  # Past + future ground track for selected sat
+│  ├─ useInclinationBands.ts    # Orbital plane band membership + ground track
+│  └─ useCollisionDensity.ts    # Voxel-based 3D density computation
+├─ lib/
+│  ├─ store.ts                  # Redux store (visualization slice only)
+│  ├─ visualization-slice.ts    # Filters, bands, density, simulation, re-entry flags
+│  ├─ satellite.ts              # Synchronous SGP4 helpers (positionFromTLE etc.)
+│  ├─ satelliteWorker.ts        # Comlink async wrappers + in-memory cache (CACHE_MAX=1000)
+│  ├─ satelliteHelpers.ts       # parseBSTAR, getReentryRisk, parseTLEMeta, getOrbitType
+│  ├─ fleet-health.ts           # Fleet health assessment + mock telemetry generator
+│  ├─ redis.ts                  # Upstash Redis client singleton
+│  ├─ providers.tsx             # Redux + TanStack QueryClient providers
+│  ├─ types.ts                  # TleEntry, SatellitePoint, ReentryRisk, DensityResult, etc.
+│  ├─ runInWorker.ts            # Blob-based one-shot worker utility
+│  └─ workers/
+│     └─ satellite.worker.ts    # Comlink worker: SGP4, density, ground tracks
+├─ docs/
+│  ├─ ORBITAL_PLANE_VISUALIZATION.md
+│  ├─ COLLISION_DENSITY_MAP.md
+│  └─ REENTRY_RISK.md
+├─ public/
 ├─ package.json
 ├─ tsconfig.json
 └─ README.md
 ```
 
-### Key Directories
+---
 
-- **`app/`**: Next.js App Router pages and API routes
-  - `globe/`: Main 3D visualization page
-  - `api/tle/`: TLE data proxy endpoint
-- **`components/`**: React UI components
-  - `SatelliteGlobe.tsx`: Main visualization component with deck.gl layers
-- **`hooks/`**: Custom React hooks for business logic
-  - Encapsulates satellite position updates, band calculations, and density analysis
-- **`lib/`**: Core libraries and utilities
-  - `store.ts`: Redux store with TLE and visualization slices
-  - `workers/`: Web Worker implementations for heavy computations
-  - Helper functions for TLE parsing, orbit classification, and satellite calculations
-- **`docs/`**: Feature documentation
-  - Detailed implementation guides for advanced visualization features
+## Data & Caching Architecture
+
+### TLE Pipeline
+
+```
+Celestrak NORAD GP API
+  └─ /api/tle (Next.js route)
+       ├─ Step 1: Upstash Redis GET tle:combined  → HIT: return cached (x-cache: HIT)
+       ├─ Step 2: Fetch all 4 groups from Celestrak with content validation
+       │    └─ Guards: HTTP status + "Invalid query" text + TLE line format check
+       ├─ Step 3: Redis SET tle:combined (TTL 2h) + tle:combined:stale (no TTL)
+       └─ Step 4: If Celestrak empty → serve tle:combined:stale (x-cache: STALE)
+```
+
+**Key design decisions:**
+
+- Single combined `/api/tle` call from client — no per-group requests
+- `tle:combined:stale` has no TTL intentionally — it's an emergency fallback, overwritten every successful fetch
+- Content validation rejects Celestrak's 200-with-error-body responses (e.g. discontinued `1999-025` group)
+- 1.1s delay between group fetches to respect Celestrak rate limits
+
+### TLE Groups
+
+| Group                | Contents                                          |
+| -------------------- | ------------------------------------------------- |
+| `active`             | ~15000 operational satellites                     |
+| `iridium-33-debris`  | ~700 fragments from 2009 Iridium/Cosmos collision |
+| `cosmos-2251-debris` | ~1500 fragments from 2009 collision               |
+| `fengyun-1c-debris`  | ~3000 fragments from 2007 Chinese ASAT test       |
+
+> `1999-025` (Fengyun-1C debris alternate group) was removed — Celestrak discontinued it and returned HTTP 200 with an error string, which poisoned the cache and misaligned the TLE parser for all subsequent groups.
+
+### Client-Side Caching (TanStack Query)
+
+```typescript
+staleTime: 2 * 60 * 60 * 1000,  // matches Redis TTL — no redundant refetches
+gcTime:    4 * 60 * 60 * 1000,
+refetchOnWindowFocus: false,
+```
+
+---
+
+## State Management
+
+Two separate systems handle different concerns:
+
+**Redux Toolkit** (`lib/visualization-slice.ts`) — ephemeral UI state that doesn't need to persist or be shared across sessions: active filters, simulation offset, selected satellite ID, band/density/re-entry toggle flags.
+
+**TanStack Query** (`hooks/useTleEntriesQuery.ts`) — server data with lifecycle management: TLE fetching, caching, background revalidation, deduplication across components. Replaced the previous `tle-slice.ts` Redux slice.
+
+---
+
+## Current Status
+
+### Core Features ✅
+
+- **Interactive 3D Globe**: Real-time visualization of satellites using TLEs and `satellite.js` with deck.gl GlobeView
+- **Day/Night Earth Texture**: BitmapLayer blending `earth_day.jpg` / `earth_night.jpg` based on SunCalc sub-solar position, redrawn every 30s with `drawTick` state trigger
+- **Fleet Overview**: LEO/MEO/GEO/Debris classification with interactive filtering
+- **Satellite Details Panel**: NORAD ID, position, velocity, inclination, orbit type, TLE epoch, re-entry risk
+- **Search**: Real-time search by satellite name or NORAD ID with globe fly-to on selection
+
+### Advanced Visualization Features ✅
+
+#### Orbital Plane Visualization (Inclination Bands)
+
+- Ground track rendering via deck.gl `PathLayer`
+- Inclination slider (0–120°) + tolerance control (±0.5–10°)
+- Satellite highlighting within band, dimming of everything else
+- Real-time band membership count + average altitude
+- Worker-backed track generation, 300ms debounced inputs, `Map`-keyed track cache
+
+📖 See [docs/ORBITAL_PLANE_VISUALIZATION.md](./docs/ORBITAL_PLANE_VISUALIZATION.md)
+
+#### Collision Density Map
+
+- Voxel-grid O(N·26) spatial index replacing O(N²) brute force
+- 3D ECEF coordinates, 26-neighbor voxel search
+- Per-satellite density normalization via `satelliteDensities` map (O(1) lookup)
+- Candidate pair filtering: same-launch ID proximity, same-operator separation, relative velocity check via SGP4
+- Line layer for close-approach pairs, color-coded by distance threshold
+- 500ms debounced computation, detection radius slider (10–250 km)
+
+📖 See [docs/COLLISION_DENSITY_MAP.md](./docs/COLLISION_DENSITY_MAP.md)
+
+#### Re-Entry Risk Screening ✅
+
+Physics-based screening using BSTAR drag term from TLE Line 1.
+
+**Object filter:** Only debris (name contains `DEB`, `DEBRIS`) and rocket bodies (`R/B`, `ROCKET`, `RKT`) are screened. Active propulsive satellites are excluded — their BSTAR values are corrupted by maneuvers.
+
+**Decay model:**
+
+```
+decayRate (km/day) = |BSTAR| × 7.4e5 × exp((400 - altKm) / 60) × (v / 7.905)
+estimatedDays      = ceil(linearDays × 2/3)   // 2/3 accounts for exponential atmosphere integral
+```
+
+**Risk tiers:**
+
+| Tier     | Threshold              | Globe color |
+| -------- | ---------------------- | ----------- |
+| Critical | < 30 days              | Red-orange  |
+| Warning  | 30–180 days            | Amber       |
+| Nominal  | 180–365 days           | Yellow      |
+| Stable   | > 365 days or excluded | Dimmed      |
+
+**Sanity gates:** `|BSTAR| < 1e-5` → stable; `altKm > 2000` or `periodMin > 600` → stable; `decayRate > 20 km/day` → data anomaly → stable.
+
+📖 See [docs/REENTRY_RISK.md](./docs/REENTRY_RISK.md)
+
+#### Satellite Ground Track ✅
+
+- Past track (teal, fading) + future track (blue, fading) as `PathLayer` segments
+- `generateSatelliteTrack` in worker: 120 samples past + 120 future across 1 orbital period
+- `splitAtAntimeridian` prevents horizontal slash lines at ±180° longitude
+- Opacity encoded as normalizedT in `[lon, lat, t]` tuples, converted to per-segment `TrackSegment`
+- `requestIdRef` pattern prevents stale async results when satellite changes mid-flight
+- Reruns on `simulationOffsetHours` change
+
+#### Predictive Time Simulation ✅
+
+- Redux: `simulationOffsetHours`, `isSimulating`, `simLoading`
+- `useSimulatedPositions` hook: 600ms debounce on initial compute, 10s periodic refresh
+- `batchPositionAtOffsetAsync`: stamps all entries with `Date.now() + offsetMs`
+- ForecastOverlay: IBM Plex Mono, 72h window, drag scrubber, amber warning beyond 48h (SGP4 accuracy degrades)
+- `simLoading` in Redux so ForecastOverlay subscribes independently without prop drilling
+
+### Performance Optimizations ✅
+
+**Worker architecture:**
+
+- Single persistent Comlink worker (`satellite.worker.ts`) — no per-call worker spawn overhead
+- In-memory LRU-style cache in `satelliteWorker.ts` (`CACHE_MAX=1000`, FIFO eviction)
+- `batchPositionFromTLE` sends entire array in one Comlink call, not per-satellite messages
+
+**React rendering:**
+
+- `filteredSatellites`, `reentryRisks`, `densityLayers`, `trackLayers`, `layers` all `useMemo`
+- `RightPanel` and `LeftPanel` wrapped in `memo` with custom prop comparators
+- `reentryRisksRef` pattern: ref updated by `useEffect`, read inside `getFillColor` closure — avoids adding `reentryRisks` Map to `layers` useMemo deps (prevents 5s recompute freeze)
+- `focusSatellite` wrapped in `useCallback([simulationOffsetHours])` — fixes stale closure bug when simulation is active, and included in RightPanel memo comparator
+
+**isDebris classification** (in `useTleEntriesQuery.ts`):
+
+```typescript
+const isDebris =
+  lowerName.includes('deb') || // DEB, DEBRIS
+  lowerName.includes('r/b') || // rocket bodies
+  lowerName.includes('rkt') || // older catalog names
+  lowerName.includes('rocket') ||
+  lowerName.includes('payload') ||
+  lowerName.includes('platform');
+```
+
+Used for globe coloring (gray dots) and as a gate in `getReentryRisk` for re-entry screening.
+
+### In Progress 🔄
+
+- **Alerts Panel**: WebSocket-based real-time updates for collision warnings
+- **Conjunction Screening**: Advanced collision prediction algorithms
+- **Historical Analysis**: Time-based tracking of density and close approaches
+
+---
+
+## Pending / Backlog Features
+
+- **Conjunction timeline**: Sweep T+0→T+72h, chart pair counts over time
+- **Operator/country ownership layer**: Color by operator or nation
+- **Hohmann transfer maneuver planner**: Δv calculator for orbit transfers
+- **Multi-epoch BSTAR trending**: `tle_history` PostgreSQL table for BSTAR drift analysis
+- **Solar activity (F10.7 flux) correction**: Improve re-entry estimates during solar maximum
+- **Re-entry footprint corridor**: Show ground track corridor on globe for objects within 7 days
+- **Space-Track CDM integration**: Conjunction Data Messages (requires account + backend job)
+- **PostgreSQL tle_history inserts**: Fire-and-forget alongside Redis cache writes
+- **Stale data timestamp header**: `x-stale-since` response header + frontend freshness warning banner
 
 ---
 
@@ -146,135 +314,67 @@ drakon/
 
 ## API Endpoints (MVP)
 
-| Method | Endpoint                       | Description                                 |
-| ------ | ------------------------------ | ------------------------------------------- |
-| `GET`  | `/api/satellites`              | List all tracked satellites                 |
-| `GET`  | `/api/satellites/:id/position` | Get position of a satellite at a given time |
-| `GET`  | `/api/positions?since=...`     | Stream recent positions                     |
-| `GET`  | `/api/conjunctions?range=24h`  | Get conjunctions within a given time window |
-| `POST` | `/api/run-screening`           | Trigger a collision screening job           |
-| `GET`  | `/api/alerts`                  | Retrieve critical alerts                    |
+| Method | Endpoint                       | Description                                          |
+| ------ | ------------------------------ | ---------------------------------------------------- |
+| `GET`  | `/api/tle`                     | Combined TLE data (all groups). Redis-cached, 2h TTL |
+| `GET`  | `/api/satellites`              | List all tracked satellites                          |
+| `GET`  | `/api/satellites/:id/position` | Get position of a satellite at a given time          |
+| `GET`  | `/api/positions?since=...`     | Stream recent positions                              |
+| `GET`  | `/api/conjunctions?range=24h`  | Get conjunctions within a given time window          |
+| `POST` | `/api/run-screening`           | Trigger a collision screening job                    |
+| `GET`  | `/api/alerts`                  | Retrieve critical alerts                             |
 
 ---
 
 ## Data Flow
 
-1. Worker periodically fetches TLEs and stores them in the database.
-2. Worker propagates orbits using `satellite.js` and computes live positions.
-3. Screening jobs identify close approaches and insert alerts into Redis/DB.
-4. Frontend subscribes via WebSockets or polling to update the 3D globe and panels.
-5. User-triggered screening initiates async jobs with returned results upon completion.
-
----
-
-## Current Status
-
-### Core Features ✅
-
-- **Interactive 3D Globe**: Real-time visualization of satellites using TLEs and `satellite.js` with deck.gl
-- **Fleet Overview**: LEO/MEO/GEO/Debris classification with interactive filtering
-- **Satellite Details Panel**: Comprehensive display of NORAD ID, position, velocity, inclination, orbit type, and TLE epoch
-- **Search and Filtering**: Real-time search by satellite name or NORAD ID with result highlighting
-- **State Management**: Migrated to Redux Toolkit for centralized TLE data and search state management
-
-### Advanced Visualization Features ✅
-
-#### Orbital Plane Visualization (Inclination Bands)
-
-A powerful tool for analyzing satellite constellations and orbital shells. Features include:
-
-- **Ground Track Rendering**: Cyan-colored orbital paths rendered using deck.gl `PathLayer`
-- **Interactive Controls**:
-  - Inclination slider (0-120°) for targeting specific orbital planes
-  - Tolerance control (±0.5-10°) for adjusting band width
-  - Toggle switch for enabling/disabling visualization
-- **Satellite Highlighting**: Automatic highlighting of satellites within the selected band with enhanced visibility
-- **Real-time Statistics**: Band membership count, average altitude, and current range display
-- **Performance Optimized**: Worker-based ground track generation, debounced inputs (300ms), and intelligent caching
-
-📖 **Full Documentation**: See [docs/ORBITAL_PLANE_VISUALIZATION.md](./docs/ORBITAL_PLANE_VISUALIZATION.md)
-
-#### Collision Density Map
-
-Real-time spatial analysis for identifying crowded orbital regions and potential close approaches:
-
-- **Density Visualization**: All satellites colored by local collision density (blue = safe, purple = high risk)
-- **Close Approach Detection**: Voxel-based algorithm identifies satellite pairs within configurable detection radius
-- **Visual Indicators**:
-  - Density-based satellite coloring with 5-zone gradient
-  - Line visualization for candidate close-approach pairs
-  - Color-coded risk levels (red/pink for high risk, amber for moderate)
-- **Interactive Controls**:
-  - Detection radius slider (10-250 km) for adjusting analysis scope
-  - Toggle switch for enabling/disabling density analysis
-  - Color legend showing density gradient
-- **Statistics Panel**: Hotspot counts, top close approaches list, peak density metrics
-- **Performance Optimized**: Worker-based computation, 500ms debouncing, efficient voxel grid algorithm
-
-📖 **Full Documentation**: See [docs/COLLISION_DENSITY_MAP.md](./docs/COLLISION_DENSITY_MAP.md)
-
-### Performance Optimizations ✅
-
-**Worker-Based Computation:**
-
-- Dedicated web worker for orbit propagation: `lib/workers/satellite.worker.ts` (Comlink-based)
-- Async wrappers with caching: `lib/satelliteWorker.ts`
-- Batch propagation APIs: `batchPositionFromTLEAsync`, `positionFromTLEAsync`
-- Ground track generation: `generateGroundTrackAsync` (240 position calculations per orbit)
-- Collision density computation: `computeCollisionDensityAsync` (voxel-based spatial analysis)
-
-**UI Responsiveness:**
-
-- Debounced slider inputs (300ms for inclination bands, 500ms for density map)
-- Intelligent caching for worker results (in-memory Map-based)
-- Optimized data structures (Map-based lookups, O(1) operations)
-- Smooth 60fps UI interactions even with thousands of satellites
-
-**Migration Status:**
-
-- ✅ Core orbit propagation
-- ✅ Fleet health assessment
-- ✅ Ground track generation
-- ✅ Collision density computation
-- ✅ Predictive time simulation
-- ✅ Re-entry Risk Screening
-- 🔄 Conjunction screening (in progress)
-- 🔄 Large collision search loops (in progress)
-
-**Future Enhancements:**
-
-- Solar activity (F10.7 flux) correction to re-entry estimates
-- Multi-epoch BSTAR trending (schema already defined)
-- Conjunction screening with CDM data from Space-Track (requires backend job + account)
-- LRU/TTL cache or IndexedDB for persistence across reloads
-- Transferable ArrayBuffers for very large batches
-- Predictive density analysis with time projection
-
-### In Progress 🔄
-
-- **Alerts Panel**: WebSocket-based real-time updates for collision warnings
-- **Conjunction Screening**: Advanced collision prediction algorithms
-- **Historical Analysis**: Time-based tracking of density and close approaches
+1. `/api/tle` fetches all 4 Celestrak groups server-side with content validation, combines them, and writes to Upstash Redis (`tle:combined` TTL 2h + `tle:combined:stale` permanent).
+2. Client calls `/api/tle` once via TanStack Query (`staleTime: 2h`). Parsed into `TleEntry[]` by `parseTleText` in `useTleEntriesQuery`.
+3. `useSatellitePositions` propagates all entries via `batchPositionFromTLEAsync` (Comlink worker) every 5 seconds.
+4. `useSimulatedPositions` computes projected positions at T+offset when forecast mode is active.
+5. deck.gl layers are recomputed via `useMemo` when filtered satellites, mode flags, or selection changes.
+6. User-triggered screening (`showDensity`, `showReentry`, `showBands`) activates the relevant hook and recolors the ScatterplotLayer.
 
 ---
 
 ## Development Setup
 
 ```bash
-# Create project
-npx create-next-app@latest drakon-dashboard --experimental-app
-cd drakon-dashboard
+# Clone and install
+git clone https://github.com/your-org/drakon
+cd drakon
+npm install
 
-# Install dependencies
-npm install tailwindcss @tailwindcss/forms satellite.js redis bullmq socket.io-client socket.io
+# Environment variables
+cp .env.example .env.local
+# Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN
 
-# Run frontend
+# Run dev server
 npm run dev
 
-# Run worker (separate terminal)
-NODE_ENV=development node worker/index.js
-
+# Run tests
+npm test
+npm run test:watch
 ```
+
+### Environment Variables
+
+| Variable                   | Description                                                        |
+| -------------------------- | ------------------------------------------------------------------ |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint                                        |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token                                           |
+| `InDevelopment`            | Set to `"true"` to show UnderDevelopment page for dashboard routes |
+
+---
+
+## Tests
+
+```bash
+lib/fleet-health.test.ts      # distanceKm, orbitClassFromAlt, aggregateFleetHealth
+lib/satelliteHelpers.test.ts  # formatDistance, classifyOrbit, getOrbitType, parseBSTAR
+```
+
+Jest configured in `package.json` with `ts-jest`. Worker dependencies are mocked via `jest.mock('./satelliteWorker', ...)`.
 
 ---
 
