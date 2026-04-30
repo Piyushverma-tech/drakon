@@ -1,11 +1,11 @@
 'use client';
-import SatelliteGlobe from '@/components/SatelliteGlobe';
 import Link from 'next/link';
 import { ArrowLeft, Search } from 'lucide-react';
 import Image from 'next/image';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 import { useMemo, useState } from 'react';
 import type { TleEntry } from '@/lib/types';
+import GlobeContainer from './GlobeContent/GlobeContainer';
 
 const EMPTY_ENTRIES: TleEntry[] = [];
 
@@ -20,7 +20,9 @@ function GlobeContent() {
 
     return entries
       .filter(
-        (e) => e.name.toLowerCase().includes(query) || e.id.toString().includes(query)
+        (e) =>
+          e.name.toLowerCase().includes(query) ||
+          e.id.toString().includes(query)
       )
       .slice(0, 20);
   }, [entries, searchQuery]);
@@ -66,7 +68,7 @@ function GlobeContent() {
 
         {/* Globe Container */}
         <div className="h-[90vh] overflow-hidden ">
-          <SatelliteGlobe
+          <GlobeContainer
             searchResults={searchResults}
             onClearSearch={handleClearSearch}
           />

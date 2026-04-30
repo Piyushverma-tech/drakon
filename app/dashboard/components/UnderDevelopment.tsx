@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { ArrowLeft, Satellite } from 'lucide-react';
+import { Satellite } from 'lucide-react';
 
 export default function UnderDevelopment() {
   return (
@@ -29,14 +29,17 @@ export default function UnderDevelopment() {
           bring you an amazing experience!
         </p>
         <div className="flex flex-col gap-4">
-        <Link href="https://www.piyushverma.dev/drakon" target="_blank" className="text-cyan-400 hover:text-cyan-300">Learn more about DRAKON</Link>
+          <Link
+            href="https://www.piyushverma.dev/drakon"
+            target="_blank"
+            className="text-cyan-400 hover:text-cyan-300"
+          >
+            Learn more about DRAKON
+          </Link>
 
-        <Link
-          href="/globe"
-          className="text-cyan-400 hover:text-cyan-300"
-        >
-          Back to Globe
-        </Link>
+          <Link href="/globe" className="text-cyan-400 hover:text-cyan-300">
+            Back to Globe
+          </Link>
         </div>
       </div>
     </div>

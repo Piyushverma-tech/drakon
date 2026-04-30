@@ -22,6 +22,7 @@ export type VisualizationState = {
   simLoading: boolean;
 
   showReentry: boolean;
+  viewMode: '3D' | '2D';
 };
 
 const initialState: VisualizationState = {
@@ -37,6 +38,7 @@ const initialState: VisualizationState = {
   isSimulating: false,
   simLoading: false,
   showReentry: false,
+  viewMode: '3D',
 };
 
 const visualizationSlice = createSlice({
@@ -105,6 +107,9 @@ const visualizationSlice = createSlice({
         state.showDensity = false;
       }
     },
+    setViewMode(state, action: PayloadAction<'3D' | '2D'>) {
+      state.viewMode = action.payload;
+    },
   },
 });
 
@@ -122,6 +127,7 @@ export const {
   resetSimulation,
   setSimLoading,
   setShowReentry,
+  setViewMode,
 } = visualizationSlice.actions;
 
 export default visualizationSlice.reducer;

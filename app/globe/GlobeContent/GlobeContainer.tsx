@@ -7,7 +7,7 @@ import React, {
   useRef,
   useCallback,
 } from 'react';
-import Globe from './Globe';
+import Globe from './Globe3D';
 import {
   ScatterplotLayer,
   PathLayer,
@@ -41,11 +41,11 @@ import {
   setSimulationOffset,
   resetSimulation,
 } from '@/lib/visualization-slice';
-import { ForecastOverlay } from './ForeCastOverlay';
-import RightPanel from './panels/RightPanel';
-import LeftPanel from './panels/LeftPanel';
 import { useSelectedSatelliteTrack } from '@/hooks/useSelectedSatelliteTrack';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
+import RightPanel from '@/app/globe/GlobeContent/components/panels/RightPanel';
+import LeftPanel from '@/app/globe/GlobeContent/components/panels/LeftPanel';
+import { ForecastOverlay } from '@/app/globe/GlobeContent/components/ForeCastOverlay';
 
 // ----------------------
 // Types
