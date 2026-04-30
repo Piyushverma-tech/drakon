@@ -6,6 +6,7 @@ import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 import { useMemo, useState } from 'react';
 import type { TleEntry } from '@/lib/types';
 import GlobeContainer from './GlobeContent/GlobeContainer';
+import MobileViewNotice from './GlobeContent/components/MobileViewNotice';
 
 const EMPTY_ENTRIES: TleEntry[] = [];
 
@@ -91,5 +92,14 @@ function GlobeContent() {
 }
 
 export default function GlobePage() {
-  return <GlobeContent />;
+  return (
+    <>
+      <div className="md:hidden">
+        <MobileViewNotice />
+      </div>
+      <div className="hidden md:block">
+        <GlobeContent />
+      </div>
+    </>
+  );
 }
