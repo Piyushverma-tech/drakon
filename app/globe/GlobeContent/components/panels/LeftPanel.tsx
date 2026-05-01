@@ -65,7 +65,7 @@ const LeftPanel = memo(function LeftPanel({
   return (
     <div className="absolute left-3 top-3 w-56 z-10 select-none">
       {/* Outer shell */}
-      <div className="relative bg-black/40 backdrop-blur-md border border-white/10">
+      <div className="relative bg-black/60 backdrop-blur-md border border-white/10">
         {/* Corner accents */}
         <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
         <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />

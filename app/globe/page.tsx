@@ -7,10 +7,14 @@ import { useMemo, useState } from 'react';
 import type { TleEntry } from '@/lib/types';
 import GlobeContainer from './GlobeContent/GlobeContainer';
 import MobileViewNotice from './GlobeContent/components/MobileViewNotice';
+import { useAppDispatch, useAppSelector } from '@/lib/store';
+import { setViewMode } from '@/lib/visualization-slice';
 
 const EMPTY_ENTRIES: TleEntry[] = [];
 
 function GlobeContent() {
+  const dispatch = useAppDispatch();
+  const viewMode = useAppSelector((state) => state.visualization.viewMode);
   const [searchQuery, setSearchQuery] = useState('');
   const { data: queriedEntries } = useTleEntriesQuery();
   const entries = queriedEntries ?? EMPTY_ENTRIES;
@@ -33,14 +37,14 @@ function GlobeContent() {
   }
 
   return (
-    <div className="relative min-h-screen bg-black overflow-hidden">
+    <div className="relative h-full bg-black overflow-hidden">
       {/* Subtle space gradient */}
       <div className="absolute inset-0 bg-gradient-radial from-transparent via-transparent to-blue-950/20" />
 
       {/* Content */}
-      <div className="relative z-10 p-2">
+      <div className="relative z-10 grid h-full grid-rows-[auto_minmax(0,1fr)] gap-2 p-2">
         {/* Header */}
-        <div className="flex items-center justify-between px-3 mb-3">
+        <div className="flex items-center justify-between px-3">
           <Link
             href="/dashboard"
             className="flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-md border border-gray-400/30 rounded-md p-3 transition-all"
@@ -57,6 +61,7 @@ function GlobeContent() {
           <div className="relative flex-1 max-w-xl ml-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <input
+              type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name or NORAD ID..."
@@ -64,11 +69,42 @@ function GlobeContent() {
             />
           </div>
 
+          <div className="absolute right-1/6 top-4 flex items-center">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-cyan-200">
+                View Mode
+              </span>
+              <div className="flex rounded border border-cyan-400/30 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => dispatch(setViewMode('3D'))}
+                  className={`px-2.5 py-1 text-xs transition-colors cursor-pointer ${
+                    viewMode === '3D'
+                      ? 'bg-cyan-500/30 text-cyan-200'
+                      : 'bg-transparent text-gray-300 hover:bg-cyan-500/10'
+                  }`}
+                >
+                  3D
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dispatch(setViewMode('2D'))}
+                  className={`px-2.5 py-1 text-xs transition-colors cursor-pointer ${
+                    viewMode === '2D'
+                      ? 'bg-cyan-500/30 text-cyan-200'
+                      : 'bg-transparent text-gray-300 hover:bg-cyan-500/10'
+                  }`}
+                >
+                  2D
+                </button>
+              </div>
+            </div>
+          </div>
           <Image alt="logo" src="/drakon.png" width={170} height={170} />
         </div>
 
         {/* Globe Container */}
-        <div className="h-[90vh] overflow-hidden ">
+        <div className="min-h-0 overflow-hidden">
           <GlobeContainer
             searchResults={searchResults}
             onClearSearch={handleClearSearch}
@@ -97,7 +133,7 @@ export default function GlobePage() {
       <div className="md:hidden">
         <MobileViewNotice />
       </div>
-      <div className="hidden md:block">
+      <div className="fixed inset-0 hidden md:block">
         <GlobeContent />
       </div>
     </>

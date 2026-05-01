@@ -46,6 +46,7 @@ import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 import RightPanel from '@/app/globe/GlobeContent/components/panels/RightPanel';
 import LeftPanel from '@/app/globe/GlobeContent/components/panels/LeftPanel';
 import { ForecastOverlay } from '@/app/globe/GlobeContent/components/ForeCastOverlay';
+import Map2D from './Map2d';
 
 // ----------------------
 // Types
@@ -91,6 +92,7 @@ export default function SatelliteGlobe({
     showDensity,
     densityRadiusKm,
     simulationOffsetHours,
+    viewMode,
   } = useAppSelector((state) => state.visualization);
 
   const [selected, setSelected] = useState<SelectedMeta | null>(null);
@@ -129,7 +131,7 @@ export default function SatelliteGlobe({
 
   const selectedId = useAppSelector((s) => s.visualization.selectedSatelliteId);
 
-  const { track, trackLoading } = useSelectedSatelliteTrack({
+  const { track } = useSelectedSatelliteTrack({
     entries,
     selectedId,
   });
@@ -146,7 +148,7 @@ export default function SatelliteGlobe({
     }) => void;
   } | null;
 
-  const globeRef = useRef<GlobeHandle>(null);
+  const mapRef = useRef<GlobeHandle>(null);
 
   // Filter satellites based on active filters
   const activeFiltersSet = useMemo(
@@ -274,33 +276,35 @@ export default function SatelliteGlobe({
     }
   };
 
-  const densityLayers = useMemo(
-    () =>
-      showDensity && densityResult && densityResult.candidatePairs.length > 0
-        ? [
-            new LineLayer<CandidatePairDatum>({
-              id: 'collision-candidate-lines',
-              data: densityResult.candidatePairs,
-              pickable: true,
-              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-              wrapLongitude: true,
-              getSourcePosition: (d: CandidatePairDatum) => [d.lonA, d.latA],
-              getTargetPosition: (d: CandidatePairDatum) => [d.lonB, d.latB],
-              getColor: (d: CandidatePairDatum) =>
-                d.distanceKm <= densityRadiusKm / 2
-                  ? [255, 80, 200, 220]
-                  : [255, 200, 200, 180],
-              getWidth: 2,
-              widthUnits: 'pixels',
-            }),
-          ]
-        : [],
-    [showDensity, densityResult, densityRadiusKm]
-  );
+  const densityLayers = useMemo(() => {
+    const modePrefix = viewMode.toLowerCase();
+    return showDensity &&
+      densityResult &&
+      densityResult.candidatePairs.length > 0
+      ? [
+          new LineLayer<CandidatePairDatum>({
+            id: `${modePrefix}-collision-candidate-lines`,
+            data: densityResult.candidatePairs,
+            pickable: true,
+            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+            wrapLongitude: true,
+            getSourcePosition: (d: CandidatePairDatum) => [d.lonA, d.latA],
+            getTargetPosition: (d: CandidatePairDatum) => [d.lonB, d.latB],
+            getColor: (d: CandidatePairDatum) =>
+              d.distanceKm <= densityRadiusKm / 2
+                ? [255, 80, 200, 220]
+                : [255, 200, 200, 180],
+            getWidth: 2,
+            widthUnits: 'pixels',
+          }),
+        ]
+      : [];
+  }, [showDensity, densityResult, densityRadiusKm, viewMode]);
 
   // Create path layers for past and future track segments
   const trackLayers = useMemo(() => {
     if (!track) return [];
+    const modePrefix = viewMode.toLowerCase();
 
     const makePath = (
       segments: TrackSegment[],
@@ -310,7 +314,7 @@ export default function SatelliteGlobe({
       segments.map(
         (seg, i) =>
           new PathLayer<TrackSegment>({
-            id: `sat-track-${idSuffix}-${i}`,
+            id: `${modePrefix}-sat-track-${idSuffix}-${i}`,
             data: [seg],
             getPath: (d) => d.path,
             getColor: () =>
@@ -335,7 +339,7 @@ export default function SatelliteGlobe({
       ...makePath(track.past, [80, 220, 180], 'past'), // teal
       ...makePath(track.future, [40, 120, 255], 'future'), // blue
     ];
-  }, [track]);
+  }, [track, viewMode]);
 
   const layers = useMemo(
     () => [
@@ -359,7 +363,7 @@ export default function SatelliteGlobe({
       new ScatterplotLayer<SatellitePoint>({
         id: 'satellite-layer',
         data: filteredSatellites,
-        getPosition: (d) => [d.lon, d.lat, d.alt * 300],
+        getPosition: (d) => [d.lon, d.lat, viewMode === '2D' ? 0 : d.alt * 300],
         getFillColor: (d): [number, number, number, number] => {
           if (d.id === selected?.id) return [0, 150, 255, 255];
           if (showBands) {
@@ -387,19 +391,27 @@ export default function SatelliteGlobe({
           // Normal orbit-based coloring when density map is off
           return colorAccessor(d);
         },
-        radiusUnits: 'meters',
+        radiusUnits: viewMode === '2D' ? 'pixels' : 'meters',
         getRadius: (d) => {
+          if (viewMode === '2D') {
+            // pixel radii — flat, consistent across all latitudes
+            if (d.id === selected?.id) return d.isDebris ? 4 : 6;
+            if (showReentry && reentryRisksRef.current.has(d.id)) return 4;
+            const base = d.isDebris ? 2 : 3;
+            if (showDensity) {
+              const density = getSatelliteDensity(d.id);
+              if (density > 0) return base * (1 + density * 0.5);
+            }
+            return base;
+          }
           if (d.id === selected?.id) {
             return d.isDebris ? 50000 : 80000; // Larger radius for selected
-          }
-          if (showBands && bandSatelliteIds.has(d.id)) {
-            return d.isDebris ? 40000 : 90000;
           }
           if (showReentry && reentryRisksRef.current.has(d.id)) {
             return 60000; // All are debris & rocket bodies
           }
-          // Slightly increase size for satellites in dense regions
-          const baseRadius = d.isDebris ? 30000 : 70000;
+
+          const baseRadius = d.isDebris ? 30000 : 60000;
 
           if (showDensity) {
             const density = getSatelliteDensity(d.id);
@@ -446,11 +458,20 @@ export default function SatelliteGlobe({
             new ScatterplotLayer<SatellitePoint>({
               id: 'selected-glow-layer',
               data: filteredSatellites.filter((s) => s.id === selected.id),
-              getPosition: (d) => [d.lon, d.lat, d.alt * 300],
+              getPosition: (d) => [
+                d.lon,
+                d.lat,
+                viewMode === '2D' ? 0 : d.alt * 300,
+              ],
               getFillColor: (): [number, number, number, number] =>
                 showDensity ? [255, 105, 255, 180] : [0, 200, 255, 100],
-              radiusUnits: 'meters',
-              getRadius: (d) => (d.isDebris ? 80000 : 150000), //glow radius
+              radiusUnits: viewMode === '2D' ? 'pixels' : 'meters',
+              getRadius: (d) => {
+                if (viewMode === '2D') {
+                  return d.isDebris ? 10 : 15;
+                }
+                return d.isDebris ? 80000 : 150000;
+              }, //glow radius
               opacity: 0.6,
               pickable: false,
             }),
@@ -471,6 +492,7 @@ export default function SatelliteGlobe({
       getSatelliteDensity,
       showReentry,
       trackLayers,
+      viewMode,
     ]
   );
 
@@ -493,7 +515,7 @@ export default function SatelliteGlobe({
           return;
         }
 
-        globeRef.current?.flyTo({
+        mapRef.current?.flyTo({
           longitude: pp.lon,
           latitude: pp.lat,
           zoom: 2,
@@ -553,7 +575,11 @@ export default function SatelliteGlobe({
   // ----------------------
   return (
     <div className="relative w-full h-full flex">
-      <Globe ref={globeRef} layers={layers} />
+      {viewMode === '2D' ? (
+        <Map2D key="map2d" ref={mapRef} layers={layers} />
+      ) : (
+        <Globe key="globe3d" ref={mapRef} layers={layers} />
+      )}
 
       {searchResults.length > 0 && (
         <div className="absolute top-0 left-1/2 transform -translate-x-1/2 z-20">

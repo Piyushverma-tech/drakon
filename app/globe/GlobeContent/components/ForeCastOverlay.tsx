@@ -16,7 +16,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
   const [draftHours, setDraftHours] = useState(simulationOffsetHours);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [utcNow, setUtcNow] = useState(() => new Date());
+  const [utcNow, setUtcNow] = useState<Date | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -25,11 +25,12 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
 
   useEffect(() => {
     if (isSimulating) return;
+    setUtcNow(new Date());
     const t = setInterval(() => setUtcNow(new Date()), 1000);
     return () => clearInterval(t);
   }, [isSimulating]);
 
-  const utcLabel = utcNow.toISOString().slice(11, 19) + ' UTC';
+  const utcLabel = utcNow ? utcNow.toISOString().slice(11, 19) + ' UTC' : '--:--:-- UTC';
 
   const getHoursFromEvent = useCallback(
     (clientX: number) => {
@@ -84,13 +85,15 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
   const progress = draftHours / 72;
 
   const formatTime = (h: number) => {
-    const now = new Date();
+    if (!utcNow) return '--:-- UTC';
+    const now = new Date(utcNow);
     now.setHours(now.getHours() + h);
     return now.toUTCString().slice(17, 22) + ' UTC';
   };
 
   const formatDate = (h: number) => {
-    const now = new Date();
+    if (!utcNow) return '---';
+    const now = new Date(utcNow);
     now.setHours(now.getHours() + h);
     return now.toUTCString().slice(0, 16);
   };
@@ -192,9 +195,9 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
         <div
           style={{
             borderRadius: '16px 16px 0 0',
-
-            backdropFilter: 'blur(20px) saturate(180%)',
-            WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(80px) saturate(180%)',
+            WebkitBackdropFilter: 'blur(80px) saturate(180%)',
             border: '1px solid rgba(34, 211, 238, 0.12)',
             borderBottom: 'none',
             boxShadow:
