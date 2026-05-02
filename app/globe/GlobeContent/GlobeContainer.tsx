@@ -7,7 +7,7 @@ import React, {
   useRef,
   useCallback,
 } from 'react';
-import Globe from './Globe3D';
+import Globe, { GlobeHandle } from './Globe3D';
 import {
   ScatterplotLayer,
   PathLayer,
@@ -135,18 +135,6 @@ export default function SatelliteGlobe({
     entries,
     selectedId,
   });
-
-  // Strongly typed ref for the Globe instance
-  type GlobeHandle = {
-    flyTo: (opts: {
-      longitude: number;
-      latitude: number;
-      zoom?: number;
-      durationMs?: number;
-      pitch?: number;
-      bearing?: number;
-    }) => void;
-  } | null;
 
   const mapRef = useRef<GlobeHandle>(null);
 
@@ -347,11 +335,11 @@ export default function SatelliteGlobe({
       ...(showBands && bandTrack
         ? [
             new PathLayer<BandTrack>({
-              id: 'inclination-band',
+              id: `${viewMode.toLowerCase()}-inclination-band`,
               data: [bandTrack],
               getPath: (d) => d.path,
               getColor: [0, 200, 255, 180],
-              widthMinPixels: 2,
+              widthMinPixels: 1.5,
               opacity: 0.7,
               pickable: false,
             }),
@@ -361,7 +349,7 @@ export default function SatelliteGlobe({
       ...trackLayers,
       // Main satellite layer
       new ScatterplotLayer<SatellitePoint>({
-        id: 'satellite-layer',
+        id: `${viewMode.toLowerCase()}-satellite-layer`,
         data: filteredSatellites,
         getPosition: (d) => [d.lon, d.lat, viewMode === '2D' ? 0 : d.alt * 300],
         getFillColor: (d): [number, number, number, number] => {
@@ -456,7 +444,7 @@ export default function SatelliteGlobe({
       ...(selected
         ? [
             new ScatterplotLayer<SatellitePoint>({
-              id: 'selected-glow-layer',
+              id: `${viewMode.toLowerCase()}-selected-glow-layer`,
               data: filteredSatellites.filter((s) => s.id === selected.id),
               getPosition: (d) => [
                 d.lon,
