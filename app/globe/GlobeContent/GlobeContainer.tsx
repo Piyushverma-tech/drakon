@@ -410,6 +410,8 @@ export default function SatelliteGlobe({
           }
           return baseRadius;
         },
+        radiusMinPixels: 1,
+        radiusMaxPixels: 6,
         opacity: 0.85,
         pickable: true,
         onClick: (info) => {
