@@ -30,7 +30,9 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
     return () => clearInterval(t);
   }, [isSimulating]);
 
-  const utcLabel = utcNow ? utcNow.toISOString().slice(11, 19) + ' UTC' : '--:--:-- UTC';
+  const utcLabel = utcNow
+    ? utcNow.toISOString().slice(11, 19) + ' UTC'
+    : '--:--:-- UTC';
 
   const getHoursFromEvent = useCallback(
     (clientX: number) => {
@@ -439,7 +441,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   style={{
-                    transform: isExpanded ? 'rotate(0deg)' : 'rotate(180deg)',
+                    transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                     transition: 'transform 0.2s ease',
                   }}
                 >

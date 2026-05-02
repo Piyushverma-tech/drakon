@@ -67,7 +67,7 @@ function RightPanel({
   const activeFiltersSet = new Set(activeFilters);
 
   return (
-    <div className="absolute right-3 top-0 w-60 bg-black/60 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto z-10">
+    <div className="absolute right-3 top-3 w-60 bg-black/60 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto z-10">
       {/* Corner accents */}
       <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
       <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />
