@@ -1,4 +1,3 @@
-import FleetHealth from '@/app/dashboard/components/FleetHealth';
 import Link from 'next/link';
 import React from 'react';
 import UnderDevelopment from '@/app/dashboard/components/UnderDevelopment';
@@ -14,7 +13,6 @@ export default function DashboardPage() {
       {/* Fleet Health */}
       <div className="border rounded-xl p-4 bg-card">
         <h2 className="text-lg font-semibold mb-4">Fleet Health</h2>
-        <FleetHealth />
       </div>
 
       {/*Globe */}
