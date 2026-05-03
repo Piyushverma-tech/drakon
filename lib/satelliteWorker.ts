@@ -4,7 +4,9 @@ import * as Comlink from 'comlink';
 let proxy: unknown = null;
 let workerInstance: Worker | null = null;
 
-// Simple in-memory cache keyed by JSON args string
+// Cache parsed satrec only
+const satrecCache = new Map<string, unknown>();
+// Cache for non-position computations only
 const cache = new Map<string, unknown>();
 const CACHE_MAX = 1000;
 
@@ -13,6 +15,18 @@ function makeKey(name: string, args: unknown[]) {
     return name + ':' + JSON.stringify(args);
   } catch {
     return name + ':' + String(args);
+  }
+}
+
+function setWithEviction(
+  map: Map<string, unknown>,
+  key: string,
+  value: unknown
+) {
+  map.set(key, value);
+  if (map.size > CACHE_MAX) {
+    const it = map.keys().next();
+    map.delete(it.value as string);
   }
 }
 
@@ -91,10 +105,7 @@ export async function positionFromTLEAsync(
   tle2: string,
   date?: Date
 ) {
-  const key = makeKey('positionFromTLE', [tle1, tle2, date?.toISOString()]);
-  if (cache.has(key)) return cache.get(key);
-
-  const p = await (async () => {
+  return await (async () => {
     try {
       const proxy = await getWorkerProxy();
       if (proxy) {
@@ -109,14 +120,6 @@ export async function positionFromTLEAsync(
     }
     return syncPositionFromTLE(tle1, tle2, date);
   })();
-
-  cache.set(key, p);
-  if (cache.size > CACHE_MAX) {
-    // simple eviction: delete oldest
-    const it = cache.keys().next();
-    cache.delete(it.value as string);
-  }
-  return p;
 }
 
 export async function tleToLatLonAltAsync(l1: string, l2: string) {
@@ -133,17 +136,13 @@ export async function tleToLatLonAltAsync(l1: string, l2: string) {
     }
     return syncTleToLatLonAlt(l1, l2);
   })();
-  cache.set(key, v);
-  if (cache.size > CACHE_MAX) {
-    const it = cache.keys().next();
-    cache.delete(it.value as string);
-  }
+  setWithEviction(cache, key, v);
   return v;
 }
 
 export async function satrecFromTLEAsync(l1: string, l2: string) {
   const key = makeKey('satrecFromTLE', [l1, l2]);
-  if (cache.has(key)) return cache.get(key);
+  if (satrecCache.has(key)) return satrecCache.get(key);
   const v = await (async () => {
     try {
       const proxy = await getWorkerProxy();
@@ -155,24 +154,14 @@ export async function satrecFromTLEAsync(l1: string, l2: string) {
     }
     return syncSatrecFromTLE(l1, l2);
   })();
-  cache.set(key, v);
-  if (cache.size > CACHE_MAX) {
-    const it = cache.keys().next();
-    cache.delete(it.value as string);
-  }
+  setWithEviction(satrecCache, key, v);
   return v;
 }
 
 export async function batchPositionFromTLEAsync(
   items: Array<{ l1: string; l2: string; date?: Date }>
 ) {
-  const key = makeKey(
-    'batchPositionFromTLE',
-    items.map((it) => [it.l1, it.l2, it.date?.toISOString()])
-  );
-  if (cache.has(key)) return cache.get(key);
-
-  const v = await (async () => {
+  return await (async () => {
     try {
       const proxy = await getWorkerProxy();
       if (proxy) {
@@ -191,13 +180,6 @@ export async function batchPositionFromTLEAsync(
     // fallback synchronous map
     return items.map((it) => syncPositionFromTLE(it.l1, it.l2, it.date));
   })();
-
-  cache.set(key, v);
-  if (cache.size > CACHE_MAX) {
-    const it = cache.keys().next();
-    cache.delete(it.value as string);
-  }
-  return v;
 }
 
 // Batch position at offset : a thin wrapper that stamps a future date on every item
@@ -244,11 +226,7 @@ export async function generateGroundTrackAsync(
     return null;
   })();
 
-  cache.set(key, v);
-  if (cache.size > CACHE_MAX) {
-    const it = cache.keys().next();
-    cache.delete(it.value as string);
-  }
+  setWithEviction(cache, key, v);
   return v;
 }
 
@@ -289,15 +267,14 @@ export async function generateSatelliteTrackAsync(
     const pastSegments = splitAtAntimeridian(raw.past);
     const futureSegments = splitAtAntimeridian(raw.future);
 
-    // Convert to TrackSegment[] — strip the t value from coords, use it for opacity
+    // Convert to TrackSegment[]
     const toSegments = (
-      segs: Array<Array<[number, number, number]>>,
-      invertOpacity: boolean // past: oldest points are most faded
+      segs: Array<Array<[number, number, number]>>
     ): TrackSegment[] =>
       segs.map((seg) => {
         // opacity of segment = avg of endpoint t values, inverted for past
         const avgT = (seg[0][2] + seg[seg.length - 1][2]) / 2;
-        const opacity = invertOpacity ? 1 - avgT * 0.85 : 1 - avgT * 0.85;
+        const opacity = 1 - avgT * 0.85;
         return {
           path: seg.map(([lon, lat]) => [lon, lat] as [number, number]),
           opacity,
@@ -307,8 +284,8 @@ export async function generateSatelliteTrackAsync(
     const satId = Number(l1.substring(2, 7));
     return {
       satId,
-      past: toSegments(pastSegments, true),
-      future: toSegments(futureSegments, false),
+      past: toSegments(pastSegments),
+      future: toSegments(futureSegments),
     };
   } catch (err) {
     console.warn('generateSatelliteTrackAsync failed', err);
@@ -376,10 +353,6 @@ export async function computeCollisionDensityAsync(
     } as DensityResult;
   })();
 
-  cache.set(key, v);
-  if (cache.size > CACHE_MAX) {
-    const it = cache.keys().next();
-    cache.delete(it.value as string);
-  }
+  setWithEviction(cache, key, v);
   return v;
 }
