@@ -109,6 +109,7 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(({ layers = [] }, ref) => {
     nightImg.src = NIGHT_TEXTURE;
 
     let loaded = 0;
+    let cleanup: (() => void) | undefined;
     const tryInit = () => {
       if (loaded < 2) return;
       setReady(true);
@@ -138,7 +139,7 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(({ layers = [] }, ref) => {
         drawNow();
         setDrawTick((t) => t + 1);
       }, 30_000);
-      return () => window.clearInterval(timer);
+      cleanup = () => window.clearInterval(timer);
     };
 
     dayImg.onload = () => {
@@ -149,6 +150,8 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(({ layers = [] }, ref) => {
       loaded++;
       tryInit();
     };
+
+    return () => cleanup?.();
   }, []);
 
   const earthLayer = useMemo(() => {

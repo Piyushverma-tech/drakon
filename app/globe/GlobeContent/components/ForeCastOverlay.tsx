@@ -257,7 +257,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '10px 16px 0',
+              padding: '10px 16px 4px',
             }}
           >
             {/* Left: Label + status */}
@@ -425,7 +425,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
                   width: '26px',
                   height: '26px',
                   borderRadius: '6px',
-                  border: '1px solid rgba(34, 211, 238, 0.2)',
+                  border: '1px solid rgba(34, 211, 238, 0.3)',
                   background: 'transparent',
                   color: 'rgba(34, 211, 238, 0.45)',
                   cursor: 'pointer',
