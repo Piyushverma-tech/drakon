@@ -21,8 +21,10 @@ export function useInclinationBands({
   satellites,
   debounceMs = 300,
 }: UseInclinationBandsOptions) {
-  const [bandInclinationDebounced, setBandInclinationDebounced] = useState(bandInclination);
-  const [bandToleranceDebounced, setBandToleranceDebounced] = useState(bandTolerance);
+  const [bandInclinationDebounced, setBandInclinationDebounced] =
+    useState(bandInclination);
+  const [bandToleranceDebounced, setBandToleranceDebounced] =
+    useState(bandTolerance);
   const [bandTrack, setBandTrack] = useState<BandTrack | null>(null);
   const [bandTrackLoading, setBandTrackLoading] = useState(false);
   const trackCache = useRef<Map<string, BandTrack | null>>(new Map());
@@ -54,7 +56,11 @@ export function useInclinationBands({
   // Compute band membership
   const { bandSatelliteIds, bandCount, bandAvgAltKm } = useMemo(() => {
     if (!showBands || !entries.length) {
-      return { bandSatelliteIds: new Set<number>(), bandCount: 0, bandAvgAltKm: 0 };
+      return {
+        bandSatelliteIds: new Set<number>(),
+        bandCount: 0,
+        bandAvgAltKm: 0,
+      };
     }
 
     const ids = new Set<number>();
@@ -82,7 +88,13 @@ export function useInclinationBands({
       bandCount: count,
       bandAvgAltKm: altCount > 0 ? altSum / altCount : 0,
     };
-  }, [showBands, entries, bandInclinationDebounced, bandToleranceDebounced, satById]);
+  }, [
+    showBands,
+    entries,
+    bandInclinationDebounced,
+    bandToleranceDebounced,
+    satById,
+  ]);
 
   // Generate ground track
   useEffect(() => {
@@ -126,6 +138,7 @@ export function useInclinationBands({
           id: `band-track-${rep.id}`,
           path: path || [],
         };
+        if (trackCache.current.size > 50) trackCache.current.clear();
         trackCache.current.set(key, track);
         setBandTrack(track);
         setBandTrackLoading(false);
@@ -152,4 +165,3 @@ export function useInclinationBands({
     bandAvgAltKm,
   };
 }
-

@@ -204,7 +204,8 @@ export async function generateGroundTrackAsync(
   l2: string,
   samples: number = 360
 ): Promise<Array<[number, number]> | null> {
-  const key = makeKey('generateGroundTrack', [l1, l2, samples]);
+  const hourBucket = Math.floor(Date.now() / (2 * 60 * 60 * 1000));
+  const key = makeKey('generateGroundTrack', [l1, l2, samples, hourBucket]);
   if (cache.has(key)) return cache.get(key) as Array<[number, number]> | null;
 
   const v = await (async () => {
