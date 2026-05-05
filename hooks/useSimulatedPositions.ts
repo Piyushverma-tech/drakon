@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { TleEntry, SatellitePoint } from '@/lib/types';
 import { batchPositionAtOffsetAsync } from '@/lib/satelliteWorker';
 import { setSimLoading } from '@/lib/visualization-slice';
@@ -33,14 +33,13 @@ export function useSimulatedPositions({
   const [projectedSatellites, setProjectedSatellites] = useState<
     SatellitePoint[]
   >([]);
-  const hasComputedRef = useRef(false);
   const dispatch = useAppDispatch();
 
   useEffect(() => {
     if (offsetMs === 0 || entries.length === 0) {
       setProjectedSatellites([]);
       dispatch(setSimLoading(false));
-      hasComputedRef.current = false;
+
       return;
     }
 
@@ -78,7 +77,6 @@ export function useSimulatedPositions({
           .filter((pt): pt is SatellitePoint => pt !== null);
 
         setProjectedSatellites(pts);
-        hasComputedRef.current = true;
       } catch (err) {
         console.warn('Projected position computation failed', err);
         if (opts?.isInitial) {
