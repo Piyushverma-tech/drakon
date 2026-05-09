@@ -20,13 +20,12 @@ function parseTleText(tleText: string): TleEntry[] {
     if (!Number.isFinite(id)) continue;
 
     const lowerName = name.toLowerCase();
-   const isDebris =
-  lowerName.includes('deb') ||      // catches "DEB", "DEBRIS", "DEBRI"
-  lowerName.includes('r/b') ||      // rocket bodies
-  lowerName.includes('rkt') ||      // some older catalog names
-  lowerName.includes('rocket') ||
-  lowerName.includes('payload') ||  // some catalogs use this
-  lowerName.includes('platform');   // defunct platforms
+    const isDebris =
+      lowerName.includes('deb') || // catches "DEB", "DEBRIS", "DEBRI"
+      lowerName.includes('r/b') || // rocket bodies
+      lowerName.includes('rkt') || // some older catalog names
+      lowerName.includes('rocket') ||
+      lowerName.includes('platform'); // defunct platforms
 
     allEntries.push({
       id,
