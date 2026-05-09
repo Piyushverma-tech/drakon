@@ -19,7 +19,7 @@ type Props = {
   setSelected: (meta: SelectedMeta | null) => void;
   onClose: () => void;
   reentryRisk: ReentryRisk | null;
-  metaData?: SatelliteMetadata | null;
+  metadata?: SatelliteMetadata | null;
 };
 
 function StatRow({
@@ -90,8 +90,16 @@ function formatOptional(value: string | number | null | undefined): string {
 }
 
 function formatMass(value: number | undefined): string {
-  if (!value) return '—';
+  if (value === undefined) return '—';
   return `${Math.round(value).toLocaleString()} kg`;
+}
+
+function formatUnit(
+  value: string | number | null | undefined,
+  unit: string
+): string {
+  const formatted = formatOptional(value);
+  return formatted === '—' ? formatted : `${formatted} ${unit}`;
 }
 
 // Which sections are open by default
@@ -110,7 +118,7 @@ const LeftPanel = memo(function LeftPanel({
   selected,
   onClose,
   reentryRisk,
-  metaData,
+  metadata,
 }: Props) {
   const [openSections, setOpenSections] =
     useState<Record<string, boolean>>(DEFAULT_OPEN);
@@ -126,7 +134,7 @@ const LeftPanel = memo(function LeftPanel({
   return (
     <div className="absolute left-3 top-3 w-64 z-10 select-none">
       {/* Outer shell */}
-      <div className="relative bg-black/60 backdrop-blur-md border border-white/10 flex flex-col max-h-[calc(100vh-4rem)]">
+      <div className="relative bg-black/60 backdrop-blur-md border border-white/10 flex flex-col max-h-[calc(96vh-4rem)]">
         {/* Corner accents */}
         <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400 pointer-events-none" />
         <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400 pointer-events-none" />
@@ -283,7 +291,7 @@ const LeftPanel = memo(function LeftPanel({
           )}
 
           {/* MISSION — collapsed by default */}
-          {metaData && (
+          {metadata && (
             <>
               <SectionLabel
                 collapsible
@@ -296,21 +304,21 @@ const LeftPanel = memo(function LeftPanel({
                 <>
                   <StatRow
                     label="Operator"
-                    value={formatOptional(metaData.operator)}
+                    value={formatOptional(metadata.operator)}
                   />
                   <StatRow
                     label="Country"
                     value={formatOptional(
-                      metaData.country ?? metaData.countryCode
+                      metadata.country ?? metadata.countryCode
                     )}
                   />
                   <StatRow
                     label="Purpose"
-                    value={formatOptional(metaData.purpose)}
+                    value={formatOptional(metadata.purpose)}
                   />
                   <StatRow
                     label="Users"
-                    value={formatOptional(metaData.userType)}
+                    value={formatOptional(metadata.userType)}
                   />
                 </>
               )}
@@ -327,27 +335,27 @@ const LeftPanel = memo(function LeftPanel({
                 <>
                   <StatRow
                     label="Object"
-                    value={formatOptional(metaData.objectType)}
+                    value={formatOptional(metadata.objectType)}
                   />
                   <StatRow
                     label="COSPAR"
-                    value={formatOptional(metaData.cosparId)}
+                    value={formatOptional(metadata.cosparId)}
                   />
                   <StatRow
                     label="Apogee"
-                    value={`${formatOptional(metaData.apogeeKm)} km`}
+                    value={formatUnit(metadata.apogeeKm, 'km')}
                   />
                   <StatRow
                     label="Perigee"
-                    value={`${formatOptional(metaData.perigeeKm)} km`}
+                    value={formatUnit(metadata.perigeeKm, 'km')}
                   />
                   <StatRow
                     label="Period"
-                    value={`${formatOptional(metaData.periodMinutes)} min`}
+                    value={formatUnit(metadata.periodMinutes, 'min')}
                   />
                   <StatRow
                     label="Source"
-                    value={metaData.source.toUpperCase()}
+                    value={metadata.source.toUpperCase()}
                   />
                 </>
               )}
@@ -364,17 +372,17 @@ const LeftPanel = memo(function LeftPanel({
                 <>
                   <StatRow
                     label="Date"
-                    value={formatOptional(metaData.launchDate)}
+                    value={formatOptional(metadata.launchDate)}
                   />
                   <StatRow
                     label="Site"
-                    value={formatOptional(metaData.launchSite)}
+                    value={formatOptional(metadata.launchSite)}
                   />
                   <StatRow
                     label="Vehicle"
-                    value={formatOptional(metaData.launchVehicle)}
+                    value={formatOptional(metadata.launchVehicle)}
                   />
-                  <StatRow label="Mass" value={formatMass(metaData.massKg)} />
+                  <StatRow label="Mass" value={formatMass(metadata.massKg)} />
                 </>
               )}
             </>
@@ -393,8 +401,8 @@ const LeftPanel = memo(function LeftPanel({
               {selected.tleEpoch && (
                 <StatRow label="Epoch" value={selected.tleEpoch} />
               )}
-              {metaData?.decayDate && (
-                <StatRow label="Decay" value={metaData.decayDate} />
+              {metadata?.decayDate && (
+                <StatRow label="Decay" value={metadata.decayDate} />
               )}
             </>
           )}
