@@ -127,7 +127,7 @@ function RightPanel({
                   <button
                     key={type}
                     onClick={() => dispatch(toggleFilter(type))}
-                    className={`flex items-center gap-1 px-2 py-1 text-[11px] rounded transition-all duration-200 cursor-pointer ${
+                    className={`flex items-center gap-1 px-2 py-[3px] text-[11px] transition-all duration-200 cursor-pointer ${
                       activeFiltersSet.has(type)
                         ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-400/50'
                         : 'bg-gray-700/50 text-gray-400 hover:bg-gray-600/50 hover:text-gray-300'

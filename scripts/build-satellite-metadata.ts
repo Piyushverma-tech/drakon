@@ -3,7 +3,7 @@ import path from 'node:path';
 import Papa from 'papaparse';
 import type { SatelliteMetadata } from '../lib/types';
 
-const UCS_URL = 'https://www.ucsusa.org/media/11493';
+const UCS_URL = 'https://www.ucs.org/media/11493';
 const SATCAT_URL = 'https://celestrak.org/pub/satcat.csv';
 
 const OUTPUT_PATH = path.join(
@@ -101,7 +101,7 @@ function normalizeHeader(header: string): string {
   return header.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-// bject-type normalization------------------------------
+// object-type normalization------------------------------
 
 function normalizeObjectType(
   value: unknown
@@ -141,6 +141,22 @@ async function fetchText(url: string): Promise<string> {
   }
 
   return text;
+}
+
+function assertLooksLikeData(text: string, sourceName: string) {
+  const sample = text.slice(0, 500).toLowerCase();
+
+  if (sample.includes('<!doctype html') || sample.includes('<html')) {
+    throw new Error(
+      `${sourceName} download returned HTML instead of a data file. Check the source URL.`
+    );
+  }
+
+  if (text.includes('[Content_Types].xml')) {
+    throw new Error(
+      `${sourceName} download is an Excel .xlsx file, not CSV/TSV text. Use the text-format URL instead.`
+    );
+  }
 }
 
 function parseCsv<T extends CsvRow>(
@@ -245,8 +261,8 @@ function metadataFromSatcat(row: SatcatRow): SatelliteMetadata | null {
 function mergeMetadata(
   ucsMap: Map<number, SatelliteMetadata>,
   satcatMap: Map<number, SatelliteMetadata>
-): Record<number, SatelliteMetadata> {
-  const merged: Record<number, SatelliteMetadata> = {};
+): Record<string, SatelliteMetadata> {
+  const merged: Record<string, SatelliteMetadata> = {};
   const allNoradIds = new Set<number>([...ucsMap.keys(), ...satcatMap.keys()]);
 
   for (const noradId of [...allNoradIds].sort((a, b) => a - b)) {
@@ -254,7 +270,7 @@ function mergeMetadata(
     const satcat = satcatMap.get(noradId);
 
     if (ucs && satcat) {
-      merged[noradId] = {
+      merged[String(noradId)] = {
         ...satcat,
         ...ucs,
 
@@ -280,7 +296,7 @@ function mergeMetadata(
     }
 
     if (ucs) {
-      merged[noradId] = {
+      merged[String(noradId)] = {
         ...ucs,
         source: 'ucs',
       };
@@ -288,7 +304,7 @@ function mergeMetadata(
     }
 
     if (satcat) {
-      merged[noradId] = {
+      merged[String(noradId)] = {
         ...satcat,
         source: 'satcat',
       };
@@ -342,11 +358,11 @@ function trimSatcatOnly(metadata: SatelliteMetadata): SatelliteMetadata {
 async function main() {
   console.log('[metadata] Fetching UCS satellite database...');
   const ucsCsv = await fetchText(UCS_URL);
-  console.log('UCS first 80 chars:', JSON.stringify(ucsCsv.slice(0, 80)));
-  console.log('Looks like XLSX:', ucsCsv.includes('[Content_Types].xml'));
+  assertLooksLikeData(ucsCsv, 'UCS');
 
   console.log('[metadata] Fetching CelesTrak SATCAT...');
   const satcatCsv = await fetchText(SATCAT_URL);
+  assertLooksLikeData(satcatCsv, 'CelesTrak SATCAT');
 
   console.log('[metadata] Parsing CSV files...');
 

@@ -200,7 +200,7 @@ export default function SatelliteGlobe({
   }, [reentryRisks]);
 
   const selectedMetadata = selected
-    ? (satelliteMetadata?.[selected.id] ?? null)
+    ? (satelliteMetadata?.[String(selected.id)] ?? null)
     : null;
 
   // ----------------------
@@ -649,7 +649,7 @@ export default function SatelliteGlobe({
         setSelected={setSelected}
         onClose={handleDeselectSatellite}
         reentryRisk={selectedReentryRisk}
-        metaData={selectedMetadata}
+        metadata={selectedMetadata}
       />
       {/* Right Panel */}
       <RightPanel
