@@ -47,6 +47,7 @@ import RightPanel from '@/app/globe/GlobeContent/components/panels/RightPanel';
 import LeftPanel from '@/app/globe/GlobeContent/components/panels/LeftPanel';
 import { ForecastOverlay } from '@/app/globe/GlobeContent/components/ForeCastOverlay';
 import Map2D from './Map2d';
+import { useSatelliteMetadata } from '@/hooks/useSatelliteMetadata';
 
 // ----------------------
 // Types
@@ -136,6 +137,8 @@ export default function SatelliteGlobe({
     selectedId,
   });
 
+  const { data: satelliteMetadata } = useSatelliteMetadata();
+
   const mapRef = useRef<GlobeHandle>(null);
 
   // Filter satellites based on active filters
@@ -195,6 +198,10 @@ export default function SatelliteGlobe({
   useEffect(() => {
     reentryRisksRef.current = reentryRisks;
   }, [reentryRisks]);
+
+  const selectedMetadata = selected
+    ? (satelliteMetadata?.[selected.id] ?? null)
+    : null;
 
   // ----------------------
   // Layers
@@ -642,6 +649,7 @@ export default function SatelliteGlobe({
         setSelected={setSelected}
         onClose={handleDeselectSatellite}
         reentryRisk={selectedReentryRisk}
+        metaData={selectedMetadata}
       />
       {/* Right Panel */}
       <RightPanel

@@ -20,6 +20,10 @@
 # production
 /build
 
+# public assets
+/satellite-metadata.json
+/public/satellite-metadata.json
+
 # misc
 .DS_Store
 *.pem

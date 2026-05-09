@@ -77,6 +77,37 @@ export type SatellitePoint = {
   l2?: string;
 };
 
+export type SatelliteMetadata = {
+  noradId: number;
+
+  // UCS fields: rich metadata for active payloads
+  name?: string;
+  operator?: string;
+  country?: string;
+  purpose?: string;
+  userType?: string;
+  orbitClass?: string;
+  launchDate?: string;
+  launchSite?: string;
+  launchVehicle?: string;
+  massKg?: number;
+
+  // CelesTrak SATCAT fields: basic metadata for all catalog objects
+  cosparId?: string;
+  objectName?: string;
+  objectType?: 'PAYLOAD' | 'ROCKET BODY' | 'DEBRIS' | 'UNKNOWN';
+  orbitStatus?: string;
+  countryCode?: string;
+  decayDate?: string | null;
+  periodMinutes?: number;
+  inclination?: number;
+  apogeeKm?: number;
+  perigeeKm?: number;
+
+  // Source tracking
+  source: 'ucs+satcat' | 'ucs' | 'satcat' | 'none';
+};
+
 export type BandTrack = {
   id: string;
   path: [number, number][];
@@ -92,7 +123,7 @@ export interface FilterOptions {
 
 export type ReentryRisk = {
   satId: number;
-  bstar: number; // raw BSTAR drag term
+  bstar: number;
   altKm: number; // current altitude (from meanMotion)
   decayRateKmPerDay: number; // estimated altitude loss per day
   estimatedDaysRemaining: number | null; // null = stable / indeterminate
