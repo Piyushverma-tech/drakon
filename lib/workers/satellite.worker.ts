@@ -187,6 +187,9 @@ function getVoxelKey(x: number, y: number, z: number, size: number) {
 }
 
 function getNeighborKeys(baseKey: string, voxelSize: number): string[] {
+  // r=1 check 27 cells (the cell itself + 26 neighbors)
+  // voxelSize causing r=2 and check 125 cells — 4.6× more neighbor lookups
+  // When voxelSize ≈ detectionRadius, r is always 1 (27 neighbors), so this is a good tradeoff
   const [ix, iy, iz] = baseKey.split(',').map((v) => Number(v));
   const keys: string[] = [];
   for (let dx = -1; dx <= 1; dx++) {

@@ -252,7 +252,7 @@ function metadataFromSatcat(row: SatcatRow): SatelliteMetadata | null {
     inclination: parseNumber(getField(row, ['INCLINATION'])),
     apogeeKm: parseNumber(getField(row, ['APOGEE'])),
     perigeeKm: parseNumber(getField(row, ['PERIGEE'])),
-    source: 'satcat',
+    source: 'celestrak',
   };
 }
 
@@ -290,7 +290,7 @@ function mergeMetadata(
         launchDate: ucs.launchDate ?? satcat.launchDate,
         launchSite: ucs.launchSite ?? satcat.launchSite,
 
-        source: 'ucs+satcat',
+        source: 'ucs+celestrak',
       };
       continue;
     }
@@ -306,7 +306,7 @@ function mergeMetadata(
     if (satcat) {
       merged[String(noradId)] = {
         ...satcat,
-        source: 'satcat',
+        source: 'celestrak',
       };
     }
   }
@@ -334,7 +334,7 @@ function buildMap(
 }
 
 function trimSatcatOnly(metadata: SatelliteMetadata): SatelliteMetadata {
-  if (metadata.source !== 'satcat') return metadata;
+  if (metadata.source !== 'celestrak') return metadata;
 
   return {
     noradId: metadata.noradId,
@@ -375,19 +375,19 @@ async function main() {
   });
   const satcatRows = parseCsv<SatcatRow>(satcatCsv, 'CelesTrak SATCAT');
 
-  console.log(`[metadata] UCS rows: ${ucsRows.length.toLocaleString()}`);
-  console.log(`[metadata] SATCAT rows: ${satcatRows.length.toLocaleString()}`);
+  // console.log(`[metadata] UCS rows: ${ucsRows.length.toLocaleString()}`);
+  // console.log(`[metadata] SATCAT rows: ${satcatRows.length.toLocaleString()}`);
 
   const ucsMap = buildMap(ucsRows, metadataFromUcs);
   const satcatMap = buildMap(satcatRows, metadataFromSatcat);
 
-  console.log(`[metadata] UCS indexed: ${ucsMap.size.toLocaleString()}`);
-  console.log(`[metadata] SATCAT indexed: ${satcatMap.size.toLocaleString()}`);
+  // console.log(`[metadata] UCS indexed: ${ucsMap.size.toLocaleString()}`);
+  // console.log(`[metadata] SATCAT indexed: ${satcatMap.size.toLocaleString()}`);
 
   const merged = mergeMetadata(ucsMap, satcatMap);
-  const mergedCount = Object.keys(merged).length;
+  // const mergedCount = Object.keys(merged).length;
 
-  console.log(`[metadata] Merged records: ${mergedCount.toLocaleString()}`);
+  // console.log(`[metadata] Merged records: ${mergedCount.toLocaleString()}`);
 
   await mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
 
@@ -400,21 +400,21 @@ async function main() {
 
   await writeFile(OUTPUT_PATH, `${JSON.stringify(compactMerged)}\n`, 'utf8');
 
-  const ucsOnlyCount = Object.values(merged).filter(
-    (item) => item.source === 'ucs'
-  ).length;
-  const ucsSatcatCount = Object.values(merged).filter(
-    (item) => item.source === 'ucs+satcat'
-  ).length;
-  const satcatOnlyCount = Object.values(merged).filter(
-    (item) => item.source === 'satcat'
-  ).length;
+  // const ucsOnlyCount = Object.values(merged).filter(
+  //   (item) => item.source === 'ucs'
+  // ).length;
+  // const ucsSatcatCount = Object.values(merged).filter(
+  //   (item) => item.source === 'ucs+satcat'
+  // ).length;
+  // const satcatOnlyCount = Object.values(merged).filter(
+  //   (item) => item.source === 'satcat'
+  // ).length;
 
-  console.log(`[metadata] Wrote ${OUTPUT_PATH}`);
-  console.log(`[metadata] Source breakdown:`);
-  console.log(`  - UCS + SATCAT: ${ucsSatcatCount.toLocaleString()}`);
-  console.log(`  - UCS only: ${ucsOnlyCount.toLocaleString()}`);
-  console.log(`  - SATCAT only: ${satcatOnlyCount.toLocaleString()}`);
+  // console.log(`[metadata] Wrote ${OUTPUT_PATH}`);
+  // console.log(`[metadata] Source breakdown:`);
+  // console.log(`  - UCS + SATCAT: ${ucsSatcatCount.toLocaleString()}`);
+  // console.log(`  - UCS only: ${ucsOnlyCount.toLocaleString()}`);
+  // console.log(`  - SATCAT only: ${satcatOnlyCount.toLocaleString()}`);
 }
 
 main().catch((error) => {

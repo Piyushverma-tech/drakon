@@ -105,7 +105,7 @@ export type SatelliteMetadata = {
   perigeeKm?: number;
 
   // Source tracking
-  source: 'ucs+satcat' | 'ucs' | 'satcat' | 'none';
+  source: 'ucs+celestrak' | 'ucs' | 'celestrak' | 'none';
 };
 
 export type BandTrack = {
