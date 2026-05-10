@@ -69,49 +69,63 @@ DRAKON integrates real-time orbit computation, conjunction analysis, and fleet v
 ```bash
 drakon/
 ├─ app/
-│  ├─ dashboard/
-│  │  ├─ page.tsx               # Dashboard with FleetHealth + mini globe
-│  │  └─ layout.tsx             # Sidebar + Topbar layout
-│  ├─ globe/
-│  │  └─ page.tsx               # Full-screen globe with search
 │  ├─ api/
+│  │  ├─ socket/                # Reserved for realtime socket route(s)
 │  │  └─ tle/
 │  │     └─ route.ts            # TLE proxy: Celestrak → Upstash Redis → client
-│  ├─ layout.tsx                # Root layout with Redux + TanStack Query providers
-│  └─ globals.css
-├─ components/
-│  ├─ SatelliteGlobe.tsx        # Main globe: layers, filters, panels, simulation
-│  ├─ Globe.tsx                 # deck.gl DeckGL + GlobeView + day/night BitmapLayer
-│  ├─ FleetHealth.tsx           # Fleet health donut chart + trendline
-│  ├─ ForeCastOverlay.tsx       # Simulation time scrubber (T+0 → T+72h)
-│  ├─ DensityLegend.tsx         # Collision density color legend with hover tooltip
-│  └─ panels/
-│     ├─ LeftPanel.tsx          # Selected satellite detail panel
-│     └─ RightPanel.tsx         # Controls: filters, bands, re-entry, density
+│  ├─ dashboard/
+│  │  ├─ components/
+│  │  │  ├─ layout/
+│  │  │  │  ├─ Sidebar.tsx      # Dashboard sidebar navigation
+│  │  │  │  └─ Topbar.tsx       # Dashboard header
+│  │  │  └─ UnderDevelopment.tsx
+│  │  ├─ layout.tsx             # Sidebar + Topbar layout
+│  │  └─ page.tsx               # Dashboard entry page
+│  ├─ globe/
+│  │  ├─ GlobeContent/
+│  │  │  ├─ components/
+│  │  │  │  ├─ panels/
+│  │  │  │  │  ├─ LeftPanel.tsx
+│  │  │  │  │  └─ RightPanel.tsx
+│  │  │  │  ├─ DensityLegend.tsx
+│  │  │  │  ├─ ForeCastOverlay.tsx
+│  │  │  │  └─ MobileViewNotice.tsx
+│  │  │  ├─ Globe3D.tsx         # deck.gl 3D globe renderer + layers
+│  │  │  ├─ GlobeContainer.tsx  # Main globe composition and state wiring
+│  │  │  └─ Map2d.tsx           # 2D map renderer
+│  │  └─ page.tsx
+│  ├─ [...slug]/
+│  │  └─ page.tsx
+│  ├─ globals.css
+│  ├─ layout.tsx                # Root layout with providers
+│  └─ page.tsx
 ├─ hooks/
 │  ├─ useTleEntriesQuery.ts     # TanStack Query hook — fetches + parses TLE text
 │  ├─ useSatellitePositions.ts  # Live SGP4 positions, 5s interval
 │  ├─ useSimulatedPositions.ts  # Projected positions at T+offset (600ms debounce)
 │  ├─ useSelectedSatelliteTrack.ts  # Past + future ground track for selected sat
 │  ├─ useInclinationBands.ts    # Orbital plane band membership + ground track
-│  └─ useCollisionDensity.ts    # Voxel-based 3D density computation
+│  ├─ useCollisionDensity.ts    # Voxel-based 3D density computation
+│  └─ useSatelliteMetadata.ts   # Loads precomputed satellite metadata
 ├─ lib/
 │  ├─ store.ts                  # Redux store (visualization slice only)
 │  ├─ visualization-slice.ts    # Filters, bands, density, simulation, re-entry flags
 │  ├─ satellite.ts              # Synchronous SGP4 helpers (positionFromTLE etc.)
 │  ├─ satelliteWorker.ts        # Comlink async wrappers + in-memory cache (CACHE_MAX=1000)
 │  ├─ satelliteHelpers.ts       # parseBSTAR, getReentryRisk, parseTLEMeta, getOrbitType
-│  ├─ fleet-health.ts           # Fleet health assessment + mock telemetry generator
+│  ├─ satelliteHelpers.test.ts  # Unit tests for helper/parsing functions
 │  ├─ redis.ts                  # Upstash Redis client singleton
 │  ├─ providers.tsx             # Redux + TanStack QueryClient providers
-│  ├─ types.ts                  # TleEntry, SatellitePoint, ReentryRisk, DensityResult, etc.
-│  ├─ runInWorker.ts            # Blob-based one-shot worker utility
+│  ├─ types.ts                  # TleEntry, SatellitePoint, ReentryRisk, metadata types
+│  ├─ utils.ts
 │  └─ workers/
 │     └─ satellite.worker.ts    # Comlink worker: SGP4, density, ground tracks
 ├─ docs/
 │  ├─ ORBITAL_PLANE_VISUALIZATION.md
 │  ├─ COLLISION_DENSITY_MAP.md
 │  └─ REENTRY_RISK.md
+├─ scripts/
+│  └─ build-satellite-metadata.ts  # Metadata build/precompute script
 ├─ public/
 ├─ package.json
 ├─ tsconfig.json
@@ -271,8 +285,7 @@ const isDebris =
   lowerName.includes('r/b') || // rocket bodies
   lowerName.includes('rkt') || // older catalog names
   lowerName.includes('rocket') ||
-  lowerName.includes('payload') ||
-  lowerName.includes('platform');
+  lowerName.includes('platform'); // defunct platforms
 ```
 
 Used for globe coloring (gray dots) and as a gate in `getReentryRisk` for re-entry screening.
@@ -288,7 +301,7 @@ Used for globe coloring (gray dots) and as a gate in `getReentryRisk` for re-ent
 ## Pending / Backlog Features
 
 - **Conjunction timeline**: Sweep T+0→T+72h, chart pair counts over time
-- **Operator/country ownership layer**: Color by operator or nation
+- **Operator/country ownership filter layer**: filter by operator or nation
 - **Hohmann transfer maneuver planner**: Δv calculator for orbit transfers
 - **Multi-epoch BSTAR trending**: `tle_history` PostgreSQL table for BSTAR drift analysis
 - **Solar activity (F10.7 flux) correction**: Improve re-entry estimates during solar maximum
