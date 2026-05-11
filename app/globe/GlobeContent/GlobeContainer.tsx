@@ -19,7 +19,6 @@ import {
   DensityResult,
   TleEntry,
   SatellitePoint,
-  BandTrack,
   ReentryRisk,
   TrackSegment,
 } from '@/lib/types';
@@ -203,6 +202,21 @@ export default function SatelliteGlobe({
     ? (satelliteMetadata?.[String(selected.id)] ?? null)
     : null;
 
+  // split a path into segments that don't cross the antimeridian
+  function splitBandAtAntimeridian(
+    path: [number, number][]
+  ): [number, number][][] {
+    const segments: [number, number][][] = [[]];
+    for (let i = 0; i < path.length; i++) {
+      segments.at(-1)!.push(path[i]);
+      if (i < path.length - 1) {
+        if (Math.abs(path[i + 1][0] - path[i][0]) > 180) {
+          segments.push([]);
+        }
+      }
+    }
+    return segments.filter((s) => s.length > 1);
+  }
   // ----------------------
   // Layers
   // ----------------------
@@ -319,7 +333,7 @@ export default function SatelliteGlobe({
                 number,
                 number,
               ],
-            getWidth: 3,
+            getWidth: 3.5,
             widthMinPixels: 1.5,
             widthMaxPixels: 3.5,
             widthUnits: 'pixels',
@@ -331,8 +345,8 @@ export default function SatelliteGlobe({
       );
 
     return [
-      ...makePath(track.past, [80, 220, 180], 'past'), // teal
-      ...makePath(track.future, [40, 120, 255], 'future'), // blue
+      ...makePath(track.past, [115, 147, 179], 'past'), // teal
+      ...makePath(track.future, [4, 55, 242], 'future'), // blue
     ];
   }, [track, viewMode]);
 
@@ -340,17 +354,18 @@ export default function SatelliteGlobe({
     () => [
       // Inclination band path layer
       ...(showBands && bandTrack
-        ? [
-            new PathLayer<BandTrack>({
-              id: `${viewMode.toLowerCase()}-inclination-band`,
-              data: [bandTrack],
-              getPath: (d) => d.path,
-              getColor: [0, 200, 255, 180],
-              widthMinPixels: 1.5,
-              opacity: 0.7,
-              pickable: false,
-            }),
-          ]
+        ? splitBandAtAntimeridian(bandTrack.path).map(
+            (segment, i) =>
+              new PathLayer({
+                id: `${viewMode.toLowerCase()}-inclination-band-${i}`,
+                data: [segment],
+                getPath: (d) => d,
+                getColor: [0, 200, 255, 180],
+                widthMinPixels: 1.5,
+                opacity: 0.7,
+                pickable: false,
+              })
+          )
         : []),
       ...densityLayers,
       ...trackLayers,
@@ -360,7 +375,10 @@ export default function SatelliteGlobe({
         data: filteredSatellites,
         getPosition: (d) => [d.lon, d.lat, viewMode === '2D' ? 0 : d.alt * 300],
         getFillColor: (d): [number, number, number, number] => {
-          if (d.id === selected?.id) return [0, 150, 255, 255];
+          if (d.id === selected?.id) {
+            if (showDensity) return [240, 255, 255, 255];
+            return [0, 150, 255, 255];
+          }
           if (showBands) {
             // Highlight satellites in current band
             const inBand = bandSatelliteIds.has(d.id);
@@ -461,7 +479,7 @@ export default function SatelliteGlobe({
                 viewMode === '2D' ? 0 : d.alt * 300,
               ],
               getFillColor: (): [number, number, number, number] =>
-                showDensity ? [255, 105, 255, 180] : [0, 200, 255, 100],
+                showDensity ? [240, 255, 255, 150] : [0, 200, 255, 100],
               radiusUnits: viewMode === '2D' ? 'pixels' : 'meters',
               getRadius: (d) => {
                 if (viewMode === '2D') {

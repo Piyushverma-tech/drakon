@@ -117,11 +117,16 @@ export function useInclinationBands({
       };
     }
 
-    const rep = entries.find(
+    const bandMembers = entries.filter(
       (e) =>
         Math.abs(e.inclination - bandInclinationDebounced) <=
         bandToleranceDebounced
     );
+
+    // pick median mean motion for most representative orbital period
+    const sorted = [...bandMembers].sort((a, b) => a.meanMotion - b.meanMotion);
+    const rep = sorted[Math.floor(sorted.length / 2)];
+
     if (!rep) {
       setBandTrack(null);
       setBandTrackLoading(false);
