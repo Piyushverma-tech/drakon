@@ -1,4 +1,3 @@
-// DensityLegendWithTooltip.tsx
 'use client';
 import React, { useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
@@ -6,34 +5,33 @@ import { createPortal } from 'react-dom';
 function getCategoryForT(t: number) {
   if (t < 0.1667) {
     return {
-      category: 'Very Low',
-      description: 'Blue — Cool / safe region with minimal collision density.',
+      category: 'Very Low (Blue)',
+      description: 'Cool / safe region with minimal collision density.',
       color: 'rgb(80,160,255)',
     };
   } else if (t < 0.3333) {
     return {
-      category: 'Low',
-      description: 'Cyan — Slight activity; monitoring recommended.',
+      category: 'Low (Cyan)',
+      description: 'Slight activity; monitoring recommended.',
       color: 'rgb(120,210,255)',
     };
   } else if (t < 0.6) {
     return {
-      category: 'Medium',
+      category: 'Medium (Green)',
       description:
-        'Green — Increasing traffic; stay alert for potential close approaches.',
+        'Increasing traffic; stay alert for potential close approaches.',
       color: 'rgb(60,200,140)',
     };
   } else if (t < 0.85) {
     return {
-      category: 'Medium-High',
-      description: 'Yellow — Hot zone emerging; consider further analysis.',
+      category: 'Medium-High (Yellow)',
+      description: 'Hot zone emerging; consider further analysis.',
       color: 'rgb(255,255,120)',
     };
   } else {
     return {
-      category: 'High',
-      description:
-        'Orange → Red — Collision-prone region; immediate attention advised.',
+      category: 'High (Red)',
+      description: 'Collision-prone region; immediate attention advised.',
       color: 'rgb(255,50,50)',
     };
   }
@@ -50,7 +48,6 @@ export default function DensityLegend() {
     color: string;
   }>({ visible: false, x: 0, y: 0, category: '', description: '', color: '' });
 
-  // create portal container (once)
   const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
   useEffect(() => {
     setPortalRoot(document.body);
@@ -64,7 +61,6 @@ export default function DensityLegend() {
     const t = Math.min(Math.max(xInside / rect.width, 0), 1);
     const meta = getCategoryForT(t);
 
-    // place tooltip slightly above mouse (avoid clipping the bar)
     const offsetY = 12;
     setTooltip({
       visible: true,
@@ -85,7 +81,6 @@ export default function DensityLegend() {
     tooltip.visible && portalRoot
       ? createPortal(
           <div
-            // pointer-events none so it doesn't steal hover events from gradient bar
             className="pointer-events-none fixed z-[9999] transform -translate-x-1/2 -translate-y-full"
             style={{ left: tooltip.x, top: tooltip.y, minWidth: 220 }}
             aria-hidden={!tooltip.visible}

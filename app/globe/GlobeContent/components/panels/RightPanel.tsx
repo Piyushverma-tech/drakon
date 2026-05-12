@@ -398,7 +398,7 @@ function RightPanel({
                         {/* Density Color Legend */}
                         <DensityLegend />
 
-                        <div className="text-[11px] text-gray-200">
+                        <div className="text-[11px] h-10 text-gray-200">
                           {densityLoading && <span>Analyzing density...</span>}
                           {!densityLoading && densityResult && (
                             <div className="space-y-1">
