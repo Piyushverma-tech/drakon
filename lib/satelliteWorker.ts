@@ -346,6 +346,8 @@ export async function computeCollisionDensityAsync(
         totalSatellites: 0,
         totalCells: 0,
         maxCellCount: 0,
+        totalCandidatePairs: 0,
+        displayedCandidatePairs: 0,
         detectionRadiusKm: options?.detectionRadiusKm ?? 75,
         voxelSizeKm: options?.voxelSizeKm ?? 50,
         gridCellSizeDeg: options?.gridCellSizeDeg ?? 2,

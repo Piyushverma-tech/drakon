@@ -38,12 +38,14 @@ export type CandidatePair = {
 
 export type DensityResult = {
   densityCells: DensityCell[];
-  candidatePairs: CandidatePair[];
+  candidatePairs: CandidatePair[]; // Nearest close-approach pairs returned for map/list rendering. Full detected count is tracked in stats.totalCandidatePairs.
   satelliteDensities?: Record<number, number>;
   stats: {
     totalSatellites: number;
     totalCells: number;
     maxCellCount: number;
+    totalCandidatePairs: number;
+    displayedCandidatePairs: number;
     maxSatelliteDensity?: number;
     detectionRadiusKm: number;
     voxelSizeKm: number;

@@ -399,17 +399,32 @@ function RightPanel({
                         <DensityLegend />
 
                         <div className="text-[11px] h-10 text-gray-200">
-                          {densityLoading && <span>Analyzing density...</span>}
-                          {!densityLoading && densityResult && (
+                          {densityResult && (
                             <div className="space-y-1">
                               <span>
-                                Hotspots: {densityResult.stats.totalCells} · Top
-                                pairs: {densityResult.candidatePairs.length}
+                                Hotspots:{' '}
+                                <span key="totalCells">
+                                  {densityResult.stats.totalCells}
+                                </span>{' '}
+                                · Close approaches:{' '}
+                                <span key="totalCandidatePairs">
+                                  {densityResult.stats.totalCandidatePairs}
+                                </span>
                               </span>
-                              <div className="text-[10px] mt-1.5 text-gray-400">
-                                Peak density: {densityResult.stats.maxCellCount}{' '}
-                                sats · Radius{' '}
-                                {densityResult.stats.detectionRadiusKm} km
+                              <div className="text-[11px] mt-1.5 text-gray-400">
+                                Showing{' '}
+                                <span key="displayedCandidatePairs">
+                                  {densityResult.stats.displayedCandidatePairs}
+                                </span>
+                                /
+                                <span key="totalCandidatePairs2">
+                                  {densityResult.stats.totalCandidatePairs}
+                                </span>{' '}
+                                pairs · Peak density:{' '}
+                                <span key="maxCellCount">
+                                  {densityResult.stats.maxCellCount}
+                                </span>{' '}
+                                cells
                               </div>
                             </div>
                           )}
@@ -421,47 +436,45 @@ function RightPanel({
                           densityResult.candidatePairs.length > 0 && (
                             <div className="mt-3 space-y-1 text-[10px] text-gray-300">
                               <div className="uppercase tracking-wider text-gray-400">
-                                Top Close Approaches
+                                Top 50 Close Approaches
                               </div>
                               <div className="max-h-40 overflow-auto space-y-1 pr-1">
-                                {densityResult.candidatePairs
-                                  .slice(0, 10)
-                                  .map((pair) => {
-                                    const entryA = entries.find(
-                                      (e) => e.id === pair.idA
-                                    );
-                                    return (
-                                      <div
-                                        key={`${pair.idA}-${pair.idB}`}
-                                        onClick={() =>
-                                          entryA && onFocusSatellite(entryA)
-                                        }
-                                        className="flex items-center justify-between rounded border cursor-pointer border-gray-700/60 px-2 py-1 hover:border-cyan-400/30 hover:bg-cyan-500/10 transition-colors"
-                                      >
-                                        <div className="flex flex-col text-gray-200">
-                                          <span>
-                                            #{pair.idA} ↔ #{pair.idB}
-                                          </span>
-                                          <span className="text-[9px] text-gray-400">
-                                            Alt {Math.round(pair.altitudeA)} /{' '}
-                                            {Math.round(pair.altitudeB)} km
-                                          </span>
-                                        </div>
-                                        <div className="text-right">
-                                          <span
-                                            className={
-                                              pair.distanceKm <=
-                                              densityRadiusKm / 2
-                                                ? 'text-red-300'
-                                                : 'text-cyan-200'
-                                            }
-                                          >
-                                            {formatDistance(pair.distanceKm)}
-                                          </span>
-                                        </div>
+                                {densityResult.candidatePairs.map((pair) => {
+                                  const entryA = entries.find(
+                                    (e) => e.id === pair.idA
+                                  );
+                                  return (
+                                    <div
+                                      key={`${pair.idA}-${pair.idB}`}
+                                      onClick={() =>
+                                        entryA && onFocusSatellite(entryA)
+                                      }
+                                      className="flex items-center justify-between rounded border cursor-pointer border-gray-700/60 px-2 py-1 hover:border-cyan-400/30 hover:bg-cyan-500/10 transition-colors"
+                                    >
+                                      <div className="flex flex-col text-gray-200">
+                                        <span>
+                                          #{pair.idA} ↔ #{pair.idB}
+                                        </span>
+                                        <span className="text-[9px] text-gray-400">
+                                          Alt {Math.round(pair.altitudeA)} /{' '}
+                                          {Math.round(pair.altitudeB)} km
+                                        </span>
                                       </div>
-                                    );
-                                  })}
+                                      <div className="text-right">
+                                        <span
+                                          className={
+                                            pair.distanceKm <=
+                                            densityRadiusKm / 2
+                                              ? 'text-red-300'
+                                              : 'text-cyan-200'
+                                          }
+                                        >
+                                          {formatDistance(pair.distanceKm)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}

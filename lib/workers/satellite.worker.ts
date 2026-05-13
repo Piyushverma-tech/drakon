@@ -324,6 +324,24 @@ function filterCandidatePairs(
   return filtered;
 }
 
+function incrementHotspotCell(
+  densityMap: Map<string, { count: number; latIdx: number; lonIdx: number }>,
+  lat: number,
+  lon: number,
+  gridCellSizeDeg: number
+) {
+  const latIdx = Math.floor((lat + 90) / gridCellSizeDeg);
+  const lonIdx = Math.floor((lon + 180) / gridCellSizeDeg);
+  const densityKey = `${latIdx},${lonIdx}`;
+  const existing = densityMap.get(densityKey);
+
+  if (existing) {
+    existing.count += 1;
+  } else {
+    densityMap.set(densityKey, { count: 1, latIdx, lonIdx });
+  }
+}
+
 async function computeCollisionDensity(
   items: DensityWorkerInput[],
   options?: DensityWorkerOptions
@@ -341,6 +359,8 @@ async function computeCollisionDensity(
         totalSatellites: 0,
         totalCells: 0,
         maxCellCount: 0,
+        totalCandidatePairs: 0,
+        displayedCandidatePairs: 0,
         detectionRadiusKm,
         voxelSizeKm,
         gridCellSizeDeg,
@@ -361,7 +381,7 @@ async function computeCollisionDensity(
     { count: number; latIdx: number; lonIdx: number }
   >();
 
-  // Initialize 3D density map
+  // Track per-satellite close-approach counts for density coloring.
   const satDensity = new Map<number, number>();
   let maxSatDensity = 0;
 
@@ -374,16 +394,6 @@ async function computeCollisionDensity(
       list.push(satRecord);
     } else {
       voxels.set(key, [satRecord]);
-    }
-
-    const latIdx = Math.floor((sat.lat + 90) / gridCellSizeDeg);
-    const lonIdx = Math.floor((sat.lon + 180) / gridCellSizeDeg);
-    const densityKey = `${latIdx},${lonIdx}`;
-    const existing = densityMap.get(densityKey);
-    if (existing) {
-      existing.count += 1;
-    } else {
-      densityMap.set(densityKey, { count: 1, latIdx, lonIdx });
     }
   }
 
@@ -416,14 +426,6 @@ async function computeCollisionDensity(
           if (dist <= detectionRadiusKm && dist > 0.01) {
             // mark processed before counting or pushing pair
             processedPairs.add(pairKey);
-
-            // increment 3D density for both endpoints once
-            const newSatCount = (satDensity.get(sat.id) || 0) + 1;
-            satDensity.set(sat.id, newSatCount);
-            const newOtherCount = (satDensity.get(other.id) || 0) + 1;
-            satDensity.set(other.id, newOtherCount);
-
-            maxSatDensity = Math.max(maxSatDensity, newSatCount, newOtherCount);
 
             const satIsMin = sat.id === minId;
             candidatePairs.push({
@@ -471,8 +473,19 @@ async function computeCollisionDensity(
     }
   );
 
+  for (const pair of filteredCandidatePairs) {
+    const newCountA = (satDensity.get(pair.idA) || 0) + 1;
+    const newCountB = (satDensity.get(pair.idB) || 0) + 1;
+    satDensity.set(pair.idA, newCountA);
+    satDensity.set(pair.idB, newCountB);
+    maxSatDensity = Math.max(maxSatDensity, newCountA, newCountB);
+    incrementHotspotCell(densityMap, pair.latA, pair.lonA, gridCellSizeDeg);
+    incrementHotspotCell(densityMap, pair.latB, pair.lonB, gridCellSizeDeg);
+  }
+
   filteredCandidatePairs.sort((a, b) => a.distanceKm - b.distanceKm);
   const limitedPairs = filteredCandidatePairs.slice(0, maxPairs);
+  const totalCandidatePairs = filteredCandidatePairs.length;
 
   const densityCells: DensityCell[] = [];
   let maxCellCount = 0;
@@ -507,6 +520,8 @@ async function computeCollisionDensity(
       totalSatellites: items.length,
       totalCells: densityCells.length,
       maxCellCount,
+      totalCandidatePairs,
+      displayedCandidatePairs: limitedPairs.length,
       maxSatelliteDensity: maxSatDensity,
       detectionRadiusKm,
       voxelSizeKm,

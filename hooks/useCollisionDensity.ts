@@ -54,13 +54,17 @@ export function useCollisionDensity({
       }));
 
       const voxelSizeKm = Math.max(densityRadiusKm, 20);
-      const gridCellSizeDeg =
-        densityRadiusKm >= 150 ? 4 : densityRadiusKm >= 80 ? 3 : 2;
+
+      // Keep the hotspot grid stable across radius changes so hotspot counts
+      // reflect close-approach growth instead of changing map resolution.
+      const gridCellSizeDeg = 2;
 
       computeCollisionDensityAsync(payload, {
         detectionRadiusKm: densityRadiusKm,
         voxelSizeKm,
         gridCellSizeDeg,
+        // Only caps the map/list overlay payload; aggregate stats and hotspot
+        // density are computed from all filtered close-approach pairs.
         maxPairs: 50,
       })
         .then((result) => {
