@@ -10,7 +10,7 @@ import {
   setShowReentry,
   toggleFilter,
 } from '@/lib/visualization-slice';
-import { ArrowBigDown, ArrowBigUp } from 'lucide-react';
+import { ArrowBigDown, ArrowBigUp, Loader2 } from 'lucide-react';
 import { memo } from 'react';
 import DensityLegend from '../DensityLegend';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
@@ -67,7 +67,7 @@ function RightPanel({
   const activeFiltersSet = new Set(activeFilters);
 
   return (
-    <div className="absolute right-3 top-3 w-64 bg-black/60 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto max-h-[calc(100vh-4rem)] z-10">
+    <div className="absolute right-3 top-3 w-[280px] bg-black/60 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto max-h-[calc(100vh-4rem)] z-10">
       {/* Corner accents */}
       <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
       <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />
@@ -398,21 +398,31 @@ function RightPanel({
                         {/* Density Color Legend */}
                         <DensityLegend />
 
-                        <div className="text-[11px] h-10 text-gray-200">
+                        <div className="text-[11px] min-h-10 text-gray-200">
                           {densityResult && (
                             <div className="space-y-1">
-                              <span>
-                                Hotspots:{' '}
+                              <span className="flex items-center gap-2">
+                                Active zones:{' '}
                                 <span key="totalCells">
                                   {densityResult.stats.totalCells}
                                 </span>{' '}
-                                · Close approaches:{' '}
-                                <span key="totalCandidatePairs">
-                                  {densityResult.stats.totalCandidatePairs}
+                                · Satellites:{' '}
+                                <span key="closeApproachSatelliteCount">
+                                  {
+                                    densityResult.stats
+                                      .closeApproachSatelliteCount
+                                  }
                                 </span>
+                                {densityLoading && (
+                                  <Loader2 className="h-3 w-3 text-cyan-400 animate-spin" />
+                                )}
                               </span>
                               <div className="text-[11px] mt-1.5 text-gray-400">
-                                Showing{' '}
+                                Close approaches:{' '}
+                                <span key="totalCandidatePairs">
+                                  {densityResult.stats.totalCandidatePairs}
+                                </span>{' '}
+                                · Showing{' '}
                                 <span key="displayedCandidatePairs">
                                   {densityResult.stats.displayedCandidatePairs}
                                 </span>
@@ -420,11 +430,11 @@ function RightPanel({
                                 <span key="totalCandidatePairs2">
                                   {densityResult.stats.totalCandidatePairs}
                                 </span>{' '}
-                                pairs · Peak density:{' '}
+                                pairs · Peak zone:{' '}
                                 <span key="maxCellCount">
                                   {densityResult.stats.maxCellCount}
                                 </span>{' '}
-                                cells
+                                sats
                               </div>
                             </div>
                           )}

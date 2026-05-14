@@ -186,7 +186,7 @@ function getVoxelKey(x: number, y: number, z: number, size: number) {
   return `${ix},${iy},${iz}`;
 }
 
-function getNeighborKeys(baseKey: string, voxelSize: number): string[] {
+function getNeighborKeys(baseKey: string): string[] {
   // r=1 check 27 cells (the cell itself + 26 neighbors)
   // voxelSize causing r=2 and check 125 cells — 4.6× more neighbor lookups
   // When voxelSize ≈ detectionRadius, r is always 1 (27 neighbors), so this is a good tradeoff
@@ -328,8 +328,15 @@ function incrementHotspotCell(
   densityMap: Map<string, { count: number; latIdx: number; lonIdx: number }>,
   lat: number,
   lon: number,
-  gridCellSizeDeg: number
+  gridCellSizeDeg: number,
+  satelliteId: number,
+  countedHotspotSatellites: Set<number>
 ) {
+  if (countedHotspotSatellites.has(satelliteId)) {
+    return;
+  }
+  countedHotspotSatellites.add(satelliteId);
+
   const latIdx = Math.floor((lat + 90) / gridCellSizeDeg);
   const lonIdx = Math.floor((lon + 180) / gridCellSizeDeg);
   const densityKey = `${latIdx},${lonIdx}`;
@@ -361,6 +368,9 @@ async function computeCollisionDensity(
         maxCellCount: 0,
         totalCandidatePairs: 0,
         displayedCandidatePairs: 0,
+        closeApproachSatelliteCount: 0,
+        maxSatelliteDensity: 0,
+        maxRawSatelliteDensity: 0,
         detectionRadiusKm,
         voxelSizeKm,
         gridCellSizeDeg,
@@ -383,7 +393,9 @@ async function computeCollisionDensity(
 
   // Track per-satellite close-approach counts for density coloring.
   const satDensity = new Map<number, number>();
+  const rawSatDensity = new Map<number, number>();
   let maxSatDensity = 0;
+  let maxRawSatDensity = 0;
 
   for (const sat of items) {
     const { x, y, z } = latLonAltToECEF(sat.lat, sat.lon, sat.altKm);
@@ -403,7 +415,7 @@ async function computeCollisionDensity(
   const processedPairs = new Set<string>();
 
   for (const [key, satList] of voxels.entries()) {
-    const neighborKeys = getNeighborKeys(key, voxelSizeKm);
+    const neighborKeys = getNeighborKeys(key);
     for (const sat of satList) {
       for (const neighborKey of neighborKeys) {
         const neighbors = voxels.get(neighborKey);
@@ -426,6 +438,16 @@ async function computeCollisionDensity(
           if (dist <= detectionRadiusKm && dist > 0.01) {
             // mark processed before counting or pushing pair
             processedPairs.add(pairKey);
+
+            const rawCountA = (rawSatDensity.get(minId) || 0) + 1;
+            const rawCountB = (rawSatDensity.get(maxId) || 0) + 1;
+            rawSatDensity.set(minId, rawCountA);
+            rawSatDensity.set(maxId, rawCountB);
+            maxRawSatDensity = Math.max(
+              maxRawSatDensity,
+              rawCountA,
+              rawCountB
+            );
 
             const satIsMin = sat.id === minId;
             candidatePairs.push({
@@ -473,14 +495,30 @@ async function computeCollisionDensity(
     }
   );
 
+  const countedHotspotSatellites = new Set<number>();
+
   for (const pair of filteredCandidatePairs) {
     const newCountA = (satDensity.get(pair.idA) || 0) + 1;
     const newCountB = (satDensity.get(pair.idB) || 0) + 1;
     satDensity.set(pair.idA, newCountA);
     satDensity.set(pair.idB, newCountB);
     maxSatDensity = Math.max(maxSatDensity, newCountA, newCountB);
-    incrementHotspotCell(densityMap, pair.latA, pair.lonA, gridCellSizeDeg);
-    incrementHotspotCell(densityMap, pair.latB, pair.lonB, gridCellSizeDeg);
+    incrementHotspotCell(
+      densityMap,
+      pair.latA,
+      pair.lonA,
+      gridCellSizeDeg,
+      pair.idA,
+      countedHotspotSatellites
+    );
+    incrementHotspotCell(
+      densityMap,
+      pair.latB,
+      pair.lonB,
+      gridCellSizeDeg,
+      pair.idB,
+      countedHotspotSatellites
+    );
   }
 
   filteredCandidatePairs.sort((a, b) => a.distanceKm - b.distanceKm);
@@ -522,7 +560,9 @@ async function computeCollisionDensity(
       maxCellCount,
       totalCandidatePairs,
       displayedCandidatePairs: limitedPairs.length,
-      maxSatelliteDensity: maxSatDensity,
+      closeApproachSatelliteCount: satDensity.size,
+      maxSatelliteDensity: Math.max(maxSatDensity, maxRawSatDensity),
+      maxRawSatelliteDensity: maxRawSatDensity,
       detectionRadiusKm,
       voxelSizeKm,
       gridCellSizeDeg,

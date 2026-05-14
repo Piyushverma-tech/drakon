@@ -46,7 +46,9 @@ export type DensityResult = {
     maxCellCount: number;
     totalCandidatePairs: number;
     displayedCandidatePairs: number;
-    maxSatelliteDensity?: number;
+    closeApproachSatelliteCount: number;
+    maxSatelliteDensity: number;
+    maxRawSatelliteDensity: number;
     detectionRadiusKm: number;
     voxelSizeKm: number;
     gridCellSizeDeg: number;

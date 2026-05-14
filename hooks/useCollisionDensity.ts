@@ -36,11 +36,11 @@ export function useCollisionDensity({
       };
     }
 
+    setDensityLoading(true);
+    setDensityError(null);
+
     const timer = setTimeout(() => {
       if (cancelled) return;
-
-      setDensityLoading(true);
-      setDensityError(null);
 
       const payload = satellites.map((sat) => ({
         id: sat.id,
