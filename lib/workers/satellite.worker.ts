@@ -187,9 +187,6 @@ function getVoxelKey(x: number, y: number, z: number, size: number) {
 }
 
 function getNeighborKeys(baseKey: string): string[] {
-  // r=1 check 27 cells (the cell itself + 26 neighbors)
-  // voxelSize causing r=2 and check 125 cells — 4.6× more neighbor lookups
-  // When voxelSize ≈ detectionRadius, r is always 1 (27 neighbors), so this is a good tradeoff
   const [ix, iy, iz] = baseKey.split(',').map((v) => Number(v));
   const keys: string[] = [];
   for (let dx = -1; dx <= 1; dx++) {
@@ -443,11 +440,7 @@ async function computeCollisionDensity(
             const rawCountB = (rawSatDensity.get(maxId) || 0) + 1;
             rawSatDensity.set(minId, rawCountA);
             rawSatDensity.set(maxId, rawCountB);
-            maxRawSatDensity = Math.max(
-              maxRawSatDensity,
-              rawCountA,
-              rawCountB
-            );
+            maxRawSatDensity = Math.max(maxRawSatDensity, rawCountA, rawCountB);
 
             const satIsMin = sat.id === minId;
             candidatePairs.push({
@@ -561,7 +554,7 @@ async function computeCollisionDensity(
       totalCandidatePairs,
       displayedCandidatePairs: limitedPairs.length,
       closeApproachSatelliteCount: satDensity.size,
-      maxSatelliteDensity: Math.max(maxSatDensity, maxRawSatDensity),
+      maxSatelliteDensity: maxSatDensity,
       maxRawSatelliteDensity: maxRawSatDensity,
       detectionRadiusKm,
       voxelSizeKm,

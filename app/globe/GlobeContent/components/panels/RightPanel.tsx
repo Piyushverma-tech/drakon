@@ -417,12 +417,14 @@ function RightPanel({
                                   <Loader2 className="h-3 w-3 text-cyan-400 animate-spin" />
                                 )}
                               </span>
-                              <div className="text-[11px] mt-1.5 text-gray-400">
+                              {/* <div className="text-[11px] mt-1.5 text-gray-200">
                                 Close approaches:{' '}
                                 <span key="totalCandidatePairs">
                                   {densityResult.stats.totalCandidatePairs}
-                                </span>{' '}
-                                · Showing{' '}
+                                </span>
+                              </div> */}
+                              <div className="text-[11px] text-gray-400">
+                                Showing{' '}
                                 <span key="displayedCandidatePairs">
                                   {densityResult.stats.displayedCandidatePairs}
                                 </span>
