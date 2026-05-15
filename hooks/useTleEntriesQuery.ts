@@ -42,8 +42,36 @@ function parseTleText(tleText: string): TleEntry[] {
 }
 
 async function fetchTleEntries(): Promise<TleEntry[]> {
-  const response = await axios.get('/api/tle', { responseType: 'text' });
-  return parseTleText(response.data);
+  try {
+    const response = await axios.get('/api/tle', { responseType: 'text' });
+    return parseTleText(response.data);
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const data = error.response?.data;
+      let message: string | undefined;
+
+      if (typeof data === 'string') {
+        try {
+          const parsed = JSON.parse(data) as { error?: unknown };
+          message =
+            typeof parsed.error === 'string' ? parsed.error : undefined;
+        } catch {
+          message = data.trim() || undefined;
+        }
+      } else if (
+        data &&
+        typeof data === 'object' &&
+        'error' in data &&
+        typeof data.error === 'string'
+      ) {
+        message = data.error;
+      }
+
+      throw new Error(message ?? 'Unable to load satellite data right now.');
+    }
+
+    throw error;
+  }
 }
 
 export function useTleEntriesQuery() {

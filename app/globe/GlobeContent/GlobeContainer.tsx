@@ -22,7 +22,6 @@ import {
   ReentryRisk,
   TrackSegment,
 } from '@/lib/types';
-import { X } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { setSelectedSatelliteId } from '@/lib/visualization-slice';
 import {
@@ -45,6 +44,9 @@ import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 import RightPanel from '@/app/globe/GlobeContent/components/panels/RightPanel';
 import LeftPanel from '@/app/globe/GlobeContent/components/panels/LeftPanel';
 import { ForecastOverlay } from '@/app/globe/GlobeContent/components/ForeCastOverlay';
+import { SatelliteDataError } from '@/app/globe/GlobeContent/components/SatelliteDataError';
+import { SatelliteDataLoading } from '@/app/globe/GlobeContent/components/SatelliteDataLoading';
+import { SearchResultsOverlay } from '@/app/globe/GlobeContent/components/SearchResultsOverlay';
 import Map2D from './Map2d';
 import { useSatelliteMetadata } from '@/hooks/useSatelliteMetadata';
 
@@ -71,6 +73,14 @@ type Props = {
   onClearSearch?: () => void;
 };
 
+function getLoadErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return 'Unable to load satellite data right now.';
+}
+
 // ----------------------
 // Main Component
 // ----------------------
@@ -80,7 +90,13 @@ export default function SatelliteGlobe({
 }: Props) {
   const dispatch = useAppDispatch();
   const { showReentry } = useAppSelector((s) => s.visualization);
-  const { data: queriedEntries } = useTleEntriesQuery();
+  const {
+    data: queriedEntries,
+    isLoading: tleLoading,
+    isError: tleIsError,
+    error: tleError,
+    refetch: refetchTleEntries,
+  } = useTleEntriesQuery();
   const entries = queriedEntries ?? EMPTY_ENTRIES;
 
   // Redux state
@@ -98,7 +114,14 @@ export default function SatelliteGlobe({
   const [selected, setSelected] = useState<SelectedMeta | null>(null);
 
   // Custom hooks
-  const { satellites, loading } = useSatellitePositions({ entries });
+  const {
+    satellites,
+    loading: positionsLoading,
+    error: positionsError,
+  } = useSatellitePositions({ entries });
+  const waitingForInitialPositions =
+    entries.length > 0 && satellites.length === 0 && !positionsError;
+  const loading = tleLoading || positionsLoading || waitingForInitialPositions;
 
   const offsetMs = simulationOffsetHours * 60 * 60 * 1000;
 
@@ -588,6 +611,24 @@ export default function SatelliteGlobe({
   // ----------------------
   // UI
   // ----------------------
+  const loadErrorMessage = tleIsError
+    ? getLoadErrorMessage(tleError)
+    : !loading && !entries.length
+      ? 'No satellite data was returned from the server.'
+      : positionsError;
+
+  if (loadErrorMessage) {
+    return (
+      <SatelliteDataError
+        message={loadErrorMessage}
+        onRetry={() => void refetchTleEntries()}
+      />
+    );
+  }
+
+  if (loading) {
+    return <SatelliteDataLoading />;
+  }
   return (
     <div className="relative w-full h-full flex">
       {viewMode === '2D' ? (
@@ -596,64 +637,12 @@ export default function SatelliteGlobe({
         <Globe key="globe3d" ref={mapRef} layers={layers} />
       )}
 
-      {searchResults.length > 0 && (
-        <div className="absolute top-0 left-1/2 transform -translate-x-1/2 z-20">
-          {/* Corner accents */}
-          <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
-          <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />
-          <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-cyan-400" />
-          <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400" />
-          <div className="w-96 h-64 bg-black/70 backdrop-blur-md border border-gray-700/30 rounded-lg shadow-2xl relative">
-            <div className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-gray-700/30 p-2 text-center">
-              <span className="text-cyan-400 text-sm font-medium uppercase tracking-wider">
-                Search Results ({searchResults.length})
-              </span>
-              <X
-                className="absolute top-2 right-2 cursor-pointer text-gray-400 hover:text-white transition-colors"
-                size={18}
-                onClick={onClearSearch ? onClearSearch : undefined}
-              />
-            </div>
-            <ul className="overflow-auto h-[calc(100%-3rem)]">
-              {searchResults.map((sat) => (
-                <li
-                  key={sat.id}
-                  onClick={() => focusSatellite(sat)}
-                  className={`p-3 hover:bg-cyan-500/20 cursor-pointer transition-all duration-200 border-b border-gray-700/30 last:border-b-0 ${
-                    selected?.id === sat.id
-                      ? 'bg-cyan-500/30 border-cyan-400/50'
-                      : 'hover:border-cyan-400/30'
-                  }`}
-                >
-                  <div className="flex justify-between items-center">
-                    <span
-                      className={`text-sm truncate ${
-                        selected?.id === sat.id
-                          ? 'text-cyan-300 font-medium'
-                          : 'text-white'
-                      }`}
-                    >
-                      {sat.name}
-                    </span>
-                    <span
-                      className={`text-xs ${
-                        selected?.id === sat.id
-                          ? 'text-cyan-400'
-                          : 'text-gray-400'
-                      }`}
-                    >
-                      #{sat.id}
-                    </span>
-                  </div>
-                  {selected?.id === sat.id && (
-                    <div className="text-xs text-cyan-400 mt-1">Selected</div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
+      <SearchResultsOverlay
+        searchResults={searchResults}
+        selectedId={selected?.id}
+        onClearSearch={onClearSearch}
+        onFocusSatellite={(sat) => void focusSatellite(sat)}
+      />
 
       <ForecastOverlay
         loading={loading}
@@ -671,7 +660,6 @@ export default function SatelliteGlobe({
       />
       {/* Right Panel */}
       <RightPanel
-        loading={loading}
         stats={stats}
         bandCount={bandCount}
         bandAvgAltKm={bandAvgAltKm}

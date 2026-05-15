@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TleEntry, SatellitePoint } from '@/lib/types';
 import { batchPositionFromTLEAsync } from '@/lib/satelliteWorker';
 import { positionFromTLE } from '@/lib/satellite';
@@ -13,9 +13,7 @@ type UseSatellitePositionsOptions = {
 // Earth's mean radius in km
 const EARTH_RADIUS_KM = 6371;
 
-/**
- * Validate and normalize altitude to ensure it's above Earth's surface
- */
+// Validate and normalize altitude to ensure it's above Earth's surface
 function normalizeAltitude(altKm: number): number {
   if (altKm > 42000) {
     // Convert from center to surface
@@ -40,14 +38,22 @@ export function useSatellitePositions({
   updateIntervalMs = 5000,
 }: UseSatellitePositionsOptions) {
   const [satellites, setSatellites] = useState<SatellitePoint[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const satellitesRef = useRef<SatellitePoint[]>([]);
 
   useEffect(() => {
     if (!entries.length) {
+      satellitesRef.current = [];
+      setSatellites([]);
+      setLoading(false);
+      setError(null);
       return;
     }
 
     let cancelled = false;
+    setLoading(satellitesRef.current.length === 0);
+    setError(null);
 
     async function updatePositions() {
       if (!entries.length || cancelled) return;
@@ -96,7 +102,13 @@ export function useSatellitePositions({
           .filter((pt): pt is SatellitePoint => pt !== null);
 
         if (!cancelled) {
+          satellitesRef.current = pts;
           setSatellites(pts);
+          setError(
+            pts.length
+              ? null
+              : 'Satellite positions could not be calculated from the available TLE data.'
+          );
           setLoading(false);
         }
       } catch (err) {
@@ -134,7 +146,13 @@ export function useSatellitePositions({
           .filter((pt): pt is SatellitePoint => pt !== null);
 
         if (!cancelled) {
+          satellitesRef.current = pts;
           setSatellites(pts);
+          setError(
+            pts.length
+              ? null
+              : 'Satellite positions could not be calculated from the available TLE data.'
+          );
           setLoading(false);
         }
       }
@@ -158,5 +176,5 @@ export function useSatellitePositions({
     };
   }, [entries, updateIntervalMs]);
 
-  return { satellites, loading };
+  return { satellites, loading, error };
 }
