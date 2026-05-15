@@ -25,7 +25,7 @@ export function SearchResultsOverlay({
       <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />
       <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-cyan-400" />
       <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400" />
-      <div className="w-96 h-64 bg-black/70 backdrop-blur-md border border-gray-700/30 rounded-lg shadow-2xl relative">
+      <div className="w-[400px] h-64 bg-black/70 backdrop-blur-md border border-gray-700/30 rounded-lg shadow-2xl relative">
         <div className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-gray-700/30 p-2 text-center">
           <span className="text-cyan-400 text-sm font-medium uppercase tracking-wider">
             Search Results ({searchResults.length})

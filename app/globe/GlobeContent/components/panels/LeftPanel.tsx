@@ -1,6 +1,7 @@
 import React, { memo, useState, useCallback } from 'react';
 import { Satellite, X, ChevronRight } from 'lucide-react';
-import { ReentryRisk, SatelliteMetadata } from '@/lib/types';
+import { ReentryRisk, SatelliteMetadata, TleEntry } from '@/lib/types';
+import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 
 type SelectedMeta = {
   id: number;
@@ -16,10 +17,10 @@ type SelectedMeta = {
 
 type Props = {
   selected: SelectedMeta | null;
-  setSelected: (meta: SelectedMeta | null) => void;
   onClose: () => void;
   reentryRisk: ReentryRisk | null;
   metadata?: SatelliteMetadata | null;
+  onFocusSatellite: (sat: TleEntry) => void;
 };
 
 function StatRow({
@@ -119,9 +120,15 @@ const LeftPanel = memo(function LeftPanel({
   onClose,
   reentryRisk,
   metadata,
+  onFocusSatellite,
 }: Props) {
   const [openSections, setOpenSections] =
     useState<Record<string, boolean>>(DEFAULT_OPEN);
+
+  const { data: queriedEntries } = useTleEntriesQuery();
+  const entries = queriedEntries ?? [];
+
+  const tleEntry = entries.find((e) => e.id === selected?.id);
 
   const toggle = useCallback((key: string) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -143,7 +150,10 @@ const LeftPanel = memo(function LeftPanel({
 
         {/* Header — always visible, never scrolls */}
         <div className="flex items-center justify-between px-3 pt-3 pb-2 shrink-0">
-          <div className="flex items-center gap-1.5 min-w-0">
+          <div
+            className="flex items-center gap-1.5 min-w-0 cursor-pointer"
+            onClick={() => tleEntry && onFocusSatellite(tleEntry)}
+          >
             <Satellite size={18} className="text-cyan-400 shrink-0" />
             <span
               className="text-[14px] font-semibold uppercase tracking-widest text-cyan-300 truncate"

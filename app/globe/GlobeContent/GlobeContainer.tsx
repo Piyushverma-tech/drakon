@@ -653,10 +653,10 @@ export default function SatelliteGlobe({
       {/* Left Panel - Selected Satellite  */}
       <LeftPanel
         selected={selected}
-        setSelected={setSelected}
         onClose={handleDeselectSatellite}
         reentryRisk={selectedReentryRisk}
         metadata={selectedMetadata}
+        onFocusSatellite={focusSatellite}
       />
       {/* Right Panel */}
       <RightPanel
