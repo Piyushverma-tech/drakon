@@ -291,7 +291,7 @@ function RightPanel({
                     {reentryRisks.size > 0 && (
                       <div className="mt-2 space-y-1">
                         <div className="uppercase tracking-wider text-gray-400 text-[10px]">
-                          Soonest re-entry
+                          Top 50 Soonest re-entry
                         </div>
                         <div className="max-h-52 overflow-auto space-y-1 pr-1">
                           {[...reentryRisks.values()]
@@ -301,7 +301,7 @@ function RightPanel({
                                 (a.estimatedDaysRemaining ?? Infinity) -
                                 (b.estimatedDaysRemaining ?? Infinity)
                             )
-                            .slice(0, 10)
+                            .slice(0, 50)
                             .map((risk) => {
                               const entry = entries.find(
                                 (e) => e.id === risk.satId
@@ -401,22 +401,27 @@ function RightPanel({
                         <div className="text-[11px] min-h-10 text-gray-200">
                           {densityResult && (
                             <div className="space-y-1">
-                              <span className="flex items-center gap-2">
-                                Active zones:{' '}
-                                <span key="totalCells">
-                                  {densityResult.stats.totalCells}
-                                </span>{' '}
-                                · Satellites:{' '}
-                                <span key="closeApproachSatelliteCount">
-                                  {
-                                    densityResult.stats
-                                      .closeApproachSatelliteCount
-                                  }
-                                </span>
+                              <div className="flex items-center gap-2">
+                                <div>
+                                  Active zones:{' '}
+                                  <span key="totalCells">
+                                    {densityResult.stats.totalCells}
+                                  </span>{' '}
+                                </div>
+                                ·
+                                <div>
+                                  CA Satellites:{' '}
+                                  <span key="closeApproachSatelliteCount">
+                                    {
+                                      densityResult.stats
+                                        .closeApproachSatelliteCount
+                                    }
+                                  </span>
+                                </div>
                                 {densityLoading && (
                                   <Loader2 className="h-3 w-3 text-cyan-400 animate-spin" />
                                 )}
-                              </span>
+                              </div>
                               {/* <div className="text-[11px] mt-1.5 text-gray-200">
                                 Close approaches:{' '}
                                 <span key="totalCandidatePairs">
@@ -450,7 +455,7 @@ function RightPanel({
                               <div className="uppercase tracking-wider text-gray-400">
                                 Top 50 Close Approaches
                               </div>
-                              <div className="max-h-40 overflow-auto space-y-1 pr-1">
+                              <div className="max-h-44 overflow-auto space-y-1 pr-1">
                                 {densityResult.candidatePairs.map((pair) => {
                                   const entryA = entries.find(
                                     (e) => e.id === pair.idA
@@ -463,11 +468,11 @@ function RightPanel({
                                       }
                                       className="flex items-center justify-between rounded border cursor-pointer border-gray-700/60 px-2 py-1 hover:border-cyan-400/30 hover:bg-cyan-500/10 transition-colors"
                                     >
-                                      <div className="flex flex-col text-gray-200">
+                                      <div className="flex flex-col text-[11px] text-gray-200">
                                         <span>
                                           #{pair.idA} ↔ #{pair.idB}
                                         </span>
-                                        <span className="text-[9px] text-gray-400">
+                                        <span className="text-[10px] text-gray-400">
                                           Alt {Math.round(pair.altitudeA)} /{' '}
                                           {Math.round(pair.altitudeB)} km
                                         </span>

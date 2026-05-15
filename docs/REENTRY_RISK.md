@@ -51,6 +51,7 @@ decayRate (km/day) = |BSTAR| × BASE_FACTOR × densityFactor × (v / v_ref)
 ```
 
 Where:
+
 - `BASE_FACTOR = 7.4e5` — derived from SGP4 reference density ρ₀ = 2.461×10⁻⁵ kg/m²/Re
 - `densityFactor = exp((400 - altKm) / 60)` — exponential scale height correction, H = 60km
 - `v_ref = 7.905 km/s` — circular velocity at sea level
@@ -72,12 +73,12 @@ estimatedDays = ceil((altKm - 120) / decayRate)
 
 ## Risk Tiers
 
-| Tier | Condition | Globe color |
-|---|---|---|
-| Critical | < 30 days | Red-orange `[255, 60, 40, 230]` |
-| Warning | 30–180 days | Amber `[255, 160, 30, 210]` |
-| Nominal | 180–365 days | Yellow `[255, 220, 80, 180]` |
-| Stable | > 365 days, null, or filtered out | Not shown in re-entry mode |
+| Tier     | Condition                         | Globe color                     |
+| -------- | --------------------------------- | ------------------------------- |
+| Critical | < 30 days                         | Red-orange `[255, 60, 40, 230]` |
+| Warning  | 30–180 days                       | Amber `[255, 160, 30, 210]`     |
+| Nominal  | 180–365 days                      | Yellow `[255, 220, 80, 180]`    |
+| Stable   | > 365 days, null, or filtered out | Not shown in re-entry mode      |
 
 When re-entry mode is active, objects not in the risk map are dimmed to `[60, 60, 80, 100]` so at-risk objects pop visually against the globe.
 
@@ -97,7 +98,8 @@ The final filter is categorical, not altitude-based:
 
 ```typescript
 const isRocketBody = nameUpper.includes('R/B') || nameUpper.includes('ROCKET');
-const isDebrisObject = entry.isDebris || nameUpper.includes('DEB') || nameUpper.includes('DEBRIS');
+const isDebrisObject =
+  entry.isDebris || nameUpper.includes('DEB') || nameUpper.includes('DEBRIS');
 const isLikelyActive = !isDebrisObject && !isRocketBody;
 
 if (isLikelyActive) return stable;
@@ -152,7 +154,9 @@ Since `reentryRisks` is excluded from the `layers` useMemo dependencies, a ref i
 
 ```typescript
 const reentryRisksRef = useRef(reentryRisks);
-useEffect(() => { reentryRisksRef.current = reentryRisks; }, [reentryRisks]);
+useEffect(() => {
+  reentryRisksRef.current = reentryRisks;
+}, [reentryRisks]);
 
 // Inside getFillColor:
 const risk = reentryRisksRef.current.get(d.id);
@@ -188,20 +192,20 @@ The formula is validated to order-of-magnitude accuracy for non-maneuvering LEO 
 - **Object attitude and tumbling** — a tumbling rocket body has a different effective drag cross-section than a stable one
 - **Orbital eccentricity** — the formula assumes near-circular orbits; eccentric orbits spend different fractions of time at different altitudes
 
-These limitations are surfaced to the user via the disclaimer: *"Estimates from BSTAR drag term only. Accuracy ±order of magnitude. Solar activity not modeled."*
+These limitations are surfaced to the user via the disclaimer: _"Estimates from BSTAR drag term only. Accuracy ±order of magnitude. Solar activity not modeled."_
 
 ---
 
 ## Files Changed
 
-| File | Change |
-|---|---|
-| `lib/types.ts` | Added `ReentryRisk` type |
-| `lib/satelliteHelpers.ts` | Added `parseBSTAR()`, `estimateAltitudeFromMeanMotion()`, `getReentryRisk()` |
-| `lib/visualization-slice.ts` | Added `showReentry` state and `setShowReentry` action |
-| `components/SatelliteGlobe.tsx` | `reentryRisks` useMemo, ref pattern, color logic, prop pass-down |
-| `components/panels/RightPanel.tsx` | Re-entry Risk section with toggle, summary counts, ranked list |
-| `components/panels/LeftPanel.tsx` | Re-entry section in satellite detail panel |
+| File                               | Change                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| `lib/types.ts`                     | Added `ReentryRisk` type                                                     |
+| `lib/satelliteHelpers.ts`          | Added `parseBSTAR()`, `estimateAltitudeFromMeanMotion()`, `getReentryRisk()` |
+| `lib/visualization-slice.ts`       | Added `showReentry` state and `setShowReentry` action                        |
+| `components/SatelliteGlobe.tsx`    | `reentryRisks` useMemo, ref pattern, color logic, prop pass-down             |
+| `components/panels/RightPanel.tsx` | Re-entry Risk section with toggle, summary counts, ranked list               |
+| `components/panels/LeftPanel.tsx`  | Re-entry section in satellite detail panel                                   |
 
 ---
 
@@ -239,3 +243,9 @@ Replace the exponential scale height approximation with the full NRLMSISE-00 atm
 
 **Re-entry footprint prediction**
 For objects within 7 days of re-entry, show a ground footprint corridor on the globe — the range of longitudes where surviving debris could reach the surface based on the orbital inclination and uncertainty in re-entry time. This is the visualization that makes re-entry data operationally useful for safety planning.
+
+## Related Documentation
+
+- [Collision Density Map](./COLLISION_DENSITY_MAP.md)
+- [Orbital Plane Visualization](./ORBITAL_PLANE_VISUALIZATION.md)
+- [Performance Optimizations](../README.md#performance--heavy-compute-offload)

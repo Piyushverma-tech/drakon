@@ -47,7 +47,7 @@ The feature provides three main controls in the right panel:
 
 - Satellites within the selected inclination band are automatically highlighted
 - **Visual Style**: Brighter cyan colors (`[0, 255, 255, 220]`) with increased radius
-- **Size Increase**: 
+- **Size Increase**:
   - Debris: 30,000m → 40,000m
   - Active satellites: 70,000m → 90,000m
 - Makes band satellites easy to identify on the globe
@@ -151,5 +151,5 @@ Potential improvements for future versions:
 ## Related Documentation
 
 - [Collision Density Map](./COLLISION_DENSITY_MAP.md)
+- [Re-Entry Risk Screening](./REENTRY_RISK.md)
 - [Performance Optimizations](../README.md#performance--heavy-compute-offload)
-

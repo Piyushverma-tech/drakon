@@ -8,10 +8,10 @@ The Collision Density Map feature provides real-time visualization of crowded or
 
 The Collision Density Map analyzes the current positions of all satellites and:
 
-- **Identifies Crowded Regions**: Detects areas with high satellite density
-- **Surfaces Close Approaches**: Finds satellite pairs within a configurable detection radius
-- **Visualizes Risk**: Colors satellites based on local collision density (Cool to Warm)
-- **Provides Metrics**: Displays density statistics and top close-approach candidates
+- **Identifies Active Zones**: Detects 2° geographic regions containing satellites involved in close approaches
+- **Surfaces Close Approaches**: Finds satellite pairs within a configurable detection radius, with false-positive filtering
+- **Visualizes Risk**: Colors satellites based on filtered close-approach counts (Cool → Warm)
+- **Provides Metrics**: Displays density statistics, satellite counts, and top close-approach candidates
 
 ## Implementation Details
 
@@ -20,329 +20,182 @@ The Collision Density Map analyzes the current positions of all satellites and:
 The density computation uses a **voxel grid partitioning** approach for efficient spatial analysis:
 
 1. **Coordinate Conversion**: Satellite positions (lat/lon/alt) are converted to ECEF (Earth-Centered, Earth-Fixed) coordinates
-2. **Voxel Partitioning**: Space is divided into 3D voxels (configurable size, typically 20-150km)
-3. **Neighbor Search**: For each satellite, the algorithm examines its voxel and 26 neighboring voxels
+2. **Voxel Partitioning**: Space is divided into 3D voxels (configurable size, typically `max(detectionRadiusKm, 20)` km)
+3. **Neighbor Search**: For each satellite, the algorithm examines its voxel and 26 neighboring voxels (±1 in each axis, 3×3×3 = 27 cells total)
 4. **Distance Calculation**: Computes 3D Euclidean distance between satellites in the same or adjacent voxels
-5. **Candidate Pair Collection**: Identifies pairs within the detection radius and sorts by distance
+5. **Candidate Pair Collection**: Identifies all pairs within the detection radius before filtering
 
-### Density Aggregation
+**Key design constraint**: Voxel size is set to `Math.max(detectionRadiusKm, 20)` so that the detection sphere always fits within the 27-cell neighborhood (r=1). This keeps neighbor search at O(N·26) rather than O(N·(2r+1)³).
 
-- **Grid Cells**: Density is aggregated into lat/lon grid cells (configurable resolution: 2-4°)
-- **Cell Counts**: Each cell stores the number of satellites within its boundaries
-- **Normalization**: Density values are normalized (0-1) based on the maximum cell count
-- **Filtering**: Only cells with 2+ satellites are considered to reduce noise
+### Two-Pass Density Pipeline
+
+The pipeline separates raw proximity detection from filtered close-approach counting:
+
+#### Pass 1 — Raw Proximity Detection (Pre-filter)
+
+- All satellite pairs within the detection radius are collected
+- Raw per-satellite pair counts are tracked in `rawSatDensity` for diagnostic purposes
+- `maxRawSatelliteDensity` records the peak raw count
+
+#### Pass 2 — False-Positive Filtering
+
+Candidate pairs are filtered to remove expected proximity that doesn't represent genuine risk:
+
+1. **Same-launch proximity**: Pairs with NORAD ID difference ≤ 5 and matching name prefix or operator are removed (likely same stack / deployment)
+2. **Same-operator separation**: Pairs from the same operator within 50m are removed (intentional formation flying)
+3. **Altitude co-location**: Pairs within 50m at identical altitude are removed (likely attached objects)
+4. **Relative velocity check**: Pairs with relative velocity ≤ 1 m/s are removed (co-orbiting, not converging)
+
+#### Pass 3 — Density Aggregation (Post-filter)
+
+After filtering, the remaining pairs drive all density metrics:
+
+- **`satDensity`**: Per-satellite filtered pair count — how many genuine close-approach partners each satellite has
+- **`maxSatelliteDensity`**: Maximum filtered pair count (used as the normalization denominator for globe coloring)
+- **`closeApproachSatelliteCount`**: `satDensity.size` — unique satellites with at least one filtered close approach
+- **Hotspot grid**: Each unique satellite involved in a filtered pair increments its geographic cell exactly once (deduped via `countedHotspotSatellites` Set)
+
+### Hotspot Grid
+
+The 2° lat/lon grid counts **unique satellites with close approaches** per geographic cell, not pair events:
+
+- Fixed at 2° resolution regardless of detection radius — ensures stable, comparable counts across radius changes
+- A satellite with 10 close approaches contributes 1 count to its cell, not 10
+- `totalCells` = number of 2° squares containing at least one close-approach satellite
+- `maxCellCount` = the peak number of close-approach satellites in any single 2° cell ("peak zone")
+
+**Why fixed at 2°**: Previously `gridCellSizeDeg` scaled with detection radius (2° → 3° → 4° at larger radii), which caused `totalCells` to *decrease* as radius increased — the grid coarsened faster than new satellites were added. Fixing at 2° makes hotspot counts monotonically increase with radius, which is the correct behavior.
 
 ### Visualization
 
 #### Satellite Coloring
 
-When the density map is enabled, **all satellites** are colored based on their local collision density:
+When the density map is enabled, satellites are colored based on their **filtered** close-approach count, normalized against `maxSatelliteDensity`:
 
-- **Low Density (Safe)**: Blue `rgb(80,160,255)` - Satellites in sparse regions
-- **Medium-Low**: Cyan `rgb(120,210,255)`
+- **0 filtered pairs (not in proximity)**: Blue `rgb(80,160,255)`
+- **Low normalized density**: Cyan `rgb(120,210,255)`
 - **Medium**: Green `rgb(60,200,140)`
 - **Medium-High**: Yellow `rgb(255,255,120)`
-- **High Density (Risk)**: Orange → Red `rgb(255,140,60) → rgb(255,50,50)` - Satellites in crowded regions
+- **High**: Orange → Red `rgb(255,140,60) → rgb(255,50,50)`
 
-**Note**: This creates a clear visual distinction from normal orbit-based colors (red/orange/green), making it easy to identify collision risk areas.
+Color normalization uses only filtered pair counts. Raw (pre-filter) counts are not used for coloring to prevent same-constellation satellites (e.g., Starlink) from distorting the color scale.
 
 #### Close Approach Lines
 
-- **Visualization**: deck.gl `LineLayer` renders lines between candidate close-approach pairs
+- **Visualization**: deck.gl `LineLayer` between the top 50 filtered close-approach pairs
 - **Color Coding**:
-  - **Red/Pink** `[255, 80, 200]`: Pairs within half the detection radius (high risk)
-  - **Amber** `[255, 200, 200]`: Pairs within full detection radius (moderate risk)
-- **Line Width**: 2 pixels for visibility
+  - **Pink** `[255, 80, 200]`: Distance ≤ half the detection radius (closer risk)
+  - **Amber** `[255, 200, 200]`: Distance within the full detection radius
 
 ### User Interface
 
-The Collision Density Map panel includes:
-
-#### Controls
-
-1. **Toggle Switch**
-
-   - Enable/disable density analysis and visualization
-   - When enabled, all satellites switch to density-based coloring
-
-2. **Detection Radius Slider**
-   - Range: 10-250 km
-   - Step: 5 km
-   - Default: 75 km
-   - Controls the distance threshold for identifying close approaches
-   - Larger radius captures more potential close approaches but increases computation
-
-#### Color Legend
-
-- Visual gradient bar showing the color range from low (blue) to high (red) density
-- Color markers with labels for quick reference
-- Description explaining the density-based coloring system
-
 #### Statistics Display
 
-- **Hotspots**: Number of grid cells with elevated density
-- **Top Pairs**: Count of candidate close-approach pairs identified
-- **Peak Density**: Maximum number of satellites in a single cell
-- **Detection Radius**: Current radius setting used for analysis
+| Stat | Source | Description |
+|------|--------|-------------|
+| Active zones | `stats.totalCells` | 2° cells containing ≥1 close-approach satellite |
+| Satellites | `stats.closeApproachSatelliteCount` | Unique satellites with ≥1 filtered close approach |
+| Close approaches | `stats.totalCandidatePairs` | Total filtered pairs (before 50-pair display cap) |
+| Showing X/Y pairs | `displayedCandidatePairs / totalCandidatePairs` | Display cap transparency |
+| Peak zone | `stats.maxCellCount` | Max close-approach satellites in any single 2° cell |
+
+**Loading indicator**: `densityLoading` is set to `true` immediately when inputs change (before the 500ms debounce fires), so the spinner appears during the debounce window rather than only during worker computation.
 
 #### Top Close Approaches List
 
-Displays the top 5 closest satellite pairs with:
+Displays the top 50 closest filtered satellite pairs:
 
-- **Satellite IDs**: NORAD IDs of both satellites in the pair
+- **NORAD IDs**: Both satellites in the pair (clicking focuses the lower-ID satellite)
 - **Altitudes**: Individual altitudes of both satellites
-- **Distance**: Formatted distance (meters for <1km, kilometers for ≥1km)
-- **Color Coding**:
-  - Red for pairs within half the detection radius
-  - Amber for pairs within full detection radius
+- **Distance**: Formatted distance (meters for <1km, kilometers for ≥1km), colored red if ≤ half the detection radius
+
+## Stats Shape (`DensityResult.stats`)
+
+```typescript
+stats: {
+  totalSatellites: number;          // input satellite count
+  totalCells: number;               // active 2° zones (stable — fixed grid resolution)
+  maxCellCount: number;             // peak close-approach satellites per 2° cell
+  totalCandidatePairs: number;      // all filtered pairs found (before display cap)
+  displayedCandidatePairs: number;  // pairs returned for rendering (≤ maxPairs = 50)
+  closeApproachSatelliteCount: number; // unique satellites in filtered pairs
+  maxSatelliteDensity: number;      // max filtered pair count — normalization denominator
+  maxRawSatelliteDensity: number;   // max raw (pre-filter) pair count — diagnostic only
+  detectionRadiusKm: number;
+  voxelSizeKm: number;
+  gridCellSizeDeg: number;          // always 2
+}
+```
 
 ## Performance Optimizations
 
 ### Worker-Based Computation
 
-- **Offloading**: All density calculations run in a Web Worker to prevent UI blocking
-- **Worker Function**: `computeCollisionDensityAsync` in `lib/satelliteWorker.ts`
-- **Benefits**: Maintains 60fps UI even with thousands of satellites
-- **Implementation**: Comlink-based worker with async/await interface
+All density calculations run in a Comlink Web Worker (`lib/workers/satellite.worker.ts`), preventing UI blocking at 17k+ satellites.
 
 ### Debouncing
 
-- **Debounce Delay**: 500ms on detection radius slider
-- **Purpose**: Prevents excessive recomputation during slider adjustments
-- **User Experience**: Smooth interaction while heavy calculations are deferred
+500ms debounce on inputs. `densityLoading` is set immediately on input change so the spinner shows during the debounce window, not just during worker execution.
 
-### Efficient Data Structures
+### Voxel Size Constraint
 
-- **Voxel Grid**: O(1) lookup for spatial queries
-- **Map-Based Storage**: Fast density lookups by location
-- **Nearest-Neighbor Search**: Optimized search radius (1.5x cell size) for satellite-to-density matching
+`voxelSizeKm = Math.max(detectionRadiusKm, 20)` keeps neighbor search at exactly 27 cells (r=1). If voxels were smaller than the detection radius, r would grow and the search would expand to 125+ cells with no accuracy benefit.
 
-### Caching Strategy
+### Caching
 
-- **Result Caching**: Density results are cached per `(satellite positions, radius)` combination
-- **Cache Invalidation**: Automatically invalidated when satellite positions update
-- **Memory Management**: Efficient storage of density cells and candidate pairs
-
-## Technical Stack
-
-### Core Components
-
-- **Worker Implementation**: `lib/workers/satellite.worker.ts`
-
-  - `computeCollisionDensity`: Main density computation function
-  - `latLonAltToECEF`: Coordinate conversion utility
-  - `getVoxelKey`: Voxel grid key generation
-  - `getNeighborKeys`: 26-neighbor voxel lookup
-
-- **Async Wrapper**: `lib/satelliteWorker.ts`
-
-  - `computeCollisionDensityAsync`: Client-side async wrapper with caching
-
-- **UI Component**: `components/SatelliteGlobe.tsx`
-  - Density state management
-  - Visualization layer configuration
-  - Panel UI rendering
-
-### Visualization Layers
-
-- **ScatterplotLayer**: Main satellite layer with density-based coloring
-- **LineLayer**: Close-approach pair visualization
-- **Coordinate System**: `COORDINATE_SYSTEM.LNGLAT` with longitude wrapping
-
-### Data Types
-
-```typescript
-type DensityWorkerInput = {
-  id: number;
-  lat: number;
-  lon: number;
-  altKm: number;
-};
-
-type DensityResult = {
-  densityCells: Array<{
-    lat: number;
-    lon: number;
-    count: number;
-  }>;
-  candidatePairs: Array<{
-    idA: number;
-    idB: number;
-    distanceKm: number;
-    altitudeA: number;
-    altitudeB: number;
-    latA: number;
-    lonA: number;
-    latB: number;
-    lonB: number;
-  }>;
-  stats: {
-    totalCells: number;
-    maxCellCount: number;
-    detectionRadiusKm: number;
-    gridCellSizeDeg: number;
-  };
-};
-```
-
-## Algorithm Details
-
-### Voxel Grid Construction
-
-1. Determine voxel size based on detection radius (typically 20-150km)
-2. Convert all satellite positions to ECEF coordinates
-3. Assign each satellite to its corresponding voxel
-4. Store satellite metadata (ID, position) in voxel buckets
-
-### Close Approach Detection
-
-For each satellite:
-
-1. Get its voxel key
-2. Retrieve 26 neighboring voxel keys (3D grid neighbors)
-3. For each satellite in current + neighbor voxels:
-   - Calculate 3D Euclidean distance
-   - If distance < detection radius, add to candidate pairs
-4. Sort candidate pairs by distance
-5. Return top-K pairs (default: 50)
-
-### Density Aggregation
-
-1. Create lat/lon grid with configurable cell size (2-4°)
-2. For each density cell, count satellites within boundaries
-3. Normalize counts (0-1) based on maximum
-4. Filter cells with count < 2 to reduce noise
-
-## Usage Examples
-
-### Identifying Crowded LEO Regions
-
-1. Enable "Collision Density Map" toggle
-2. Set detection radius to 50-75 km (typical for LEO)
-3. Observe orange/red-colored satellites indicating high-density regions
-4. Review "Top Close Approaches" list for specific pairs
-
-### Screening for Close Approaches
-
-1. Enable density map
-2. Adjust detection radius based on orbit class:
-   - **LEO**: 50-100 km
-   - **MEO**: 100-150 km
-   - **GEO**: 150-250 km
-3. Examine close-approach lines on the globe
-4. Click on lines or review the list for detailed information
-
-### Monitoring Specific Altitude Shells
-
-1. Filter satellites by altitude (using Objects Overview filters)
-2. Enable density map
-3. Set appropriate detection radius
-4. Analyze density patterns within the selected shell
+Density results are cached in `satelliteWorker.ts` keyed on `(positionHash, radius, voxelSize, gridCellSizeDeg, maxPairs)`. The hash rounds positions to avoid cache misses from floating-point drift between 5s position updates.
 
 ## Configuration Parameters
 
 ### Detection Radius
 
-- **Small (10-50 km)**: Focused on very close approaches, fewer false positives
-- **Medium (50-100 km)**: Balanced detection for LEO operations
-- **Large (100-250 km)**: Broader screening for MEO/GEO, more candidates
-
-### Voxel Size
-
-Automatically calculated based on detection radius:
-
-- Small radius (<50km): 20km voxels
-- Medium radius (50-100km): 50-75km voxels
-- Large radius (>100km): 100-150km voxels
+- **Small (10–50 km)**: Tight close approaches, fewer pairs. Best for LEO screening.
+- **Medium (50–100 km)**: Balanced for LEO operations.
+- **Large (100–250 km)**: Broader screening for MEO/GEO. Voxels grow proportionally so the 27-cell neighborhood constraint is maintained, but very large voxels mean each voxel may contain many satellites, increasing inner-loop cost. A practical cap on `voxelSizeKm` of ~100km is advisable at large radii.
 
 ### Grid Cell Size
 
-Automatically adjusted based on detection radius:
+Fixed at **2°** regardless of detection radius. This ensures:
+- Hotspot counts are stable and comparable across radius settings
+- `totalCells` increases monotonically as more satellites enter close-approach range
+- No resolution change that would make metrics incomparable between slider positions
 
-- Small radius: 2° cells
-- Medium radius: 3° cells
-- Large radius: 4° cells
+## Overall Data Flow
 
----
+```
+useSatellitePositions / useSimulatedPositions
+  └─ activeSatellites (every 5s or on simulation offset)
+       └─ useCollisionDensity (showDensity = true)
+            ├─ setDensityLoading(true)  ← immediate, before debounce
+            └─ setTimeout(500ms)
+                 └─ computeCollisionDensityAsync(payload, options)
+                      └─ Comlink → satellite.worker.ts
+                           ├─ Pass 1: Voxel grid + raw pair collection
+                           ├─ Pass 2: filterCandidatePairs (same-launch, velocity, etc.)
+                           └─ Pass 3: satDensity + hotspot grid + limitedPairs
+                 └─ DensityResult → setDensityResult
+                      ├─ satelliteDensities → normalized Map<id, 0–1> in hook
+                      └─ RightPanel + ScatterplotLayer + LineLayer
+```
 
-### Overall Data Flow
+## Limitations and Known Behavior
 
-The system uses a Web Worker to offload heavy 3D spatial calculations, ensuring the UI remains smooth (60 FPS) even when analyzing thousands of satellites.
-
-1. Frontend (React Component) : The SatelliteGlobe component has a list of current satellite positions.
-2. Hook Trigger : The useCollisionDensity hook watches this list. When positions update (debounced), it sends a payload to the worker.
-3. Worker Calculation : The worker runs the computeCollisionDensity algorithm (detailed below).
-4. Result Return : The worker returns a DensityResult object containing:
-   - satelliteDensities : A map of 3D density scores for each satellite.
-   - candidatePairs : A list of satellite pairs that are dangerously close.
-   - densityCells : (Legacy/Visualization) 2D heatmap data.
-5. Visualization : The frontend receives this data and updates the globe:
-   - Satellites are colored red/orange/blue based on their specific 3D density score.
-   - Lines are drawn between close-approach pairs.
-
-### Algorithm: computeCollisionDensity (In Worker)
-
-The core logic has moved from a 2D lat/lon grid to a 3D Voxel Grid to accurately separate orbital shells (LEO vs. GEO).
-Step 1: Input Preparation
-The function receives a list of satellites with their current Geodetic coordinates:
-
-- lat (Latitude)
-- lon (Longitude)
-- altKm (Altitude in km) Step 2: Voxel Grid Construction (Spatial Indexing)
-  To avoid comparing every satellite with every other satellite (which would be $O(N^2)$ and very slow), we map them into 3D space.
-
-1. ECEF Conversion : Each satellite's (lat, lon, alt) is converted to Earth-Centered, Earth-Fixed (ECEF) $(x, y, z)$ coordinates. This represents their true 3D position relative to Earth's center.
-2. Voxel Key Generation : We divide space into 3D cubes (voxels) of a fixed size (e.g., 50km).
-   - key = floor(x/size), floor(y/size), floor(z/size)
-3. Bucketing : We place every satellite into a Map<string, Satellite[]> , where the key is the voxel ID. Step 3: 3D Density & Close Approach Calculation
-   We iterate through every populated voxel and look at its 26 neighbors (3x3x3 grid).
-
-For every satellite $A$ in the current voxel:
-
-1. We look at all satellites $B$ in the current voxel and neighbor voxels.
-2. Distance Check : We calculate the true 3D Euclidean distance:
-   $$dist = \sqrt{(x_A-x_B)^2 + (y_A-y_B)^2 + (z_A-z_B)^2}$$
-3. Threshold Filter : If $dist \le detectionRadius$ (e.g., 75km):
-   - Density Score : We increment the density count for both satellite A and satellite B. This count represents "how many other objects are nearby in 3D space."
-   - Candidate Pair : We record the pair $(A, B)$ as a potential collision risk.
-     Crucial Improvement: Previously, we only grouped by Lat/Lon. Now, a GEO satellite at (0°N, 0°E, 35,000km) will represent a completely different voxel than a LEO satellite at (0°N, 0°E, 500km), so they will not be counted as neighbors.
-     Step 4: Result Packaging
-     The worker packages the results:
-
-- satelliteDensities : A map { satelliteId: count } .
-- maxSatelliteDensity : The highest count found (used for normalization).
-- candidatePairs : The list of close pairs, sorted by distance.
-
-### Frontend Consumption (useCollisionDensity)
-
-The hook receives the result and prepares it for the UI:
-
-1. Priority Check : It checks if satelliteDensities (the 3D data) exists.
-2. Normalization : It creates a normalized map (0.0 to 1.0) for coloring.
-   - normalizedValue = count / maxSatelliteDensity
-3. Fallback : If 3D data is missing (e.g., old worker version), it falls back to the old 2D grid map (but this path is now effectively deprecated).
-
----
-
-## Limitations and Considerations
-
-1. **Snapshot Analysis**: Density is computed from current positions only (not predictive)
-2. **TLE Accuracy**: Results depend on TLE data quality and recency
-3. **Computational Cost**: Large detection radii increase computation time
-4. **False Positives**: Some candidate pairs may not be actual collision risks (different orbital planes)
+1. **Snapshot analysis**: Density reflects positions at computation time. Positions update every 5s, so stats fluctuate slightly between recomputes as satellites cross cell boundaries.
+2. **TLE accuracy**: Results depend on TLE recency. Stale TLEs produce inaccurate positions.
+3. **Filtering heuristics**: The same-launch and same-operator filters reduce false positives but may suppress legitimate close approaches between satellites of the same operator at different altitudes.
+4. **Display cap**: Only the 50 closest filtered pairs are returned for rendering. `totalCandidatePairs` reflects the full count before this cap.
+5. **No velocity prediction**: Pairs are detected at current positions only. Two satellites currently 70km apart but converging at 10km/s may reach closest approach in minutes — this is not modeled.
 
 ## Future Enhancements
 
-Potential improvements for future versions:
-
-- **Predictive Density**: Project density forward in time to predict future crowded regions
-- **Velocity-Based Filtering**: Filter pairs by relative velocity to reduce false positives
-- **Orbital Plane Filtering**: Only consider pairs in similar orbital planes
-- **Historical Trends**: Track density changes over time
-- **Export Capabilities**: Export density data and close-approach lists
-- **Alert System**: Automatic alerts for pairs below critical distance thresholds
+- **Predictive density**: Project positions forward T+0→T+24h and sweep pair counts over time (conjunction timeline)
+- **Orbital plane filtering**: Only flag pairs in similar orbital planes (low relative inclination)
+- **Solar activity correction**: F10.7 flux adjustment for atmospheric drag at low altitudes
+- **Space-Track CDM integration**: Replace heuristic filtering with official Conjunction Data Messages
+- **Alert thresholds**: Configurable distance thresholds that trigger persistent alerts
 
 ## Related Documentation
 
 - [Orbital Plane Visualization](./ORBITAL_PLANE_VISUALIZATION.md)
-- [Performance Optimizations](../README.md#performance--heavy-compute-offload)
+- [Re-Entry Risk Screening](./REENTRY_RISK.md)
+- [README — Performance Optimizations](../README.md#performance-optimizations)
