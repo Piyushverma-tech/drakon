@@ -1,5 +1,5 @@
 import React, { memo, useState, useCallback } from 'react';
-import { Satellite, X, ChevronRight } from 'lucide-react';
+import { Satellite, X, ChevronRight, Crosshair } from 'lucide-react';
 import { ReentryRisk, SatelliteMetadata, TleEntry } from '@/lib/types';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 
@@ -21,6 +21,8 @@ type Props = {
   reentryRisk: ReentryRisk | null;
   metadata?: SatelliteMetadata | null;
   onFocusSatellite: (sat: TleEntry) => void;
+  isFollowingSelected: boolean;
+  onToggleFollow: () => void;
 };
 
 function StatRow({
@@ -121,6 +123,8 @@ const LeftPanel = memo(function LeftPanel({
   reentryRisk,
   metadata,
   onFocusSatellite,
+  isFollowingSelected,
+  onToggleFollow,
 }: Props) {
   const [openSections, setOpenSections] =
     useState<Record<string, boolean>>(DEFAULT_OPEN);
@@ -149,7 +153,7 @@ const LeftPanel = memo(function LeftPanel({
         <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400 pointer-events-none" />
 
         {/* Header — always visible, never scrolls */}
-        <div className="flex items-center justify-between px-3 pt-3 pb-2 shrink-0">
+        <div className="flex items-center justify-between px-3 py-3 shrink-0">
           <div
             className="flex items-center gap-1.5 min-w-0 cursor-pointer"
             onClick={() => tleEntry && onFocusSatellite(tleEntry)}
@@ -162,12 +166,30 @@ const LeftPanel = memo(function LeftPanel({
               {selected.name}
             </span>
           </div>
-          <button
-            onClick={onClose}
-            className="ml-2 shrink-0 text-gray-600 hover:text-red-400 transition-colors duration-150"
-          >
-            <X size={14} />
-          </button>
+          <div className="ml-2 flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={onToggleFollow}
+              title={
+                isFollowingSelected ? 'Turn off Tracking' : 'Turn on Tracking'
+              }
+              aria-pressed={isFollowingSelected}
+              className={`flex h-6 w-8 items-center justify-center border transition-colors duration-150 cursor-pointer ${
+                isFollowingSelected
+                  ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30'
+                  : 'border-white/10 bg-white/5 text-gray-500 hover:border-cyan-400/30 hover:text-cyan-300'
+              }`}
+            >
+              <Crosshair size={16} />
+            </button>
+            <button
+              onClick={onClose}
+              title="Deselect satellite"
+              className="flex h-6 w-6 items-center justify-center text-gray-600 hover:text-red-400 transition-colors duration-150"
+            >
+              <X size={14} />
+            </button>
+          </div>
         </div>
 
         {/* NORAD badge — always visible */}

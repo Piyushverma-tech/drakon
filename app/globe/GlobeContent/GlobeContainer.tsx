@@ -112,6 +112,7 @@ export default function SatelliteGlobe({
   } = useAppSelector((state) => state.visualization);
 
   const [selected, setSelected] = useState<SelectedMeta | null>(null);
+  const [followSelectedSatellite, setFollowSelectedSatellite] = useState(true);
 
   // Custom hooks
   const {
@@ -154,9 +155,18 @@ export default function SatelliteGlobe({
 
   const selectedId = useAppSelector((s) => s.visualization.selectedSatelliteId);
 
+  const selectedPosition = useMemo(
+    () =>
+      selectedId
+        ? (activeSatellites.find((sat) => sat.id === selectedId) ?? null)
+        : null,
+    [activeSatellites, selectedId]
+  );
+
   const { track } = useSelectedSatelliteTrack({
     entries,
     selectedId,
+    selectedPosition,
   });
 
   const { data: satelliteMetadata } = useSatelliteMetadata();
@@ -224,6 +234,48 @@ export default function SatelliteGlobe({
   const selectedMetadata = selected
     ? (satelliteMetadata?.[String(selected.id)] ?? null)
     : null;
+
+  useEffect(() => {
+    if (!selectedId || !selectedPosition) return;
+
+    const meta = entries.find((t: TleEntry) => t.id === selectedId);
+    if (!meta) return;
+
+    const targetDate = new Date(
+      Date.now() + simulationOffsetHours * 60 * 60 * 1000
+    );
+    const vel = velocityFromTLE(meta.l1, meta.l2, targetDate);
+    const orbitType = classifyOrbit(meta.inclination);
+
+    setSelected({
+      id: selectedPosition.id,
+      name: meta.name ?? 'Unknown',
+      lat: selectedPosition.lat,
+      lon: selectedPosition.lon,
+      alt: selectedPosition.alt,
+      vel,
+      inclination: meta.inclination,
+      orbitType,
+      tleEpoch: meta.tleEpoch,
+    });
+
+    if (followSelectedSatellite) {
+      mapRef.current?.flyTo({
+        longitude: selectedPosition.lon,
+        latitude: selectedPosition.lat,
+        durationMs: 900,
+        pitch: viewMode === '3D' ? 30 : 0,
+        bearing: 0,
+      });
+    }
+  }, [
+    entries,
+    followSelectedSatellite,
+    selectedId,
+    selectedPosition,
+    simulationOffsetHours,
+    viewMode,
+  ]);
 
   // split a path into segments that don't cross the antimeridian
   function splitBandAtAntimeridian(
@@ -556,7 +608,6 @@ export default function SatelliteGlobe({
         mapRef.current?.flyTo({
           longitude: pp.lon,
           latitude: pp.lat,
-          zoom: 2,
           durationMs: 1400,
           pitch: 30,
           bearing: 0,
@@ -589,6 +640,10 @@ export default function SatelliteGlobe({
     setSelected(null);
     dispatch(setSelectedSatelliteId(null));
   }, [dispatch]);
+
+  const handleToggleFollowSelected = useCallback(() => {
+    setFollowSelectedSatellite((enabled) => !enabled);
+  }, []);
 
   const handleCommitOffset = useCallback(
     (hours: number) => dispatch(setSimulationOffset(hours)),
@@ -657,6 +712,8 @@ export default function SatelliteGlobe({
         reentryRisk={selectedReentryRisk}
         metadata={selectedMetadata}
         onFocusSatellite={focusSatellite}
+        isFollowingSelected={followSelectedSatellite}
+        onToggleFollow={handleToggleFollowSelected}
       />
       {/* Right Panel */}
       <RightPanel

@@ -82,11 +82,7 @@ const Map2D = forwardRef<GlobeHandle, Map2DProps>(({ layers = [] }, ref) => {
         ...prev,
         longitude,
         latitude,
-        zoom:
-          typeof zoom === 'number'
-            ? // limit zoom to 6 to avoid excessive zooming on 2D map
-              Math.min(zoom, 6)
-            : Math.min((prev.zoom ?? INITIAL_VIEW_STATE.zoom) + 1, 6),
+        zoom: typeof zoom === 'number' ? Math.min(zoom, 6) : prev.zoom,
         bearing: typeof bearing === 'number' ? bearing : prev.bearing,
         pitch: 0,
         transitionDuration: durationMs,

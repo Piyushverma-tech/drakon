@@ -293,7 +293,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
                 >
                   <span
                     style={{
-                      fontSize: '10px',
+                      fontSize: '11px',
                       color: 'rgba(34, 211, 238, 0.4)',
                       letterSpacing: '0.1em',
                     }}
@@ -353,7 +353,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
                 >
                   <span
                     style={{
-                      fontSize: '10px',
+                      fontSize: '11px',
                       color: 'rgba(148, 163, 184, 0.5)',
                       letterSpacing: '0.04em',
                     }}
@@ -362,7 +362,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
                   </span>
                   <span
                     style={{
-                      fontSize: '10px',
+                      fontSize: '11px',
                       color: 'rgba(34, 211, 238, 0.4)',
                       letterSpacing: '0.04em',
                     }}
@@ -375,7 +375,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
               {simLoading && (
                 <span
                   style={{
-                    fontSize: '10px',
+                    fontSize: '11px',
                     color: 'rgba(34, 211, 238, 0.4)',
                     letterSpacing: '0.06em',
                     textTransform: 'uppercase',

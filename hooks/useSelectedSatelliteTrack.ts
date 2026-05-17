@@ -2,19 +2,27 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAppSelector } from '@/lib/store';
 import { generateSatelliteTrackAsync } from '@/lib/satelliteWorker';
-import { TleEntry, SatelliteTrack } from '@/lib/types';
+import { TleEntry, SatelliteTrack, SatellitePoint } from '@/lib/types';
 
 type Options = {
   entries: TleEntry[];
   selectedId: number | null;
+  selectedPosition?: SatellitePoint | null;
 };
 
-export function useSelectedSatelliteTrack({ entries, selectedId }: Options) {
+export function useSelectedSatelliteTrack({
+  entries,
+  selectedId,
+  selectedPosition,
+}: Options) {
   const [track, setTrack] = useState<SatelliteTrack | null>(null);
   const [trackLoading, setTrackLoading] = useState(false);
   const simulationOffsetHours = useAppSelector(
     (s) => s.visualization.simulationOffsetHours
   );
+  const selectedPositionKey = selectedPosition
+    ? `${selectedPosition.id}:${selectedPosition.lat.toFixed(4)}:${selectedPosition.lon.toFixed(4)}`
+    : null;
 
   // Stable ref to avoid stale closure in async callback
   const requestIdRef = useRef(0);
@@ -53,7 +61,7 @@ export function useSelectedSatelliteTrack({ entries, selectedId }: Options) {
         if (thisRequest !== requestIdRef.current) return;
         setTrackLoading(false);
       });
-  }, [selectedId, entries, simulationOffsetHours]);
+  }, [selectedId, entries, simulationOffsetHours, selectedPositionKey]);
 
   return { track, trackLoading };
 }
