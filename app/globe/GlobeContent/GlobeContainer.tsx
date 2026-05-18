@@ -69,7 +69,7 @@ type CandidatePairDatum = DensityResult['candidatePairs'][number];
 const EMPTY_ENTRIES: TleEntry[] = [];
 
 type Props = {
-  searchResults?: TleEntry[];
+  searchQuery?: string;
   onClearSearch?: () => void;
 };
 
@@ -85,7 +85,7 @@ function getLoadErrorMessage(error: unknown): string {
 // Main Component
 // ----------------------
 export default function SatelliteGlobe({
-  searchResults = EMPTY_ENTRIES,
+  searchQuery = '',
   onClearSearch,
 }: Props) {
   const dispatch = useAppDispatch();
@@ -186,6 +186,26 @@ export default function SatelliteGlobe({
       ),
     [activeSatellites, activeFiltersSet]
   );
+
+  const entryById = useMemo(
+    () => new Map(entries.map((entry) => [entry.id, entry])),
+    [entries]
+  );
+
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+
+    return filteredSatellites
+      .filter(
+        (sat) =>
+          sat.name?.toLowerCase().includes(query) ||
+          sat.id.toString().includes(query)
+      )
+      .map((sat) => entryById.get(sat.id))
+      .filter((entry): entry is TleEntry => Boolean(entry))
+      .slice(0, 20);
+  }, [entryById, filteredSatellites, searchQuery]);
 
   // ----------------------
   // Stats Computation

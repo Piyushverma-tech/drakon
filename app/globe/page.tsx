@@ -2,34 +2,16 @@
 import Link from 'next/link';
 import { ArrowLeft, Search } from 'lucide-react';
 import Image from 'next/image';
-import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
-import { useMemo, useState } from 'react';
-import type { TleEntry } from '@/lib/types';
+import { useState } from 'react';
 import GlobeContainer from './GlobeContent/GlobeContainer';
 import MobileViewNotice from './GlobeContent/components/MobileViewNotice';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { setViewMode } from '@/lib/visualization-slice';
 
-const EMPTY_ENTRIES: TleEntry[] = [];
-
 function GlobeContent() {
   const dispatch = useAppDispatch();
   const viewMode = useAppSelector((state) => state.visualization.viewMode);
   const [searchQuery, setSearchQuery] = useState('');
-  const { data: queriedEntries } = useTleEntriesQuery();
-  const entries = queriedEntries ?? EMPTY_ENTRIES;
-
-  const searchResults = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return [];
-    return entries
-      .filter(
-        (e) =>
-          e.name.toLowerCase().includes(query) ||
-          e.id.toString().includes(query)
-      )
-      .slice(0, 20);
-  }, [entries, searchQuery]);
 
   function handleClearSearch() {
     setSearchQuery('');
@@ -113,7 +95,7 @@ function GlobeContent() {
       {/* Globe */}
       <main className="relative z-10 flex-1 min-h-0">
         <GlobeContainer
-          searchResults={searchResults}
+          searchQuery={searchQuery}
           onClearSearch={handleClearSearch}
         />
       </main>
