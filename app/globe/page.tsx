@@ -52,7 +52,7 @@ function GlobeContent() {
             <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400" />
 
             <ArrowLeft className="w-4 h-4 text-white" />
-            <span className="text-gray-100 text-sm font-medium">
+            <span className="text-gray-200 text-sm font-medium">
               Back to Dashboard
             </span>
           </Link>
@@ -74,7 +74,7 @@ function GlobeContent() {
 
           {/* Toggle */}
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-cyan-200">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-200">
               View Mode
             </span>
             <div className="flex rounded border border-cyan-400/30 overflow-hidden">

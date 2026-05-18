@@ -312,6 +312,12 @@ function filterCandidatePairs(
         // nearly zero relative speed -> probably attached or formation flying
         continue;
       }
+
+      // Co-docked / proximity-hold check: objects within 5 km with < 50 m/s relative velocity are attached or in controlled hold
+      // Real conjunctions in LEO have relative velocities of 1–15 km/s
+      if (p.distanceKm < 5 && relV < 0.05) {
+        continue;
+      }
     }
 
     // Passed filters, keep it
