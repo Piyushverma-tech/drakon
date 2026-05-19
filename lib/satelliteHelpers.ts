@@ -1,6 +1,8 @@
 import * as satellite from 'satellite.js';
 import { ReentryRisk, TleEntry } from './types';
 
+const EARTH_RADIUS_KM = 6378.137;
+
 /**
  * Format distance in kilometers to human-readable string
  */
@@ -126,7 +128,7 @@ export function estimateAltitudeFromMeanMotion(meanMotion: number): number {
   const MU = 398600.4418; // km³/s²
   const nPerSec = n / 60;
   const a = Math.pow(MU / (nPerSec * nPerSec), 1 / 3); // semi-major axis km
-  return Math.max(0, a - 6371); // altitude above surface
+  return Math.max(0, a - EARTH_RADIUS_KM); // altitude above surface
 }
 
 export function getReentryRisk(
@@ -165,9 +167,9 @@ export function getReentryRisk(
   if (Math.abs(bstar) < 1e-5) return stable;
 
   // da/dt = -3π × B* × ρ_ref × (a/R_e) × v  [km/day]
-  const R_EARTH = 6378.137;
+
   const MU = 398600.4418;
-  const v_km_s = Math.sqrt(MU / (R_EARTH + altKm));
+  const v_km_s = Math.sqrt(MU / (EARTH_RADIUS_KM + altKm));
 
   // Scale height correction — drag increases exponentially as alt decreases
   // H ≈ 60km scale height for 300-600km range
