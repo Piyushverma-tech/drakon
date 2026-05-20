@@ -168,8 +168,8 @@ function getReentryTierThresholds(altKm: number) {
     const t = (altKm - 300) / 200;
     return {
       critical,
-      warning: lerp(180, 120, t),
-      nominal: lerp(365, 240, t),
+      warning: Math.floor(lerp(180, 120, t)),
+      nominal: Math.floor(lerp(365, 240, t)),
     };
   }
 
@@ -177,8 +177,8 @@ function getReentryTierThresholds(altKm: number) {
     const t = (altKm - 500) / 300;
     return {
       critical,
-      warning: lerp(120, 90, t),
-      nominal: lerp(240, 180, t),
+      warning: Math.floor(lerp(120, 90, t)),
+      nominal: Math.floor(lerp(240, 180, t)),
     };
   }
 
@@ -186,16 +186,16 @@ function getReentryTierThresholds(altKm: number) {
     const t = (altKm - 800) / 200;
     return {
       critical,
-      warning: lerp(90, 60, t),
-      nominal: lerp(180, 120, t),
+      warning: Math.floor(lerp(90, 60, t)),
+      nominal: Math.floor(lerp(180, 120, t)),
     };
   }
 
   const t = Math.min(1, (altKm - 1000) / 1000);
   return {
     critical,
-    warning: lerp(60, 45, t),
-    nominal: lerp(120, 90, t),
+    warning: Math.floor(lerp(60, 45, t)),
+    nominal: Math.floor(lerp(120, 90, t)),
   };
 }
 
@@ -299,7 +299,8 @@ export function getReentryRisk(
   const altAboveReentry = Math.max(0, altKm - 120);
   if (decayRateKmPerDay < 1e-4) return stable;
 
-  const signalsAgree = entry.meanMotionDot > NDOT_DECAY_THRESHOLD;
+  const nDot = entry.meanMotionDot ?? 0;
+  const signalsAgree = nDot > NDOT_DECAY_THRESHOLD;
   const confidence = getReentryConfidence(signalsAgree, altKm);
 
   // Atmospheric density increases as altitude decreases.

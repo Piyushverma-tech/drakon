@@ -274,8 +274,8 @@ function RightPanel({
 
                   {/* Disclaimer */}
                   <div className="text-[9px] text-gray-500 leading-relaxed">
-                    Estimates from BSTAR drag term only. Accuracy ±order of
-                    magnitude. Solar activity not modeled.
+                    Estimates from BSTAR drag term + N-dot confidence signal.
+                    Accuracy ±order of magnitude. Solar activity not modeled.
                   </div>
 
                   {/* Top at-risk list */}
