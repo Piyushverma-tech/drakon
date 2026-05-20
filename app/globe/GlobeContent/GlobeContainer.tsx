@@ -731,7 +731,6 @@ export default function SatelliteGlobe({
         onClose={handleDeselectSatellite}
         reentryRisk={selectedReentryRisk}
         metadata={selectedMetadata}
-        onFocusSatellite={focusSatellite}
         isFollowingSelected={followSelectedSatellite}
         onToggleFollow={handleToggleFollowSelected}
       />

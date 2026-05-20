@@ -32,11 +32,20 @@ export function tleEpochToIso(line1: string): string {
 /**
  * Parse TLE metadata (inclination and epoch)
  */
+export function parseMeanMotionDot(l1: string): number {
+  const raw = l1.slice(33, 43).trim();
+  if (!raw) return 0;
+
+  const meanMotionDot = Number(raw);
+  return Number.isFinite(meanMotionDot) ? meanMotionDot : 0;
+}
+
 export function parseTLEMeta(l1: string, l2: string) {
   const inclination = parseFloat(l2.slice(8, 16));
   const meanMotion = parseFloat(l2.slice(52, 63));
+  const meanMotionDot = parseMeanMotionDot(l1);
   const tleEpoch = tleEpochToIso(l1);
-  return { inclination, tleEpoch, meanMotion };
+  return { inclination, tleEpoch, meanMotion, meanMotionDot };
 }
 
 /**
@@ -131,6 +140,105 @@ export function estimateAltitudeFromMeanMotion(meanMotion: number): number {
   return Math.max(0, a - EARTH_RADIUS_KM); // altitude above surface
 }
 
+function maxPlausibleDecayRateKmPerDay(altKm: number): number {
+  // Terminal re-entry can accelerate far beyond the mid-LEO anomaly cap.
+  if (altKm <= 180) return Number.POSITIVE_INFINITY;
+
+  // The original 20 km/day cap is useful around mid-LEO, but below 300km
+  // plausible decay rates rise rapidly with atmospheric density.
+  if (altKm < 300) {
+    return 20 * Math.exp((300 - altKm) / 60);
+  }
+
+  return 20;
+}
+
+function lerp(start: number, end: number, t: number): number {
+  return start + (end - start) * t;
+}
+
+function getReentryTierThresholds(altKm: number) {
+  const critical = 30;
+
+  if (altKm <= 300) {
+    return { critical, warning: 180, nominal: 365 };
+  }
+
+  if (altKm <= 500) {
+    const t = (altKm - 300) / 200;
+    return {
+      critical,
+      warning: lerp(180, 120, t),
+      nominal: lerp(365, 240, t),
+    };
+  }
+
+  if (altKm <= 800) {
+    const t = (altKm - 500) / 300;
+    return {
+      critical,
+      warning: lerp(120, 90, t),
+      nominal: lerp(240, 180, t),
+    };
+  }
+
+  if (altKm <= 1000) {
+    const t = (altKm - 800) / 200;
+    return {
+      critical,
+      warning: lerp(90, 60, t),
+      nominal: lerp(180, 120, t),
+    };
+  }
+
+  const t = Math.min(1, (altKm - 1000) / 1000);
+  return {
+    critical,
+    warning: lerp(60, 45, t),
+    nominal: lerp(120, 90, t),
+  };
+}
+
+type TierThresholds = {
+  critical: number;
+  warning: number;
+  nominal: number;
+};
+
+function assignTier(
+  estimatedDays: number,
+  thresholds: TierThresholds,
+  signalsAgree: boolean,
+  altKm: number
+): ReentryRisk['tier'] {
+  // Signal agreement at high altitude restores one suppressed band.
+  // Rationale: two independent signals surviving the same solar noise
+  // meaningfully raises confidence over BSTAR alone.
+  const relaxed = signalsAgree && altKm > 500;
+  const effectiveWarning = relaxed
+    ? Math.max(thresholds.warning, 90) // restore warning if suppressed
+    : thresholds.warning;
+  const effectiveNominal = relaxed
+    ? Math.max(thresholds.nominal, 180) // restore nominal if suppressed
+    : thresholds.nominal;
+
+  if (estimatedDays < thresholds.critical) return 'critical';
+  if (effectiveWarning > 0 && estimatedDays < effectiveWarning)
+    return 'warning';
+  if (effectiveNominal > 0 && estimatedDays < effectiveNominal)
+    return 'nominal';
+  return 'stable';
+}
+
+function getReentryConfidence(
+  signalsAgree: boolean,
+  altKm: number
+): ReentryRisk['confidence'] {
+  if (signalsAgree) return 'high';
+  if (altKm <= 500) return 'medium';
+  return 'low';
+}
+
 export function getReentryRisk(
   entry: TleEntry,
   currentAltKm?: number
@@ -139,9 +247,14 @@ export function getReentryRisk(
   const altKm =
     currentAltKm ?? estimateAltitudeFromMeanMotion(entry.meanMotion);
 
+  const NDOT_DECAY_THRESHOLD = 1e-6; // rev/day² — below this, Ṅ is noise
+
   const stable: ReentryRisk = {
     satId: entry.id,
     bstar,
+    meanMotionDot: entry.meanMotionDot,
+    signalsAgree: false,
+    confidence: 'low',
     altKm,
     decayRateKmPerDay: 0,
     estimatedDaysRemaining: null,
@@ -152,19 +265,13 @@ export function getReentryRisk(
   const periodMin = 1440 / Math.max(entry.meanMotion, 0.001);
   if (periodMin > 600 || altKm > 2000) return stable;
 
-  // Only screen debris and rocket bodies for re-entry risk
-  // Active satellites with propulsion have meaningless BSTAR values
+  // Only screen objects classified as debris by the parser.
+  // Active satellites with propulsion have meaningless BSTAR.
   const nameUpper = entry.name.toUpperCase();
-  const isRocketBody =
-    nameUpper.includes('R/B') || nameUpper.includes('ROCKET');
   const isDebrisObject =
     entry.isDebris || nameUpper.includes('DEB') || nameUpper.includes('DEBRIS');
 
-  const isLikelyActive = !isDebrisObject && !isRocketBody;
-  if (isLikelyActive) return stable;
-
-  // No meaningful drag
-  if (Math.abs(bstar) < 1e-5) return stable;
+  if (!isDebrisObject) return stable;
 
   // da/dt = -3π × B* × ρ_ref × (a/R_e) × v  [km/day]
 
@@ -183,11 +290,17 @@ export function getReentryRisk(
   const decayRateKmPerDay =
     Math.abs(bstar) * BASE_FACTOR * densityFactor * (v_km_s / 7.905); // normalize to circular velocity at sea level
 
-  // Sanity cap - anything above 20 km/day is data anomaly
-  if (decayRateKmPerDay > 20) return stable;
+  // Altitude-aware anomaly guard. Mid-LEO values above 20 km/day are usually
+  // bad fitted BSTAR, but terminal decay below ~180km can legitimately exceed it.
+  if (decayRateKmPerDay > maxPlausibleDecayRateKmPerDay(altKm)) {
+    return stable;
+  }
 
   const altAboveReentry = Math.max(0, altKm - 120);
   if (decayRateKmPerDay < 1e-4) return stable;
+
+  const signalsAgree = entry.meanMotionDot > NDOT_DECAY_THRESHOLD;
+  const confidence = getReentryConfidence(signalsAgree, altKm);
 
   // Atmospheric density increases as altitude decreases.
   // Use 0.67 as a standard "Drag Acceleration" multiplier.
@@ -197,18 +310,21 @@ export function getReentryRisk(
   // 2/3 correction: accounts for increasing drag as altitude decreases.
   const estimatedDaysRemaining = Math.max(1, Math.ceil(linearDays * (2 / 3)));
 
-  const tier: ReentryRisk['tier'] =
-    estimatedDaysRemaining < 30
-      ? 'critical'
-      : estimatedDaysRemaining < 180
-        ? 'warning'
-        : estimatedDaysRemaining < 365
-          ? 'nominal'
-          : 'stable';
+  const thresholds = getReentryTierThresholds(altKm);
+
+  const tier = assignTier(
+    estimatedDaysRemaining,
+    thresholds,
+    signalsAgree,
+    altKm
+  );
 
   return {
     satId: entry.id,
     bstar,
+    meanMotionDot: entry.meanMotionDot,
+    signalsAgree,
+    confidence,
     altKm,
     decayRateKmPerDay,
     estimatedDaysRemaining,

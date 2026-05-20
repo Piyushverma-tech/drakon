@@ -112,7 +112,7 @@ drakon/
 │  ├─ visualization-slice.ts    # Filters, bands, density, simulation, re-entry flags
 │  ├─ satellite.ts              # Synchronous SGP4 helpers (positionFromTLE etc.)
 │  ├─ satelliteWorker.ts        # Comlink async wrappers + in-memory cache (CACHE_MAX=1000)
-│  ├─ satelliteHelpers.ts       # parseBSTAR, getReentryRisk, parseTLEMeta, getOrbitType
+│  ├─ satelliteHelpers.ts       # parseBSTAR, parseMeanMotionDot, getReentryRisk, parseTLEMeta
 │  ├─ satelliteHelpers.test.ts  # Unit tests for helper/parsing functions
 │  ├─ redis.ts                  # Upstash Redis client singleton
 │  ├─ providers.tsx             # Redux + TanStack QueryClient providers
@@ -221,9 +221,9 @@ Two separate systems handle different concerns:
 
 #### Re-Entry Risk Screening ✅
 
-Physics-based screening using BSTAR drag term from TLE Line 1.
+Physics-based screening using BSTAR drag term from TLE Line 1. TLE parsing also stores `meanMotionDot` (Ṅ) for secondary decay validation.
 
-**Object filter:** Only debris (name contains `DEB`, `DEBRIS`) and rocket bodies (`R/B`, `ROCKET`, `RKT`) are screened. Active propulsive satellites are excluded — their BSTAR values are corrupted by maneuvers.
+**Object filter:** Only objects classified as debris are screened. Rocket bodies are included by the TLE parser (`R/B`, `ROCKET`, `RKT` set `isDebris = true`). Active propulsive satellites are excluded — their BSTAR values are corrupted by maneuvers.
 
 **Decay model:**
 
@@ -234,14 +234,16 @@ estimatedDays      = ceil(linearDays × 2/3)   // 2/3 accounts for exponential a
 
 **Risk tiers:**
 
-| Tier     | Threshold              | Globe color |
-| -------- | ---------------------- | ----------- |
-| Critical | < 30 days              | Red-orange  |
-| Warning  | 30–180 days            | Amber       |
-| Nominal  | 180–365 days           | Yellow      |
-| Stable   | > 365 days or excluded | Dimmed      |
+| Tier     | Threshold                                  | Globe color |
+| -------- | ------------------------------------------ | ----------- |
+| Critical | < 30 days                                  | Red-orange  |
+| Warning  | Above critical, below altitude-aware limit | Amber       |
+| Nominal  | Above warning, below altitude-aware limit  | Yellow      |
+| Stable   | Beyond limit or excluded                   | Dimmed      |
 
-**Sanity gates:** `|BSTAR| < 1e-5` → stable; `altKm > 2000` or `periodMin > 600` → stable; `decayRate > 20 km/day` → data anomaly → stable.
+Critical stays fixed at 30 days. Warning/nominal limits compress at high altitude to reduce long-horizon false positives from noisy single-epoch drag terms. Positive `meanMotionDot` agreement raises confidence and can restore one suppressed high-altitude tier band.
+
+**Sanity gates:** `altKm > 2000` or `periodMin > 600` → stable; negligible computed decay → stable; altitude-aware decay-rate anomaly guard → stable. The old flat `decayRate > 20 km/day` guard is kept only for mid-LEO and relaxed during terminal low-altitude decay.
 
 📖 See [docs/REENTRY_RISK.md](./docs/REENTRY_RISK.md)
 
@@ -384,7 +386,7 @@ npm run test:watch
 
 ```bash
 lib/fleet-health.test.ts      # distanceKm, orbitClassFromAlt, aggregateFleetHealth
-lib/satelliteHelpers.test.ts  # formatDistance, classifyOrbit, getOrbitType, parseBSTAR
+lib/satelliteHelpers.test.ts  # formatDistance, classifyOrbit, getOrbitType, parseBSTAR, parseMeanMotionDot
 ```
 
 Jest configured in `package.json` with `ts-jest`. Worker dependencies are mocked via `jest.mock('./satelliteWorker', ...)`.

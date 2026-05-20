@@ -10,7 +10,7 @@ The core constraint driving every decision in this feature: **a single TLE epoch
 
 ## Data Source: BSTAR Drag Term
 
-All decay estimates derive from the BSTAR drag term embedded in TLE line 1, columns 53–60 (0-indexed).
+Current decay estimates derive from the BSTAR drag term embedded in TLE line 1, columns 53–60 (0-indexed). The parser also captures mean motion derivative, `meanMotionDot` / Ṅ, from line 1 columns 33–42 (0-indexed) so it can be used as a secondary decay signal.
 
 ### Format
 
@@ -73,12 +73,18 @@ estimatedDays = ceil((altKm - 120) / decayRate)
 
 ## Risk Tiers
 
-| Tier     | Condition                         | Globe color                     |
-| -------- | --------------------------------- | ------------------------------- |
-| Critical | < 30 days                         | Red-orange `[255, 60, 40, 230]` |
-| Warning  | 30–180 days                       | Amber `[255, 160, 30, 210]`     |
-| Nominal  | 180–365 days                      | Yellow `[255, 220, 80, 180]`    |
-| Stable   | > 365 days, null, or filtered out | Not shown in re-entry mode      |
+| Tier     | Condition                                  | Globe color                     |
+| -------- | ------------------------------------------ | ------------------------------- |
+| Critical | < 30 days                                  | Red-orange `[255, 60, 40, 230]` |
+| Warning  | Above critical, below altitude-aware limit | Amber `[255, 160, 30, 210]`     |
+| Nominal  | Above warning, below altitude-aware limit  | Yellow `[255, 220, 80, 180]`    |
+| Stable   | Beyond limit, null, or filtered out        | Not shown in re-entry mode      |
+
+The critical cutoff intentionally stays fixed at 30 days. A near-term re-entry estimate is operationally important even when altitude uncertainty is high. The longer-horizon tiers are stricter at high altitude, where single-epoch BSTAR is less reliable: below 300km the warning/nominal limits remain 180/365 days; by 800km they compress to 90/180 days; by 1000km they compress to 60/120 days; by 2000km they compress to 45/90 days.
+
+### Confidence signal
+
+`meanMotionDot` is used as a secondary validation signal. A positive Ṅ above `1e-6 rev/day²` agrees with the BSTAR-derived decay signal and raises confidence to `high`. If the signals agree above 500km, one suppressed tier band is restored because two independent single-epoch decay signals are more credible than BSTAR alone. If Ṅ does not confirm the BSTAR-derived signal, confidence is `medium` below 500km and `low` above 500km. The LeftPanel displays this confidence and whether the N-dot signal agrees.
 
 When re-entry mode is active, objects not in the risk map are dimmed to `[60, 60, 80, 100]` so at-risk objects pop visually against the globe.
 
@@ -97,35 +103,35 @@ Notable example: **Starlink Direct-to-Cell (DTC) satellites** operate at 367km (
 The final filter is categorical, not altitude-based:
 
 ```typescript
-const isRocketBody = nameUpper.includes('R/B') || nameUpper.includes('ROCKET');
 const isDebrisObject =
   entry.isDebris || nameUpper.includes('DEB') || nameUpper.includes('DEBRIS');
-const isLikelyActive = !isDebrisObject && !isRocketBody;
 
-if (isLikelyActive) return stable;
+if (!isDebrisObject) return stable;
 ```
 
-**Only debris objects and rocket bodies are screened.** All other objects, regardless of altitude or BSTAR magnitude, are returned as stable.
+**Only objects classified as debris are screened.** Rocket bodies are included in that classification upstream when TLE text is parsed (`R/B`, `RKT`, and `ROCKET` names set `entry.isDebris = true`). `getReentryRisk()` intentionally does not keep a separate rocket-body name check, so the screening boundary stays in one place instead of relying on duplicated classification logic.
 
 This is a conservative choice that prioritizes precision over recall.
 
 ### Additional sanity gates
 
 ```typescript
-// No meaningful drag
-if (Math.abs(bstar) < 1e-5) return stable;
-
 // GEO / deep space — atmospheric drag negligible
 if (periodMin > 600 || altKm > 2000) return stable;
 
-// Anomalous BSTAR — almost certainly bad TLE data
-if (decayRateKmPerDay > 20) return stable;
+// No meaningful decay after altitude-adjusted drag calculation
+if (decayRateKmPerDay < 1e-4) return stable;
+
+// Anomalous BSTAR — altitude-aware, because terminal decay can exceed 20 km/day
+if (decayRateKmPerDay > maxPlausibleDecayRateKmPerDay(altKm)) return stable;
 
 // Beyond useful screening horizon
 if (rawDays > 3650) return stable;
 ```
 
-The 20 km/day cap deserves explanation: at LEO altitudes, even the most aggressively decaying debris rarely loses more than 5–10km/day in its final weeks. Values above 20 km/day almost always indicate a stale TLE where BSTAR has been incorrectly fitted, not a genuinely fast-decaying object.
+The decay-rate anomaly guard is altitude-aware. The original flat `20 km/day` cap was only appropriate around mid-LEO; at very low altitudes, especially below about 180km, terminal decay can legitimately exceed that rate. The guard now keeps the 20 km/day ceiling for objects at or above 300km, raises the allowed ceiling exponentially between 180–300km, and disables the cap below 180km.
+
+The old fixed `|BSTAR| < 1e-5` pre-filter was also removed. Whether BSTAR is meaningful depends on altitude: a small BSTAR at 150km can still produce a physically significant decay rate after density scaling. The remaining low-signal gate is applied to the computed `decayRateKmPerDay` instead.
 
 ---
 
@@ -173,9 +179,7 @@ TLE line 1 also encodes Ṅ (first derivative of mean motion, cols 33–43), whi
 - Instantaneous maneuvers affect velocity but have less impact on the Ṅ trend across a tracking arc
 - Positive Ṅ definitively indicates a decaying orbit
 
-However, Ṅ is still contaminated by maneuvers to a lesser degree, and using both BSTAR and Ṅ together does not eliminate the fundamental problem for maneuvering satellites. The decision was made to use BSTAR only for simplicity, since the object type filter already handles the maneuvering satellite problem at the classification level.
-
-Ṅ would be worth adding as a secondary validation signal for debris objects where both signals should agree.
+However, Ṅ is still contaminated by maneuvers to a lesser degree, and using both BSTAR and Ṅ together does not eliminate the fundamental problem for maneuvering satellites. The object type filter remains the primary protection against maneuver-contaminated active satellites. For debris objects, Ṅ is used as a confidence signal: when positive Ṅ agrees with a BSTAR-derived decay estimate, the result is treated as higher confidence.
 
 ### Single epoch vs. multi-epoch trending
 
@@ -201,7 +205,7 @@ These limitations are surfaced to the user via the disclaimer: _"Estimates from 
 | File                               | Change                                                                       |
 | ---------------------------------- | ---------------------------------------------------------------------------- |
 | `lib/types.ts`                     | Added `ReentryRisk` type                                                     |
-| `lib/satelliteHelpers.ts`          | Added `parseBSTAR()`, `estimateAltitudeFromMeanMotion()`, `getReentryRisk()` |
+| `lib/satelliteHelpers.ts`          | Added `parseBSTAR()`, `parseMeanMotionDot()`, `estimateAltitudeFromMeanMotion()`, `getReentryRisk()` |
 | `lib/visualization-slice.ts`       | Added `showReentry` state and `setShowReentry` action                        |
 | `components/SatelliteGlobe.tsx`    | `reentryRisks` useMemo, ref pattern, color logic, prop pass-down             |
 | `components/panels/RightPanel.tsx` | Re-entry Risk section with toggle, summary counts, ranked list               |
@@ -213,11 +217,11 @@ These limitations are surfaced to the user via the disclaimer: _"Estimates from 
 
 ### Near-term (single-epoch data, no backend changes)
 
-**Add Ṅ as secondary signal for debris**
-Parse `parseMeanMotionDot(l1)` from cols 33–43. For debris objects where both BSTAR and Ṅ indicate decay, confidence in the estimate is higher. Objects where only one signal is elevated can be flagged with lower confidence. This does not require any backend work.
+**Calibrate confidence thresholds**
+`meanMotionDot` now acts as a secondary confidence signal. The current threshold is intentionally simple (`> 1e-6 rev/day²`); it should be calibrated against historical decays once multi-epoch data is available.
 
-**Altitude-stratified thresholds**
-The 20 km/day decay rate cap and tier thresholds (30/180/365 days) are currently uniform across all altitudes. Objects at 200km genuinely decay faster than objects at 500km. Stratified thresholds by altitude shell would reduce false positives at high altitudes and false negatives at very low altitudes.
+**Tune altitude-stratified thresholds**
+Tier thresholds now keep the critical cutoff fixed while compressing warning and nominal limits at high altitude. Further tuning can be done against historical re-entry cases once multi-epoch data is available.
 
 **Scale height refinement**
 The H = 60km scale height is a rough average for 200–600km. NRLMSISE-00 atmospheric model tables would give more accurate density corrections by altitude, but would require embedding a lookup table.

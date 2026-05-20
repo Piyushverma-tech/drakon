@@ -1,7 +1,6 @@
 import React, { memo, useState, useCallback } from 'react';
 import { Satellite, X, ChevronRight, Crosshair } from 'lucide-react';
-import { ReentryRisk, SatelliteMetadata, TleEntry } from '@/lib/types';
-import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
+import { ReentryRisk, SatelliteMetadata } from '@/lib/types';
 
 type SelectedMeta = {
   id: number;
@@ -20,7 +19,6 @@ type Props = {
   onClose: () => void;
   reentryRisk: ReentryRisk | null;
   metadata?: SatelliteMetadata | null;
-  onFocusSatellite: (sat: TleEntry) => void;
   isFollowingSelected: boolean;
   onToggleFollow: () => void;
 };
@@ -105,6 +103,10 @@ function formatUnit(
   return formatted === '—' ? formatted : `${formatted} ${unit}`;
 }
 
+function formatConfidence(confidence: ReentryRisk['confidence']): string {
+  return confidence.charAt(0).toUpperCase() + confidence.slice(1);
+}
+
 // Which sections are open by default
 const DEFAULT_OPEN: Record<string, boolean> = {
   mission: false,
@@ -122,17 +124,11 @@ const LeftPanel = memo(function LeftPanel({
   onClose,
   reentryRisk,
   metadata,
-  onFocusSatellite,
   isFollowingSelected,
   onToggleFollow,
 }: Props) {
   const [openSections, setOpenSections] =
     useState<Record<string, boolean>>(DEFAULT_OPEN);
-
-  const { data: queriedEntries } = useTleEntriesQuery();
-  const entries = queriedEntries ?? [];
-
-  const tleEntry = entries.find((e) => e.id === selected?.id);
 
   const toggle = useCallback((key: string) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -154,10 +150,7 @@ const LeftPanel = memo(function LeftPanel({
 
         {/* Header — always visible, never scrolls */}
         <div className="flex items-center justify-between px-3 py-3 shrink-0">
-          <div
-            className="flex items-center gap-1.5 min-w-0 cursor-pointer"
-            onClick={() => tleEntry && onFocusSatellite(tleEntry)}
-          >
+          <div className="flex items-center gap-1.5 min-w-0">
             <Satellite size={18} className="text-cyan-400 shrink-0" />
             <span
               className="text-[14px] font-semibold uppercase tracking-widest text-cyan-300 truncate"
@@ -194,7 +187,7 @@ const LeftPanel = memo(function LeftPanel({
 
         {/* NORAD badge — always visible */}
         <div className="px-3 shrink-0">
-          <div className="flex items-center gap-2 py-1.5 border-b border-white/5">
+          <div className="flex items-center gap-2 py-1.5">
             <span className="text-[10px] uppercase tracking-widest text-gray-400">
               NORAD
             </span>
@@ -310,8 +303,21 @@ const LeftPanel = memo(function LeftPanel({
                     />
                   )}
                   <StatRow
+                    label="Confidence"
+                    value={formatConfidence(reentryRisk.confidence)}
+                    accent={reentryRisk.confidence === 'high'}
+                  />
+                  <StatRow
+                    label="N-dot"
+                    value={reentryRisk.signalsAgree ? 'Agrees' : 'Weak'}
+                  />
+                  <StatRow
                     label="BSTAR"
                     value={reentryRisk.bstar.toExponential(2)}
+                  />
+                  <StatRow
+                    label="N-dot value"
+                    value={reentryRisk.meanMotionDot.toExponential(2)}
                   />
                   <StatRow
                     label="Decay rate"

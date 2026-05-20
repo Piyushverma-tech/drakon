@@ -64,6 +64,7 @@ export type TleEntry = {
   l2: string;
   inclination: number;
   meanMotion: number;
+  meanMotionDot: number;
   tleEpoch: string;
   isDebris?: boolean;
 };
@@ -128,14 +129,16 @@ export interface FilterOptions {
 export type ReentryRisk = {
   satId: number;
   bstar: number;
+  meanMotionDot: number; // first derivative of mean motion, rev/day^2
+  signalsAgree: boolean; // BSTAR-derived decay and meanMotionDot both indicate decay
+  confidence: 'high' | 'medium' | 'low';
   altKm: number; // current altitude (from meanMotion)
   decayRateKmPerDay: number; // estimated altitude loss per day
   estimatedDaysRemaining: number | null; // null = stable / indeterminate
   tier: 'critical' | 'warning' | 'nominal' | 'stable';
-  // critical  = < 30 days
-  // warning   = 30–180 days
-  // nominal   = 180–365 days
-  // stable    = > 365 days or BSTAR ≈ 0 or GEO
+  // critical = < 30 days
+  // warning/nominal = altitude- and confidence-adjusted longer horizons
+  // stable = beyond horizon, invalid signal, or GEO/deep-space
 };
 export type TrackSegment = {
   path: [number, number][]; // [lon, lat] pairs, antimeridian-split
