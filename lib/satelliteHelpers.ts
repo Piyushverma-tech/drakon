@@ -145,7 +145,7 @@ export function parseBSTAR(l1: string): number {
 }
 
 // Kepler's third law gives us semi-major axis from mean motion, then subtract Earth radius
-export function estimateAltitudeFromMeanMotion(meanMotion: number): number {
+function estimateAltitudeFromMeanMotion(meanMotion: number): number {
   // meanMotion in rev/day → rad/min
   const n = (meanMotion * 2 * Math.PI) / 1440; // rad/min
   const MU = 398600.4418; // km³/s²
@@ -316,7 +316,8 @@ export function getReentryRisk(
     return stable;
   }
 
-  const altAboveReentry = Math.max(0, decayAltKm - 120);
+  // Re-entry completes when perigee drops to 120km
+  const altAboveReentry = Math.max(0, perigeeKm - 120);
   if (decayRateKmPerDay < 1e-4) return stable;
 
   const nDot = entry.meanMotionDot ?? 0;

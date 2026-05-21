@@ -29,7 +29,7 @@ function normalizeAltitude(altKm: number): number {
     return Math.min(altKm, 50000);
   }
 
-  // Already correct - altitude from Earth's surface
+  // altitude from Earth's surface
   return altKm;
 }
 

@@ -273,7 +273,7 @@ function RightPanel({
                   </div>
 
                   {/* Disclaimer */}
-                  <div className="text-[9px] text-gray-500 leading-relaxed">
+                  <div className="text-[9.5px] text-gray-500 leading-relaxed">
                     Estimates from BSTAR drag term + N-dot confidence signal.
                     Accuracy ±order of magnitude. Solar activity not modeled.
                   </div>
@@ -315,7 +315,8 @@ function RightPanel({
                                     {entry?.name ?? `#${risk.satId}`}
                                   </span>
                                   <span className="text-[9px] text-gray-400">
-                                    ~{Math.round(risk.decayAltKm)} km alt
+                                    ~{Math.round(risk.decayAltKm)} km mean
+                                    altitude
                                   </span>
                                 </div>
 
