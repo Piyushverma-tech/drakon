@@ -67,6 +67,10 @@ export type TleEntry = {
   meanMotionDot: number;
   tleEpoch: string;
   isDebris?: boolean;
+
+  ecc: number;
+  perigeeKm: number;
+  apogeeKm: number;
 };
 
 export type SatellitePoint = {
@@ -105,9 +109,6 @@ export type SatelliteMetadata = {
   countryCode?: string;
   decayDate?: string | null;
   periodMinutes?: number;
-  inclination?: number;
-  apogeeKm?: number;
-  perigeeKm?: number;
 
   // Source tracking
   source: 'ucs+celestrak' | 'ucs' | 'celestrak' | 'none';
@@ -132,7 +133,8 @@ export type ReentryRisk = {
   meanMotionDot: number; // first derivative of mean motion, rev/day^2
   signalsAgree: boolean; // BSTAR-derived decay and meanMotionDot both indicate decay
   confidence: 'high' | 'medium' | 'low';
-  altKm: number; // current altitude (from meanMotion)
+  perigeeKm: number; // perigee altitude, which is more relevant to re-entry than mean altitude
+  decayAltKm: number; // current altitude (from meanMotion)
   decayRateKmPerDay: number; // estimated altitude loss per day
   estimatedDaysRemaining: number | null; // null = stable / indeterminate
   tier: 'critical' | 'warning' | 'nominal' | 'stable';

@@ -45,7 +45,21 @@ export function parseTLEMeta(l1: string, l2: string) {
   const meanMotion = parseFloat(l2.slice(52, 63));
   const meanMotionDot = parseMeanMotionDot(l1);
   const tleEpoch = tleEpochToIso(l1);
-  return { inclination, tleEpoch, meanMotion, meanMotionDot };
+
+  const ecc = parseFloat('0.' + l2.slice(26, 33).trim()) || 0;
+  const n = (meanMotion * 2 * Math.PI) / 1440 / 60;
+  const a = Math.pow(398600.4418 / (n * n), 1 / 3);
+  const perigeeKm = Math.max(0, a * (1 - ecc) - 6378.137);
+  const apogeeKm = Math.max(0, a * (1 + ecc) - 6378.137);
+  return {
+    inclination,
+    tleEpoch,
+    meanMotion,
+    meanMotionDot,
+    ecc,
+    perigeeKm,
+    apogeeKm,
+  };
 }
 
 /**
@@ -244,8 +258,12 @@ export function getReentryRisk(
   currentAltKm?: number
 ): ReentryRisk {
   const bstar = parseBSTAR(entry.l1);
-  const altKm =
+  const decayAltKm =
     currentAltKm ?? estimateAltitudeFromMeanMotion(entry.meanMotion);
+
+  // here perigee is used only as a sanity gate
+  // objects with high perigee genuinely cannot be in significant drag regardless of BSTAR value.
+  const perigeeKm = entry.perigeeKm;
 
   const NDOT_DECAY_THRESHOLD = 1e-6; // rev/day² — below this, Ṅ is noise
 
@@ -255,7 +273,8 @@ export function getReentryRisk(
     meanMotionDot: entry.meanMotionDot,
     signalsAgree: false,
     confidence: 'low',
-    altKm,
+    decayAltKm,
+    perigeeKm,
     decayRateKmPerDay: 0,
     estimatedDaysRemaining: null,
     tier: 'stable',
@@ -263,7 +282,8 @@ export function getReentryRisk(
 
   // GEO / deep space — not re-entering
   const periodMin = 1440 / Math.max(entry.meanMotion, 0.001);
-  if (periodMin > 600 || altKm > 2000) return stable;
+  // if perigee is above 2000km, drag is negligible regardless of what mean motion says.
+  if (periodMin > 600 || perigeeKm > 2000) return stable;
 
   // Only screen objects classified as debris by the parser.
   // Active satellites with propulsion have meaningless BSTAR.
@@ -276,13 +296,13 @@ export function getReentryRisk(
   // da/dt = -3π × B* × ρ_ref × (a/R_e) × v  [km/day]
 
   const MU = 398600.4418;
-  const v_km_s = Math.sqrt(MU / (EARTH_RADIUS_KM + altKm));
+  const v_km_s = Math.sqrt(MU / (EARTH_RADIUS_KM + decayAltKm));
 
   // Scale height correction — drag increases exponentially as alt decreases
   // H ≈ 60km scale height for 300-600km range
   const H_SCALE = 60;
   const REF_ALT = 400; // km — reference altitude where formula is calibrated
-  const densityFactor = Math.exp((REF_ALT - altKm) / H_SCALE);
+  const densityFactor = Math.exp((REF_ALT - decayAltKm) / H_SCALE);
 
   // Base decay at reference altitude: 1 B* unit → ~7.4e5 km/day
   // (derived from SGP4 ρ₀ = 2.461e-5 kg/m²/Re, R_earth = 6378km)
@@ -292,16 +312,16 @@ export function getReentryRisk(
 
   // Altitude-aware anomaly guard. Mid-LEO values above 20 km/day are usually
   // bad fitted BSTAR, but terminal decay below ~180km can legitimately exceed it.
-  if (decayRateKmPerDay > maxPlausibleDecayRateKmPerDay(altKm)) {
+  if (decayRateKmPerDay > maxPlausibleDecayRateKmPerDay(decayAltKm)) {
     return stable;
   }
 
-  const altAboveReentry = Math.max(0, altKm - 120);
+  const altAboveReentry = Math.max(0, decayAltKm - 120);
   if (decayRateKmPerDay < 1e-4) return stable;
 
   const nDot = entry.meanMotionDot ?? 0;
   const signalsAgree = nDot > NDOT_DECAY_THRESHOLD;
-  const confidence = getReentryConfidence(signalsAgree, altKm);
+  const confidence = getReentryConfidence(signalsAgree, decayAltKm);
 
   // Atmospheric density increases as altitude decreases.
   // Use 0.67 as a standard "Drag Acceleration" multiplier.
@@ -311,13 +331,13 @@ export function getReentryRisk(
   // 2/3 correction: accounts for increasing drag as altitude decreases.
   const estimatedDaysRemaining = Math.max(1, Math.ceil(linearDays * (2 / 3)));
 
-  const thresholds = getReentryTierThresholds(altKm);
+  const thresholds = getReentryTierThresholds(decayAltKm);
 
   const tier = assignTier(
     estimatedDaysRemaining,
     thresholds,
     signalsAgree,
-    altKm
+    decayAltKm
   );
 
   return {
@@ -326,7 +346,8 @@ export function getReentryRisk(
     meanMotionDot: entry.meanMotionDot,
     signalsAgree,
     confidence,
-    altKm,
+    perigeeKm,
+    decayAltKm,
     decayRateKmPerDay,
     estimatedDaysRemaining,
     tier,

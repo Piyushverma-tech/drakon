@@ -249,9 +249,6 @@ function metadataFromSatcat(row: SatcatRow): SatelliteMetadata | null {
     launchSite: getField(row, ['LAUNCH_SITE']),
     decayDate: decayDate ?? null,
     periodMinutes: parseNumber(getField(row, ['PERIOD'])),
-    inclination: parseNumber(getField(row, ['INCLINATION'])),
-    apogeeKm: parseNumber(getField(row, ['APOGEE'])),
-    perigeeKm: parseNumber(getField(row, ['PERIGEE'])),
     source: 'celestrak',
   };
 }
@@ -282,9 +279,6 @@ function mergeMetadata(
         countryCode: satcat.countryCode,
         decayDate: satcat.decayDate,
         periodMinutes: satcat.periodMinutes,
-        inclination: satcat.inclination,
-        apogeeKm: satcat.apogeeKm,
-        perigeeKm: satcat.perigeeKm,
 
         // Prefer UCS launch fields, but allow SATCAT fallback.
         launchDate: ucs.launchDate ?? satcat.launchDate,
@@ -347,8 +341,6 @@ function trimSatcatOnly(metadata: SatelliteMetadata): SatelliteMetadata {
     launchSite: metadata.launchSite,
     decayDate: metadata.decayDate,
     periodMinutes: metadata.periodMinutes,
-    apogeeKm: metadata.apogeeKm,
-    perigeeKm: metadata.perigeeKm,
     source: metadata.source,
   };
 }

@@ -1,18 +1,7 @@
 import React, { memo, useState, useCallback } from 'react';
 import { Satellite, X, ChevronRight, Crosshair } from 'lucide-react';
 import { ReentryRisk, SatelliteMetadata } from '@/lib/types';
-
-type SelectedMeta = {
-  id: number;
-  name: string;
-  lat: number;
-  lon: number;
-  alt: number;
-  vel: number;
-  inclination: number;
-  orbitType: string;
-  tleEpoch?: string;
-};
+import { SelectedMeta } from '../../GlobeContainer';
 
 type Props = {
   selected: SelectedMeta | null;
@@ -280,7 +269,18 @@ const LeftPanel = memo(function LeftPanel({
             Orbit
           </SectionLabel>
           {openSections.orbit && (
-            <StatRow label="Type" value={selected.orbitType} accent />
+            <>
+              <StatRow label="Type" value={selected.orbitType} accent />
+              <StatRow label="Ecc." value={selected.ecc.toFixed(5)} />
+              <StatRow
+                label="Perigee"
+                value={`${Math.round(selected.perigeeKm).toLocaleString()} km`}
+              />
+              <StatRow
+                label="Apogee"
+                value={`${Math.round(selected.apogeeKm).toLocaleString()} km`}
+              />
+            </>
           )}
 
           {/* RE-ENTRY detail — open by default if present */}
@@ -379,14 +379,7 @@ const LeftPanel = memo(function LeftPanel({
                     label="COSPAR"
                     value={formatOptional(metadata.cosparId)}
                   />
-                  <StatRow
-                    label="Apogee"
-                    value={formatUnit(metadata.apogeeKm, 'km')}
-                  />
-                  <StatRow
-                    label="Perigee"
-                    value={formatUnit(metadata.perigeeKm, 'km')}
-                  />
+
                   <StatRow
                     label="Period"
                     value={formatUnit(metadata.periodMinutes, 'min')}

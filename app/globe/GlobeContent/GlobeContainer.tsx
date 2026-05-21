@@ -53,7 +53,7 @@ import { useSatelliteMetadata } from '@/hooks/useSatelliteMetadata';
 // ----------------------
 // Types
 // ----------------------
-type SelectedMeta = {
+export type SelectedMeta = {
   id: number;
   name: string;
   lat: number;
@@ -62,6 +62,9 @@ type SelectedMeta = {
   vel: number;
   inclination: number;
   orbitType: string;
+  apogeeKm: number;
+  perigeeKm: number;
+  ecc: number;
   tleEpoch?: string;
 };
 
@@ -276,6 +279,9 @@ export default function SatelliteGlobe({
       vel,
       inclination: meta.inclination,
       orbitType,
+      apogeeKm: meta.apogeeKm,
+      perigeeKm: meta.perigeeKm,
+      ecc: meta.ecc,
       tleEpoch: meta.tleEpoch,
     });
 
@@ -556,6 +562,9 @@ export default function SatelliteGlobe({
             vel,
             inclination: meta.inclination,
             orbitType,
+            apogeeKm: meta.apogeeKm,
+            perigeeKm: meta.perigeeKm,
+            ecc: meta.ecc,
             tleEpoch: meta.tleEpoch,
           };
           setSelected(selectedMeta);
@@ -645,6 +654,9 @@ export default function SatelliteGlobe({
           vel,
           inclination: sat.inclination,
           orbitType,
+          apogeeKm: sat.apogeeKm,
+          perigeeKm: sat.perigeeKm,
+          ecc: sat.ecc,
           tleEpoch: sat.tleEpoch,
         };
         setSelected(selectedMeta);
@@ -679,7 +691,7 @@ export default function SatelliteGlobe({
         const fromMap = reentryRisks.get(selected.id);
         if (fromMap) return fromMap;
         const entry = entries.find((e) => e.id === selected.id);
-        return entry ? getReentryRisk(entry, selected.alt) : null;
+        return entry ? getReentryRisk(entry) : null;
       })()
     : null;
 

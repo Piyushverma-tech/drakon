@@ -315,7 +315,7 @@ function RightPanel({
                                     {entry?.name ?? `#${risk.satId}`}
                                   </span>
                                   <span className="text-[9px] text-gray-400">
-                                    {Math.round(risk.altKm)} km alt | est.
+                                    ~{Math.round(risk.decayAltKm)} km alt
                                   </span>
                                 </div>
 
