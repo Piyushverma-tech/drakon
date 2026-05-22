@@ -21,12 +21,12 @@ function GlobeContent() {
     <div className="fixed inset-0 bg-black flex flex-col overflow-hidden">
       <div className="absolute inset-0 bg-gradient-radial from-transparent via-transparent to-blue-950/20 pointer-events-none" />
 
-      <header className="relative z-20 flex items-center px-5 h-14 shrink-0">
+      <header className="relative z-20 flex items-center px-5 h-12 shrink-0">
         {/* LEFT */}
         <div className="flex-1">
           <Link
             href="/dashboard"
-            className="relative inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-md border border-gray-400/30 rounded-md"
+            className="relative inline-flex items-center gap-2 px-3 py-2 bg-black/40 backdrop-blur-md border border-gray-400/30 rounded-md"
           >
             <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
             <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />
@@ -34,7 +34,7 @@ function GlobeContent() {
             <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400" />
 
             <ArrowLeft className="w-4 h-4 text-white" />
-            <span className="text-gray-200 text-sm font-medium">
+            <span className="text-gray-200 text-[13px] font-medium">
               Back to Dashboard
             </span>
           </Link>
@@ -50,7 +50,7 @@ function GlobeContent() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name or NORAD ID..."
-              className="w-full h-8 pl-9 pr-3 rounded-md bg-secondary text-sm focus:outline-none focus:ring-1 focus:ring-cyan-700"
+              className="w-full h-[30px] pl-9 pr-3 rounded-md bg-secondary text-sm focus:outline-none focus:ring-1 focus:ring-cyan-700"
             />
           </div>
 
@@ -88,7 +88,7 @@ function GlobeContent() {
 
         {/* RIGHT */}
         <div className="flex-1 flex justify-end">
-          <Image alt="logo" src="/drakon.png" width={170} height={170} />
+          <Image alt="logo" src="/drakon.png" width={160} height={160} />
         </div>
       </header>
 

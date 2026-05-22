@@ -510,8 +510,8 @@ export default function SatelliteGlobe({
           if (viewMode === '2D') {
             // pixel radii — flat, consistent across all latitudes
             if (d.id === selected?.id) return d.isDebris ? 4 : 6;
-            if (showReentry && reentryRisksRef.current.has(d.id)) return 4;
-            const base = d.isDebris ? 2 : 3;
+            if (showReentry && reentryRisksRef.current.has(d.id)) return 2.5;
+            const base = d.isDebris ? 2 : 2.5;
             if (showDensity) {
               const density = getSatelliteDensity(d.id);
               if (density > 0) return base * (1 + density * 0.5);
@@ -519,13 +519,13 @@ export default function SatelliteGlobe({
             return base;
           }
           if (d.id === selected?.id) {
-            return d.isDebris ? 50000 : 80000; // Larger radius for selected
+            return d.isDebris ? 30000 : 60000; // Larger radius for selected
           }
           if (showReentry && reentryRisksRef.current.has(d.id)) {
-            return 60000; // All are debris & rocket bodies
+            return 40000; // All are debris & rocket bodies
           }
 
-          const baseRadius = d.isDebris ? 30000 : 60000;
+          const baseRadius = d.isDebris ? 15000 : 30000;
 
           if (showDensity) {
             const density = getSatelliteDensity(d.id);
