@@ -19,7 +19,7 @@ import SunCalc from 'suncalc';
 const INITIAL_VIEW_STATE = {
   longitude: 0,
   latitude: 0,
-  zoom: 0.8,
+  zoom: 1.5,
   pitch: 0,
   bearing: 0,
 };

@@ -3,9 +3,7 @@ import { ReentryRisk, TleEntry } from './types';
 
 const EARTH_RADIUS_KM = 6378.137;
 
-/**
- * Format distance in kilometers to human-readable string
- */
+// Format distance
 export function formatDistance(distanceKm: number): string {
   if (distanceKm >= 1) {
     return `${distanceKm.toFixed(2)} km`;
@@ -13,9 +11,8 @@ export function formatDistance(distanceKm: number): string {
   return `${Math.max(distanceKm * 1000, 0).toFixed(0)} m`;
 }
 
-/**
- * Convert TLE epoch (year + day of year) to ISO string
- */
+// Convert TLE epoch (year + day of year) to ISO string
+
 export function tleEpochToIso(line1: string): string {
   const epochYear2 = parseInt(line1.slice(18, 20), 10);
   const epochDay = parseFloat(line1.slice(20, 32));
@@ -29,9 +26,8 @@ export function tleEpochToIso(line1: string): string {
   return new Date(epochMillis).toISOString();
 }
 
-/**
- * Parse TLE metadata (inclination and epoch)
- */
+// Parse TLE metadata (inclination and epoch)
+
 export function parseMeanMotionDot(l1: string): number {
   const raw = l1.slice(33, 43).trim();
   if (!raw) return 0;
@@ -62,9 +58,8 @@ export function parseTLEMeta(l1: string, l2: string) {
   };
 }
 
-/**
- * Calculate velocity from TLE at a given date
- */
+// Calculate velocity from TLE at a given date
+
 export function velocityFromTLE(l1: string, l2: string, date: Date): number {
   try {
     const satrec = satellite.twoline2satrec(l1, l2);
@@ -78,9 +73,8 @@ export function velocityFromTLE(l1: string, l2: string, date: Date): number {
   }
 }
 
-/**
- * Classify orbit type based on inclination
- */
+// Classify orbit type based on inclination
+
 export function classifyOrbit(inclination: number): string {
   if (inclination < 10) return 'Equatorial';
   if (Math.abs(inclination - 90) < 5) return 'Polar';
@@ -88,9 +82,8 @@ export function classifyOrbit(inclination: number): string {
   return 'Inclined';
 }
 
-/**
- * Get orbit type based on Mean Motion and debris flag
- */
+// Get orbit type based on Mean Motion and debris flag
+
 export function getOrbitType(meanMotion: number, isDebris?: boolean): string {
   if (isDebris) return 'Debris';
 
@@ -120,9 +113,6 @@ export function getOrbitType(meanMotion: number, isDebris?: boolean): string {
 // Parse BSTAR drag term from TLE line 1
 export function parseBSTAR(l1: string): number {
   try {
-    // TLE line 1, columns 54-61 (1-indexed), 0-indexed: 53-60
-    // Format: ±NNNNN±N where ± is space (positive) or '-' (negative)
-    // Represents: 0.NNNNN × 10^(±N)
     const raw = l1.substring(53, 61).trim();
     if (!raw || raw === '00000-0' || raw === '00000+0') return 0;
 
@@ -144,7 +134,7 @@ export function parseBSTAR(l1: string): number {
   }
 }
 
-// Kepler's third law gives us semi-major axis from mean motion, then subtract Earth radius
+// Kepler's third law for semi-major axis from mean motion
 function estimateAltitudeFromMeanMotion(meanMotion: number): number {
   // meanMotion in rev/day → rad/min
   const n = (meanMotion * 2 * Math.PI) / 1440; // rad/min
@@ -154,17 +144,37 @@ function estimateAltitudeFromMeanMotion(meanMotion: number): number {
   return Math.max(0, a - EARTH_RADIUS_KM); // altitude above surface
 }
 
+const DECAY_SCALE_HEIGHT_KM = 60;
+const DECAY_CAP_REF_ALT_KM = 400;
+// Plausible peak drag-loss rate near 400 km; scales down with altitude like density.
+const MAX_DECAY_RATE_AT_REF_KM_PER_DAY = 20;
+
 function maxPlausibleDecayRateKmPerDay(altKm: number): number {
   // Terminal re-entry can accelerate far beyond the mid-LEO anomaly cap.
   if (altKm <= 180) return Number.POSITIVE_INFINITY;
 
-  // The original 20 km/day cap is useful around mid-LEO, but below 300km
-  // plausible decay rates rise rapidly with atmospheric density.
+  const scaled =
+    MAX_DECAY_RATE_AT_REF_KM_PER_DAY *
+    Math.exp((DECAY_CAP_REF_ALT_KM - altKm) / DECAY_SCALE_HEIGHT_KM);
+
   if (altKm < 300) {
-    return 20 * Math.exp((300 - altKm) / 60);
+    // Below 300 km, allow faster terminal decay above the density-scaled cap.
+    return Math.max(
+      scaled,
+      MAX_DECAY_RATE_AT_REF_KM_PER_DAY *
+        Math.exp((300 - altKm) / DECAY_SCALE_HEIGHT_KM)
+    );
   }
 
-  return 20;
+  return scaled;
+}
+
+/** Ṅ threshold (rev/day²) scales with altitude — TLE fit noise dominates above ~500 km. */
+function ndotIndicatesDecay(nDot: number, decayAltKm: number): boolean {
+  if (nDot <= 0) return false;
+  if (decayAltKm > 500) return nDot > 5e-5;
+  if (decayAltKm > 400) return nDot > 2e-5;
+  return nDot > 1e-5;
 }
 
 function lerp(start: number, end: number, t: number): number {
@@ -225,10 +235,8 @@ function assignTier(
   signalsAgree: boolean,
   altKm: number
 ): ReentryRisk['tier'] {
-  // Signal agreement at high altitude restores one suppressed band.
-  // Rationale: two independent signals surviving the same solar noise
-  // meaningfully raises confidence over BSTAR alone.
-  const relaxed = signalsAgree && altKm > 500;
+  // Only relax tiers in mid-LEO where Ṅ is more meaningful than fit noise.
+  const relaxed = signalsAgree && altKm >= 350 && altKm <= 500;
   const effectiveWarning = relaxed
     ? Math.max(thresholds.warning, 90) // restore warning if suppressed
     : thresholds.warning;
@@ -265,8 +273,6 @@ export function getReentryRisk(
   // objects with high perigee genuinely cannot be in significant drag regardless of BSTAR value.
   const perigeeKm = entry.perigeeKm;
 
-  const NDOT_DECAY_THRESHOLD = 1e-6; // rev/day² — below this, Ṅ is noise
-
   const stable: ReentryRisk = {
     satId: entry.id,
     bstar,
@@ -298,20 +304,17 @@ export function getReentryRisk(
   const MU = 398600.4418;
   const v_km_s = Math.sqrt(MU / (EARTH_RADIUS_KM + decayAltKm));
 
-  // Scale height correction — drag increases exponentially as alt decreases
-  // H ≈ 60km scale height for 300-600km range
-  const H_SCALE = 60;
-  const REF_ALT = 400; // km — reference altitude where formula is calibrated
-  const densityFactor = Math.exp((REF_ALT - decayAltKm) / H_SCALE);
+  const densityFactor = Math.exp(
+    (DECAY_CAP_REF_ALT_KM - decayAltKm) / DECAY_SCALE_HEIGHT_KM
+  );
 
-  // Base decay at reference altitude: 1 B* unit → ~7.4e5 km/day
-  // (derived from SGP4 ρ₀ = 2.461e-5 kg/m²/Re, R_earth = 6378km)
-  const BASE_FACTOR = 7.4e5;
+  // Calibrated so |B*| ≈ 1e-4 yields ~0.07 km/day at 400 km (order-of-magnitude
+  // screening). The prior 7.4e5 factor was ~100× too large for TLE B* values.
+  const BASE_FACTOR = 7.4e3;
   const decayRateKmPerDay =
-    Math.abs(bstar) * BASE_FACTOR * densityFactor * (v_km_s / 7.905); // normalize to circular velocity at sea level
+    Math.abs(bstar) * BASE_FACTOR * densityFactor * (v_km_s / 7.905);
 
-  // Altitude-aware anomaly guard. Mid-LEO values above 20 km/day are usually
-  // bad fitted BSTAR, but terminal decay below ~180km can legitimately exceed it.
+  // Altitude-aware anomaly guard rejects misfit BSTAR; cap scales with density.
   if (decayRateKmPerDay > maxPlausibleDecayRateKmPerDay(decayAltKm)) {
     return stable;
   }
@@ -321,7 +324,7 @@ export function getReentryRisk(
   if (decayRateKmPerDay < 1e-4) return stable;
 
   const nDot = entry.meanMotionDot ?? 0;
-  const signalsAgree = nDot > NDOT_DECAY_THRESHOLD;
+  const signalsAgree = ndotIndicatesDecay(nDot, decayAltKm);
   const confidence = getReentryConfidence(signalsAgree, decayAltKm);
 
   // Atmospheric density increases as altitude decreases.

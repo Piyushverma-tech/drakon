@@ -303,13 +303,13 @@ const LeftPanel = memo(function LeftPanel({
                     />
                   )}
                   <StatRow
-                    label="Confidence"
+                    label="Probability"
                     value={formatConfidence(reentryRisk.confidence)}
                     accent={reentryRisk.confidence === 'high'}
                   />
                   <StatRow
                     label="N-dot"
-                    value={reentryRisk.signalsAgree ? 'Agrees' : 'Weak'}
+                    value={reentryRisk.signalsAgree ? 'Agrees' : 'Disagrees'}
                   />
                   <StatRow
                     label="BSTAR"

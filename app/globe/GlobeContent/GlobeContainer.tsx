@@ -538,7 +538,7 @@ export default function SatelliteGlobe({
         },
         radiusMinPixels: 1,
         radiusMaxPixels: 6,
-        opacity: 0.85,
+        opacity: 0.9,
         pickable: true,
         onClick: (info) => {
           const pt = info.object as SatellitePoint | null;

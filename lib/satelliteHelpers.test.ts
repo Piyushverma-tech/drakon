@@ -115,7 +115,14 @@ describe('satelliteHelpers', () => {
 
   describe('getReentryRisk', () => {
     it('does not suppress physically fast terminal decay below 180km', () => {
-      const risk = getReentryRisk(makeEntry(), 150);
+      const risk = getReentryRisk(
+        makeEntry({
+          l1: line1WithBstar('50000-4'),
+          perigeeKm: 150,
+          apogeeKm: 150,
+        }),
+        150
+      );
 
       expect(risk.decayRateKmPerDay).toBeGreaterThan(20);
       expect(risk.tier).toBe('critical');
@@ -124,9 +131,25 @@ describe('satelliteHelpers', () => {
       expect(risk.estimatedDaysRemaining).toBe(1);
     });
 
-    it('keeps the decay-rate anomaly guard for mid-LEO objects', () => {
+    it('does not flag typical mid-altitude catalog BSTAR as imminent re-entry', () => {
       const risk = getReentryRisk(
-        makeEntry({ l1: line1WithBstar('50000-4') }),
+        makeEntry({
+          l1: line1WithBstar('12255-4'),
+          meanMotionDot: 0.00002883,
+          perigeeKm: 455.93,
+          apogeeKm: 540,
+        }),
+        499
+      );
+
+      expect(risk.decayRateKmPerDay).toBeLessThan(1);
+      expect(risk.tier).toBe('stable');
+      expect(risk.signalsAgree).toBe(false);
+    });
+
+    it('rejects implausible mid-LEO BSTAR drag rates via altitude-scaled cap', () => {
+      const risk = getReentryRisk(
+        makeEntry({ l1: line1WithBstar('50000-2') }),
         400
       );
 
@@ -158,76 +181,75 @@ describe('satelliteHelpers', () => {
       expect(risk.tier).toBe('critical');
     });
 
-    it('keeps high-altitude near-term estimates critical', () => {
+    it('flags strong drag at mid-LEO as critical', () => {
       const risk = getReentryRisk(
-        makeEntry({ l1: line1WithBstar('20300-1') }),
-        800
+        makeEntry({
+          l1: line1WithBstar('50000-2'),
+          perigeeKm: 200,
+          apogeeKm: 200,
+        }),
+        380
       );
 
       expect(risk.estimatedDaysRemaining).toBeLessThan(30);
       expect(risk.tier).toBe('critical');
     });
 
-    it('downgrades longer high-altitude warning estimates to nominal', () => {
+    it('assigns nominal tier for moderate mid-LEO decay horizons', () => {
       const risk = getReentryRisk(
-        makeEntry({ l1: line1WithBstar('34100-2') }),
-        800
+        makeEntry({
+          l1: line1WithBstar('15000-4'),
+          perigeeKm: 280,
+          apogeeKm: 280,
+        }),
+        400
       );
 
-      expect(risk.estimatedDaysRemaining).toBeGreaterThan(120);
+      expect(risk.estimatedDaysRemaining).toBeGreaterThan(30);
       expect(risk.estimatedDaysRemaining).toBeLessThan(180);
       expect(risk.tier).toBe('nominal');
     });
 
-    it('downgrades long high-altitude nominal estimates to stable', () => {
+    it('downgrades long mid-LEO estimates to stable', () => {
       const risk = getReentryRisk(
-        makeEntry({ l1: line1WithBstar('20400-2') }),
-        800
+        makeEntry({
+          l1: line1WithBstar('20400-5'),
+          perigeeKm: 320,
+          apogeeKm: 320,
+        }),
+        400
       );
 
       expect(risk.estimatedDaysRemaining).toBeGreaterThan(180);
-      expect(risk.estimatedDaysRemaining).toBeLessThan(365);
       expect(risk.tier).toBe('stable');
     });
 
-    it('keeps tier thresholds compressed immediately above 800km', () => {
+    it('rejects implausible drag rates at high altitude via scaled cap', () => {
       const risk = getReentryRisk(
         makeEntry({
-          l1: line1WithBstar('26000-2'),
+          l1: line1WithBstar('20300-1'),
           meanMotionDot: 0,
         }),
-        801
+        800
       );
 
-      expect(risk.estimatedDaysRemaining).toBeGreaterThan(180);
+      expect(risk.decayRateKmPerDay).toBe(0);
       expect(risk.tier).toBe('stable');
       expect(risk.confidence).toBe('low');
     });
 
-    it('uses meanMotionDot agreement to restore one high-altitude tier band', () => {
-      const withoutAgreement = getReentryRisk(
-        makeEntry({
-          l1: line1WithBstar('15000+0'),
-          meanMotionDot: 0,
-        }),
-        1000
+    it('requires stronger meanMotionDot at higher altitude for agreement', () => {
+      const lowAlt = getReentryRisk(
+        makeEntry({ meanMotionDot: 0.00002 }),
+        350
       );
-      const withAgreement = getReentryRisk(
-        makeEntry({
-          l1: line1WithBstar('15000+0'),
-          meanMotionDot: 0.00001,
-        }),
-        1000
+      const highAlt = getReentryRisk(
+        makeEntry({ meanMotionDot: 0.00002 }),
+        550
       );
 
-      expect(withoutAgreement.estimatedDaysRemaining).toBe(126);
-      expect(withoutAgreement.tier).toBe('stable');
-      expect(withoutAgreement.confidence).toBe('low');
-      expect(withoutAgreement.signalsAgree).toBe(false);
-      expect(withAgreement.estimatedDaysRemaining).toBe(126);
-      expect(withAgreement.tier).toBe('nominal');
-      expect(withAgreement.confidence).toBe('high');
-      expect(withAgreement.signalsAgree).toBe(true);
+      expect(lowAlt.signalsAgree).toBe(true);
+      expect(highAlt.signalsAgree).toBe(false);
     });
   });
 });
