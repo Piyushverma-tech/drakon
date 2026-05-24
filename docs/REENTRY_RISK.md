@@ -52,7 +52,7 @@ decayRate (km/day) = |BSTAR| × BASE_FACTOR × densityFactor × (v / v_ref)
 
 Where:
 
-- `BASE_FACTOR = 7.4e5` — derived from SGP4 reference density ρ₀ = 2.461×10⁻⁵ kg/m²/Re
+- `BASE_FACTOR = 7.4e3` — calibrated for parsed TLE BSTAR values; the earlier `7.4e5` scale was about 100× too aggressive for screening
 - `densityFactor = exp((400 - altKm) / 60)` — exponential scale height correction, H = 60km
 - `v_ref = 7.905 km/s` — circular velocity at sea level
 - `v = sqrt(MU / (R_earth + alt))` — current orbital velocity
@@ -64,10 +64,10 @@ Atmospheric density approximately halves every 60km in the 200–600km range. Th
 ### Lifetime estimate
 
 ```
-estimatedDays = ceil((altKm - 120) / decayRate)
+estimatedDays = ceil(((perigeeKm - 120) / decayRate) × 2/3)
 ```
 
-120km is the nominal re-entry threshold where aerodynamic heating becomes terminal. Objects below this altitude are considered to have already re-entered. `ceil` is used instead of `round` to avoid displaying `~0d` for objects with hours remaining.
+120km is the nominal re-entry threshold where aerodynamic heating becomes terminal. Objects below this altitude are considered to have already re-entered. The lifetime estimate uses perigee rather than mean altitude because re-entry is driven by the low point of the orbit. The 2/3 multiplier approximates accelerating drag as altitude falls. `ceil` is used instead of `round` to avoid displaying `~0d` for objects with hours remaining.
 
 ---
 
@@ -84,7 +84,7 @@ The critical cutoff intentionally stays fixed at 30 days. A near-term re-entry e
 
 ### Confidence signal
 
-`meanMotionDot` is used as a secondary validation signal. A positive Ṅ above `1e-6 rev/day²` agrees with the BSTAR-derived decay signal and raises confidence to `high`. If the signals agree above 500km, one suppressed tier band is restored because two independent single-epoch decay signals are more credible than BSTAR alone. If Ṅ does not confirm the BSTAR-derived signal, confidence is `medium` below 500km and `low` above 500km. The LeftPanel displays this confidence and whether the N-dot signal agrees.
+`meanMotionDot` is used as a secondary validation signal. The positive Ṅ threshold is altitude-dependent because fit noise dominates at higher altitudes: `> 1e-5 rev/day²` below 400km, `> 2e-5` from 400–500km, and `> 5e-5` above 500km. Agreement raises confidence to `high`, but it does not change the risk tier thresholds. If Ṅ does not confirm the BSTAR-derived signal, confidence is `medium` below 500km and `low` above 500km. The LeftPanel displays this confidence and whether the N-dot signal agrees.
 
 When re-entry mode is active, objects not in the risk map are dimmed to `[60, 60, 80, 100]` so at-risk objects pop visually against the globe.
 
@@ -129,7 +129,7 @@ if (decayRateKmPerDay > maxPlausibleDecayRateKmPerDay(altKm)) return stable;
 if (rawDays > 3650) return stable;
 ```
 
-The decay-rate anomaly guard is altitude-aware. The original flat `20 km/day` cap was only appropriate around mid-LEO; at very low altitudes, especially below about 180km, terminal decay can legitimately exceed that rate. The guard now keeps the 20 km/day ceiling for objects at or above 300km, raises the allowed ceiling exponentially between 180–300km, and disables the cap below 180km.
+The decay-rate anomaly guard is altitude-aware. The original flat `20 km/day` cap was only appropriate around mid-LEO; at very low altitudes, especially below about 180km, terminal decay can legitimately exceed that rate. The guard scales the cap exponentially with density above 180km and disables the cap below 180km.
 
 The old fixed `|BSTAR| < 1e-5` pre-filter was also removed. Whether BSTAR is meaningful depends on altitude: a small BSTAR at 150km can still produce a physically significant decay rate after density scaling. The remaining low-signal gate is applied to the computed `decayRateKmPerDay` instead.
 
@@ -218,7 +218,7 @@ These limitations are surfaced to the user via the disclaimer: _"Estimates from 
 ### Near-term (single-epoch data, no backend changes)
 
 **Calibrate confidence thresholds**
-`meanMotionDot` now acts as a secondary confidence signal. The current threshold is intentionally simple (`> 1e-6 rev/day²`); it should be calibrated against historical decays once multi-epoch data is available.
+`meanMotionDot` now acts as a secondary confidence signal. The current altitude-stratified thresholds are intentionally conservative and should be calibrated against historical decays once multi-epoch data is available.
 
 **Tune altitude-stratified thresholds**
 Tier thresholds now keep the critical cutoff fixed while compressing warning and nominal limits at high altitude. Further tuning can be done against historical re-entry cases once multi-epoch data is available.

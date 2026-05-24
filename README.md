@@ -228,8 +228,8 @@ Physics-based screening using BSTAR drag term from TLE Line 1. TLE parsing also 
 **Decay model:**
 
 ```
-decayRate (km/day) = |BSTAR| × 7.4e5 × exp((400 - altKm) / 60) × (v / 7.905)
-estimatedDays      = ceil(linearDays × 2/3)   // 2/3 accounts for exponential atmosphere integral
+decayRate (km/day) = |BSTAR| × 7.4e3 × exp((400 - altKm) / 60) × (v / 7.905)
+estimatedDays      = ceil(((perigeeKm - 120) / decayRate) × 2/3)
 ```
 
 **Risk tiers:**
@@ -241,9 +241,9 @@ estimatedDays      = ceil(linearDays × 2/3)   // 2/3 accounts for exponential a
 | Nominal  | Above warning, below altitude-aware limit  | Yellow      |
 | Stable   | Beyond limit or excluded                   | Dimmed      |
 
-Critical stays fixed at 30 days. Warning/nominal limits compress at high altitude to reduce long-horizon false positives from noisy single-epoch drag terms. Positive `meanMotionDot` agreement raises confidence and can restore one suppressed high-altitude tier band.
+Critical stays fixed at 30 days. Warning/nominal limits compress at high altitude to reduce long-horizon false positives from noisy single-epoch drag terms. Positive `meanMotionDot` agreement raises confidence, but does not change the risk tier thresholds.
 
-**Sanity gates:** `altKm > 2000` or `periodMin > 600` → stable; negligible computed decay → stable; altitude-aware decay-rate anomaly guard → stable. The old flat `decayRate > 20 km/day` guard is kept only for mid-LEO and relaxed during terminal low-altitude decay.
+**Sanity gates:** `perigeeKm > 2000` or `periodMin > 600` → stable; negligible computed decay → stable; altitude-aware decay-rate anomaly guard → stable. The old flat `decayRate > 20 km/day` guard is replaced with a density-scaled cap above 180 km and disabled during terminal low-altitude decay.
 
 📖 See [docs/REENTRY_RISK.md](./docs/REENTRY_RISK.md)
 
@@ -303,7 +303,6 @@ Used for globe coloring (gray dots) and as a gate in `getReentryRisk` for re-ent
 ## Pending / Backlog Features
 
 - **Conjunction timeline**: Sweep T+0→T+72h, chart pair counts over time
-- **Operator/country ownership filter layer**: filter by operator or nation
 - **Hohmann transfer maneuver planner**: Δv calculator for orbit transfers
 - **Multi-epoch BSTAR trending**: `tle_history` PostgreSQL table for BSTAR drift analysis
 - **Solar activity (F10.7 flux) correction**: Improve re-entry estimates during solar maximum

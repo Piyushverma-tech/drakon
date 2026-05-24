@@ -153,20 +153,10 @@ function maxPlausibleDecayRateKmPerDay(altKm: number): number {
   // Terminal re-entry can accelerate far beyond the mid-LEO anomaly cap.
   if (altKm <= 180) return Number.POSITIVE_INFINITY;
 
-  const scaled =
+  return (
     MAX_DECAY_RATE_AT_REF_KM_PER_DAY *
-    Math.exp((DECAY_CAP_REF_ALT_KM - altKm) / DECAY_SCALE_HEIGHT_KM);
-
-  if (altKm < 300) {
-    // Below 300 km, allow faster terminal decay above the density-scaled cap.
-    return Math.max(
-      scaled,
-      MAX_DECAY_RATE_AT_REF_KM_PER_DAY *
-        Math.exp((300 - altKm) / DECAY_SCALE_HEIGHT_KM)
-    );
-  }
-
-  return scaled;
+    Math.exp((DECAY_CAP_REF_ALT_KM - altKm) / DECAY_SCALE_HEIGHT_KM)
+  );
 }
 
 /** Ṅ threshold (rev/day²) scales with altitude — TLE fit noise dominates above ~500 km. */
@@ -231,23 +221,12 @@ type TierThresholds = {
 
 function assignTier(
   estimatedDays: number,
-  thresholds: TierThresholds,
-  signalsAgree: boolean,
-  altKm: number
+  thresholds: TierThresholds
 ): ReentryRisk['tier'] {
-  // Only relax tiers in mid-LEO where Ṅ is more meaningful than fit noise.
-  const relaxed = signalsAgree && altKm >= 350 && altKm <= 500;
-  const effectiveWarning = relaxed
-    ? Math.max(thresholds.warning, 90) // restore warning if suppressed
-    : thresholds.warning;
-  const effectiveNominal = relaxed
-    ? Math.max(thresholds.nominal, 180) // restore nominal if suppressed
-    : thresholds.nominal;
-
   if (estimatedDays < thresholds.critical) return 'critical';
-  if (effectiveWarning > 0 && estimatedDays < effectiveWarning)
+  if (thresholds.warning > 0 && estimatedDays < thresholds.warning)
     return 'warning';
-  if (effectiveNominal > 0 && estimatedDays < effectiveNominal)
+  if (thresholds.nominal > 0 && estimatedDays < thresholds.nominal)
     return 'nominal';
   return 'stable';
 }
@@ -308,7 +287,7 @@ export function getReentryRisk(
     (DECAY_CAP_REF_ALT_KM - decayAltKm) / DECAY_SCALE_HEIGHT_KM
   );
 
-  // Calibrated so |B*| ≈ 1e-4 yields ~0.07 km/day at 400 km (order-of-magnitude
+  // Calibrated so |B*| ≈ 1e-4 yields ~0.72 km/day at 400 km (order-of-magnitude
   // screening). The prior 7.4e5 factor was ~100× too large for TLE B* values.
   const BASE_FACTOR = 7.4e3;
   const decayRateKmPerDay =
@@ -337,12 +316,7 @@ export function getReentryRisk(
 
   const thresholds = getReentryTierThresholds(decayAltKm);
 
-  const tier = assignTier(
-    estimatedDaysRemaining,
-    thresholds,
-    signalsAgree,
-    decayAltKm
-  );
+  const tier = assignTier(estimatedDaysRemaining, thresholds);
 
   return {
     satId: entry.id,

@@ -1,5 +1,5 @@
 import React, { memo, useState, useCallback } from 'react';
-import { Satellite, X, ChevronRight, Crosshair } from 'lucide-react';
+import { Satellite, X, ChevronRight, Eye, EyeClosed } from 'lucide-react';
 import { ReentryRisk, SatelliteMetadata } from '@/lib/types';
 import { SelectedMeta } from '../../GlobeContainer';
 
@@ -62,7 +62,7 @@ function SectionLabel({
       onClick={onToggle}
       className="w-full flex items-center gap-2 mb-1 mt-3 first:mt-0 group cursor-pointer"
     >
-      <span className="text-[9px] uppercase tracking-[0.2em] text-cyan-400 font-semibold group-hover:text-cyan-300 transition-colors">
+      <span className="text-[10px] uppercase tracking-[0.2em] text-cyan-400 font-semibold group-hover:text-cyan-300 transition-colors">
         {children}
       </span>
       <div className="flex-1 h-px bg-gray-700/60" />
@@ -130,7 +130,7 @@ const LeftPanel = memo(function LeftPanel({
   return (
     <div className="absolute left-3 top-3 w-[280px] z-10 select-none">
       {/* Outer shell */}
-      <div className="relative bg-black/60 backdrop-blur-md border border-white/10 flex flex-col max-h-[calc(96vh-4rem)]">
+      <div className="relative bg-black/60 backdrop-blur-md border border-white/10 flex flex-col max-h-[calc(97vh-4rem)]">
         {/* Corner accents */}
         <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400 pointer-events-none" />
         <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400 pointer-events-none" />
@@ -156,13 +156,17 @@ const LeftPanel = memo(function LeftPanel({
                 isFollowingSelected ? 'Turn off Tracking' : 'Turn on Tracking'
               }
               aria-pressed={isFollowingSelected}
-              className={`flex h-6 w-8 items-center justify-center border transition-colors duration-150 cursor-pointer ${
+              className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer ${
                 isFollowingSelected
                   ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30'
-                  : 'border-white/10 bg-white/5 text-gray-500 hover:border-cyan-400/30 hover:text-cyan-300'
+                  : 'border-white/20 bg-white/5 text-gray-400 hover:border-cyan-400/30 hover:text-cyan-300'
               }`}
             >
-              <Crosshair size={16} />
+              {isFollowingSelected ? (
+                <Eye size={16} />
+              ) : (
+                <EyeClosed size={15} />
+              )}
             </button>
             <button
               onClick={onClose}

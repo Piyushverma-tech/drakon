@@ -302,7 +302,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
                   </span>
                   <span
                     style={{
-                      fontSize: '20px',
+                      fontSize: '18px',
                       fontWeight: 500,
                       color: 'rgb(34, 211, 238)',
                       letterSpacing: '-0.02em',
