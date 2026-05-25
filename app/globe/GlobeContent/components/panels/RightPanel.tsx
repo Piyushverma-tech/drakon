@@ -224,7 +224,7 @@ function RightPanel({
             <div className="mt-2 border-t border-gray-700/60 pt-2">
               <div className="flex items-center justify-between text-xs mb-3">
                 <span className="font-medium text-cyan-300 uppercase tracking-wider">
-                  Re-entry Risk
+                  Re-entry Screening
                 </span>
                 <button
                   type="button"

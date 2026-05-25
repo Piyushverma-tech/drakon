@@ -48,8 +48,8 @@ function SectionLabel({
 }) {
   if (!collapsible) {
     return (
-      <div className="flex items-center gap-2 mb-1 mt-3 first:mt-0">
-        <span className="text-[9px] uppercase tracking-[0.2em] text-cyan-400 font-semibold">
+      <div className="flex items-center gap-2 mb-1 mt-2 first:mt-0">
+        <span className="text-[10px] uppercase tracking-[0.2em] text-cyan-400 font-semibold">
           {children}
         </span>
         <div className="flex-1 h-px bg-gray-700/60" />
@@ -60,7 +60,7 @@ function SectionLabel({
   return (
     <button
       onClick={onToggle}
-      className="w-full flex items-center gap-2 mb-1 mt-3 first:mt-0 group cursor-pointer"
+      className="w-full flex items-center gap-2 mb-1 mt-2 first:mt-0 group cursor-pointer"
     >
       <span className="text-[10px] uppercase tracking-[0.2em] text-cyan-400 font-semibold group-hover:text-cyan-300 transition-colors">
         {children}
