@@ -6,6 +6,7 @@ import {
   Eye,
   EyeClosed,
   TrainTrack,
+  Orbit,
 } from 'lucide-react';
 import { ReentryRisk, SatelliteMetadata } from '@/lib/types';
 import { SelectedMeta } from '../../GlobeContainer';
@@ -19,6 +20,8 @@ type Props = {
   onToggleFollow: () => void;
   showTrack: boolean;
   onToggleTrack: () => void;
+  showOrbitPath: boolean;
+  onToggleOrbitPath: () => void;
 };
 
 function StatRow({
@@ -126,6 +129,8 @@ const LeftPanel = memo(function LeftPanel({
   onToggleFollow,
   showTrack,
   onToggleTrack,
+  showOrbitPath,
+  onToggleOrbitPath,
 }: Props) {
   const [openSections, setOpenSections] =
     useState<Record<string, boolean>>(DEFAULT_OPEN);
@@ -198,6 +203,19 @@ const LeftPanel = memo(function LeftPanel({
             }`}
           >
             <TrainTrack size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleOrbitPath}
+            title={showOrbitPath ? 'Hide 3D Orbit' : 'Show 3D Orbit'}
+            aria-pressed={showOrbitPath}
+            className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer ${
+              showOrbitPath
+                ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30'
+                : 'border-white/20 bg-white/5 text-gray-400 hover:border-cyan-400/30 hover:text-cyan-300'
+            }`}
+          >
+            <Orbit size={16} />
           </button>
         </div>
         {/* NORAD badge — always visible */}

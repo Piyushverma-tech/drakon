@@ -21,6 +21,7 @@ import {
   SatellitePoint,
   ReentryRisk,
   TrackSegment,
+  OrbitPathSegment,
 } from '@/lib/types';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { setSelectedSatelliteId } from '@/lib/visualization-slice';
@@ -40,6 +41,7 @@ import {
   resetSimulation,
 } from '@/lib/visualization-slice';
 import { useSelectedSatelliteTrack } from '@/hooks/useSelectedSatelliteTrack';
+import { useSelectedSatelliteOrbitPath } from '@/hooks/useSelectedSatelliteOrbitPath';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 import RightPanel from '@/app/globe/GlobeContent/components/panels/RightPanel';
 import LeftPanel from '@/app/globe/GlobeContent/components/panels/LeftPanel';
@@ -117,6 +119,7 @@ export default function SatelliteGlobe({
   const [selected, setSelected] = useState<SelectedMeta | null>(null);
   const [followSelectedSatellite, setFollowSelectedSatellite] = useState(true);
   const [showTrack, setShowTrack] = useState(true);
+  const [showOrbitPath, setShowOrbitPath] = useState(true);
 
   // Custom hooks
   const {
@@ -168,6 +171,12 @@ export default function SatelliteGlobe({
   );
 
   const { track } = useSelectedSatelliteTrack({
+    entries,
+    selectedId,
+    selectedPosition,
+  });
+
+  const { orbitPath } = useSelectedSatelliteOrbitPath({
     entries,
     selectedId,
     selectedPosition,
@@ -453,6 +462,33 @@ export default function SatelliteGlobe({
     ];
   }, [track, viewMode, showTrack]);
 
+  const orbitPathLayers = useMemo(() => {
+    if (viewMode !== '3D') return [];
+    if (!showOrbitPath || !orbitPath) return [];
+
+    return orbitPath.segments.map(
+      (segment, i) =>
+        new PathLayer<OrbitPathSegment>({
+          id: `3d-selected-orbit-path-${i}`,
+          data: [segment],
+          getPath: (d) =>
+            d.path.map(
+              ([lon, lat, altKm]) =>
+                [lon, lat, altKm * 300] as [number, number, number]
+            ),
+          getColor: [0, 210, 255, 190],
+          getWidth: 2.5,
+          widthMinPixels: 1.5,
+          widthMaxPixels: 3,
+          widthUnits: 'pixels',
+          opacity: 0.75,
+          pickable: false,
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          wrapLongitude: true,
+        })
+    );
+  }, [orbitPath, showOrbitPath, viewMode]);
+
   const layers = useMemo(
     () => [
       // Inclination band path layer
@@ -472,6 +508,7 @@ export default function SatelliteGlobe({
         : []),
       ...densityLayers,
       ...trackLayers,
+      ...orbitPathLayers,
       // Main satellite layer
       new ScatterplotLayer<SatellitePoint>({
         id: `${viewMode.toLowerCase()}-satellite-layer`,
@@ -613,6 +650,7 @@ export default function SatelliteGlobe({
       getSatelliteDensity,
       showReentry,
       trackLayers,
+      orbitPathLayers,
       viewMode,
     ]
   );
@@ -681,6 +719,10 @@ export default function SatelliteGlobe({
 
   const handleToggleTrack = useCallback(() => {
     setShowTrack((show) => !show);
+  }, []);
+
+  const handleToggleOrbitPath = useCallback(() => {
+    setShowOrbitPath((show) => !show);
   }, []);
 
   const handleCommitOffset = useCallback(
@@ -753,6 +795,8 @@ export default function SatelliteGlobe({
         onToggleFollow={handleToggleFollowSelected}
         showTrack={showTrack}
         onToggleTrack={handleToggleTrack}
+        showOrbitPath={showOrbitPath}
+        onToggleOrbitPath={handleToggleOrbitPath}
       />
       {/* Right Panel */}
       <RightPanel

@@ -57,6 +57,7 @@ import {
   DensityResult,
   DensityWorkerInput,
   DensityWorkerOptions,
+  SatelliteOrbitPath,
   SatelliteTrack,
   TrackSegment,
 } from './types';
@@ -98,6 +99,12 @@ type SatelliteWorkerProxy = {
     past: Array<[number, number, number]>;
     future: Array<[number, number, number]>;
   } | null>;
+  generateSatelliteOrbitPath: (
+    l1: string,
+    l2: string,
+    centerDateIso: string,
+    samples?: number
+  ) => Promise<Array<[number, number, number]> | null>;
 };
 
 export async function positionFromTLEAsync(
@@ -290,6 +297,49 @@ export async function generateSatelliteTrackAsync(
     };
   } catch (err) {
     console.warn('generateSatelliteTrackAsync failed', err);
+    return null;
+  }
+}
+
+function splitOrbitAtAntimeridian(
+  points: Array<[number, number, number]>
+): Array<Array<[number, number, number]>> {
+  const segments: Array<Array<[number, number, number]>> = [[]];
+  for (let i = 0; i < points.length; i++) {
+    segments.at(-1)!.push(points[i]);
+    if (i < points.length - 1) {
+      const lonDiff = Math.abs(points[i + 1][0] - points[i][0]);
+      if (lonDiff > 180) segments.push([]);
+    }
+  }
+  return segments.filter((s) => s.length > 1);
+}
+
+export async function generateSatelliteOrbitPathAsync(
+  l1: string,
+  l2: string,
+  centerDate: Date,
+  samples: number = 240
+): Promise<SatelliteOrbitPath | null> {
+  try {
+    const proxy = await getWorkerProxy();
+    if (!proxy) return null;
+
+    const raw = await (
+      proxy as SatelliteWorkerProxy
+    ).generateSatelliteOrbitPath(l1, l2, centerDate.toISOString(), samples);
+    if (!raw) return null;
+
+    const segments = splitOrbitAtAntimeridian(raw).map((path) => ({ path }));
+    if (!segments.length) return null;
+
+    const satId = Number(l1.substring(2, 7));
+    return {
+      satId,
+      segments,
+    };
+  } catch (err) {
+    console.warn('generateSatelliteOrbitPathAsync failed', err);
     return null;
   }
 }

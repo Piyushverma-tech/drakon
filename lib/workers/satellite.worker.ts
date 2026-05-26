@@ -167,6 +167,46 @@ async function generateSatelliteTrack(
   }
 }
 
+async function generateSatelliteOrbitPath(
+  l1: string,
+  l2: string,
+  centerDateIso: string,
+  samples: number = 240
+): Promise<Array<[number, number, number]> | null> {
+  try {
+    const satrec = satellite.twoline2satrec(l1, l2);
+    const meanMotionRadPerMin = satrec.no;
+    if (!meanMotionRadPerMin || !Number.isFinite(meanMotionRadPerMin)) {
+      return null;
+    }
+
+    const sampleCount = Math.max(2, samples);
+    const periodMs = ((2 * Math.PI) / meanMotionRadPerMin) * 60 * 1000;
+    const centerTime = new Date(centerDateIso).getTime();
+    if (!Number.isFinite(centerTime)) return null;
+
+    const startTime = centerTime - periodMs / 2;
+    const items = Array.from({ length: sampleCount }, (_, i) => {
+      const t = new Date(startTime + (i / (sampleCount - 1)) * periodMs);
+      return { l1, l2, dateIso: t.toISOString() };
+    });
+
+    const positions = await batchPositionFromTLE(items);
+    const path: Array<[number, number, number]> = [];
+
+    for (const pos of positions) {
+      if (!pos) continue;
+      const p = pos as PropagatedPosition;
+      if (p.lat === 0 && p.lon === 0 && p.altKm === 0) continue;
+      path.push([p.lon, p.lat, p.altKm]);
+    }
+
+    return path.length > 1 ? path : null;
+  } catch {
+    return null;
+  }
+}
+
 function latLonAltToECEF(latDeg: number, lonDeg: number, altKm: number) {
   const latRad = (latDeg * Math.PI) / 180;
   const lonRad = (lonDeg * Math.PI) / 180;
@@ -577,6 +617,7 @@ const api = {
   batchPositionFromTLE,
   generateGroundTrack,
   generateSatelliteTrack,
+  generateSatelliteOrbitPath,
   computeCollisionDensity,
 };
 

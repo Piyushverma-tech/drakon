@@ -152,3 +152,12 @@ export type SatelliteTrack = {
   past: TrackSegment[]; // array because antimeridian split produces N segments
   future: TrackSegment[]; // same
 };
+
+export type OrbitPathSegment = {
+  path: [number, number, number][]; // [lon, lat, altKm] pairs, antimeridian-split
+};
+
+export type SatelliteOrbitPath = {
+  satId: number;
+  segments: OrbitPathSegment[];
+};
