@@ -92,7 +92,6 @@ export default function SatelliteGlobe({
   onClearSearch,
 }: Props) {
   const dispatch = useAppDispatch();
-  const { showReentry } = useAppSelector((s) => s.visualization);
   const {
     data: queriedEntries,
     isLoading: tleLoading,
@@ -112,10 +111,12 @@ export default function SatelliteGlobe({
     densityRadiusKm,
     simulationOffsetHours,
     viewMode,
+    showReentry,
   } = useAppSelector((state) => state.visualization);
 
   const [selected, setSelected] = useState<SelectedMeta | null>(null);
   const [followSelectedSatellite, setFollowSelectedSatellite] = useState(true);
+  const [showTrack, setShowTrack] = useState(true);
 
   // Custom hooks
   const {
@@ -414,6 +415,7 @@ export default function SatelliteGlobe({
   // Create path layers for past and future track segments
   const trackLayers = useMemo(() => {
     if (!track) return [];
+    if (!showTrack) return [];
     const modePrefix = viewMode.toLowerCase();
 
     const makePath = (
@@ -449,7 +451,7 @@ export default function SatelliteGlobe({
       ...makePath(track.past, [115, 147, 179], 'past'), // teal
       ...makePath(track.future, [4, 55, 242], 'future'), // blue
     ];
-  }, [track, viewMode]);
+  }, [track, viewMode, showTrack]);
 
   const layers = useMemo(
     () => [
@@ -677,6 +679,10 @@ export default function SatelliteGlobe({
     setFollowSelectedSatellite((enabled) => !enabled);
   }, []);
 
+  const handleToggleTrack = useCallback(() => {
+    setShowTrack((show) => !show);
+  }, []);
+
   const handleCommitOffset = useCallback(
     (hours: number) => dispatch(setSimulationOffset(hours)),
     [dispatch]
@@ -745,6 +751,8 @@ export default function SatelliteGlobe({
         metadata={selectedMetadata}
         isFollowingSelected={followSelectedSatellite}
         onToggleFollow={handleToggleFollowSelected}
+        showTrack={showTrack}
+        onToggleTrack={handleToggleTrack}
       />
       {/* Right Panel */}
       <RightPanel

@@ -1,5 +1,12 @@
 import React, { memo, useState, useCallback } from 'react';
-import { Satellite, X, ChevronRight, Eye, EyeClosed } from 'lucide-react';
+import {
+  Satellite,
+  X,
+  ChevronRight,
+  Eye,
+  EyeClosed,
+  TrainTrack,
+} from 'lucide-react';
 import { ReentryRisk, SatelliteMetadata } from '@/lib/types';
 import { SelectedMeta } from '../../GlobeContainer';
 
@@ -10,6 +17,8 @@ type Props = {
   metadata?: SatelliteMetadata | null;
   isFollowingSelected: boolean;
   onToggleFollow: () => void;
+  showTrack: boolean;
+  onToggleTrack: () => void;
 };
 
 function StatRow({
@@ -115,6 +124,8 @@ const LeftPanel = memo(function LeftPanel({
   metadata,
   isFollowingSelected,
   onToggleFollow,
+  showTrack,
+  onToggleTrack,
 }: Props) {
   const [openSections, setOpenSections] =
     useState<Record<string, boolean>>(DEFAULT_OPEN);
@@ -150,25 +161,6 @@ const LeftPanel = memo(function LeftPanel({
           </div>
           <div className="ml-2 flex shrink-0 items-center gap-1">
             <button
-              type="button"
-              onClick={onToggleFollow}
-              title={
-                isFollowingSelected ? 'Turn off Tracking' : 'Turn on Tracking'
-              }
-              aria-pressed={isFollowingSelected}
-              className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer ${
-                isFollowingSelected
-                  ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30'
-                  : 'border-white/20 bg-white/5 text-gray-400 hover:border-cyan-400/30 hover:text-cyan-300'
-              }`}
-            >
-              {isFollowingSelected ? (
-                <Eye size={16} />
-              ) : (
-                <EyeClosed size={15} />
-              )}
-            </button>
-            <button
               onClick={onClose}
               title="Deselect satellite"
               className="flex h-6 w-6 items-center justify-center text-gray-600 hover:text-red-400 transition-colors duration-150"
@@ -178,6 +170,36 @@ const LeftPanel = memo(function LeftPanel({
           </div>
         </div>
 
+        <div className="flex items-center px-3 pt-1 pb-2 gap-2">
+          <button
+            type="button"
+            onClick={onToggleFollow}
+            title={
+              isFollowingSelected ? 'Turn off Tracking' : 'Turn on Tracking'
+            }
+            aria-pressed={isFollowingSelected}
+            className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer ${
+              isFollowingSelected
+                ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30'
+                : 'border-white/20 bg-white/5 text-gray-400 hover:border-cyan-400/30 hover:text-cyan-300'
+            }`}
+          >
+            {isFollowingSelected ? <Eye size={16} /> : <EyeClosed size={15} />}
+          </button>
+          <button
+            type="button"
+            onClick={onToggleTrack}
+            title={showTrack ? 'Hide Track' : 'Show Track'}
+            aria-pressed={showTrack}
+            className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer ${
+              showTrack
+                ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30'
+                : 'border-white/20 bg-white/5 text-gray-400 hover:border-cyan-400/30 hover:text-cyan-300'
+            }`}
+          >
+            <TrainTrack size={16} />
+          </button>
+        </div>
         {/* NORAD badge — always visible */}
         <div className="px-3 shrink-0">
           <div className="flex items-center gap-2 py-1.5">
