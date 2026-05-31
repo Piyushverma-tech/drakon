@@ -1,4 +1,5 @@
 'use client';
+// For single satellite orbit path generation - unused for now, keeping it for reference and potential future use
 import { useEffect, useRef, useState } from 'react';
 import { useAppSelector } from '@/lib/store';
 import { generateSatelliteOrbitPathAsync } from '@/lib/satelliteWorker';

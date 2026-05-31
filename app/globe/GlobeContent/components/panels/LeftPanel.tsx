@@ -1,7 +1,6 @@
 import React, { memo, useState, useCallback } from 'react';
 import {
   Satellite,
-  X,
   ChevronRight,
   Eye,
   EyeClosed,
@@ -13,7 +12,6 @@ import { SelectedMeta } from '../../GlobeContainer';
 
 type Props = {
   selected: SelectedMeta | null;
-  onClose: () => void;
   reentryRisk: ReentryRisk | null;
   metadata?: SatelliteMetadata | null;
   isFollowingSelected: boolean;
@@ -122,7 +120,6 @@ const DEFAULT_OPEN: Record<string, boolean> = {
 
 const LeftPanel = memo(function LeftPanel({
   selected,
-  onClose,
   reentryRisk,
   metadata,
   isFollowingSelected,
@@ -153,7 +150,7 @@ const LeftPanel = memo(function LeftPanel({
         <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-cyan-400 pointer-events-none" />
         <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400 pointer-events-none" />
 
-        {/* Header — always visible, never scrolls */}
+        {/* Header */}
         <div className="flex items-center justify-between px-3 py-3 shrink-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <Satellite size={18} className="text-cyan-400 shrink-0" />
@@ -164,15 +161,7 @@ const LeftPanel = memo(function LeftPanel({
               {selected.name}
             </span>
           </div>
-          <div className="ml-2 flex shrink-0 items-center gap-1">
-            <button
-              onClick={onClose}
-              title="Deselect satellite"
-              className="flex h-6 w-6 items-center justify-center text-gray-600 hover:text-red-400 transition-colors duration-150"
-            >
-              <X size={14} />
-            </button>
-          </div>
+          <div className="ml-2 flex shrink-0 items-center gap-1" />
         </div>
 
         <div className="flex items-center px-3 pt-1 pb-2 gap-2">

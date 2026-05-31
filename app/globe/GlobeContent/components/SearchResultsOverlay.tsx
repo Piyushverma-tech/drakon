@@ -2,17 +2,19 @@
 
 import { X } from 'lucide-react';
 import { TleEntry } from '@/lib/types';
+import { colorForId } from '@/lib/satellite-colors';
 
 type SearchResultsOverlayProps = {
   searchResults: TleEntry[];
-  selectedId?: number;
+  selectedIds: number[];
   onClearSearch?: () => void;
   onFocusSatellite: (satellite: TleEntry) => void;
+  selectionLimitReached?: boolean;
 };
 
 export function SearchResultsOverlay({
   searchResults,
-  selectedId,
+  selectedIds,
   onClearSearch,
   onFocusSatellite,
 }: SearchResultsOverlayProps) {
@@ -38,7 +40,8 @@ export function SearchResultsOverlay({
         </div>
         <ul className="overflow-auto h-[calc(100%-3rem)]">
           {searchResults.map((sat) => {
-            const isSelected = selectedId === sat.id;
+            const isSelected = selectedIds.includes(sat.id);
+            const color = colorForId(sat.id, selectedIds);
 
             return (
               <li
@@ -51,12 +54,22 @@ export function SearchResultsOverlay({
                 }`}
               >
                 <div className="flex justify-between items-center">
-                  <span
-                    className={`text-sm truncate ${
-                      isSelected ? 'text-cyan-300 font-medium' : 'text-white'
-                    }`}
-                  >
-                    {sat.name}
+                  <span className="flex items-center gap-2 min-w-0">
+                    {isSelected && color && (
+                      <span
+                        className="h-2.5 w-2.5 rounded-full border border-white/30 shrink-0"
+                        style={{
+                          backgroundColor: `rgb(${color[0]}, ${color[1]}, ${color[2]})`,
+                        }}
+                      />
+                    )}
+                    <span
+                      className={`text-sm truncate ${
+                        isSelected ? 'text-cyan-300 font-medium' : 'text-white'
+                      }`}
+                    >
+                      {sat.name}
+                    </span>
                   </span>
                   <span
                     className={`text-xs ${

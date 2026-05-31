@@ -14,7 +14,6 @@ import {
   LineLayer,
   COORDINATE_SYSTEM,
 } from 'deck.gl';
-import { positionFromTLEAsync } from '@/lib/satelliteWorker';
 import {
   DensityResult,
   TleEntry,
@@ -24,7 +23,13 @@ import {
   OrbitPathSegment,
 } from '@/lib/types';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
-import { setSelectedSatelliteId } from '@/lib/visualization-slice';
+import {
+  selectSatellite,
+  removeSelectedSatellite,
+  setSimulationOffset,
+  resetSimulation,
+  toggleFollowingFocusedSatellite,
+} from '@/lib/visualization-slice';
 import {
   formatDistance,
   velocityFromTLE,
@@ -36,12 +41,8 @@ import { useSatellitePositions } from '@/hooks/useSatellitePositions';
 import { useInclinationBands } from '@/hooks/useInclinationBands';
 import { useCollisionDensity } from '@/hooks/useCollisionDensity';
 import { useSimulatedPositions } from '@/hooks/useSimulatedPositions';
-import {
-  setSimulationOffset,
-  resetSimulation,
-} from '@/lib/visualization-slice';
-import { useSelectedSatelliteTrack } from '@/hooks/useSelectedSatelliteTrack';
-import { useSelectedSatelliteOrbitPath } from '@/hooks/useSelectedSatelliteOrbitPath';
+import { useSelectedSatelliteTracks } from '@/hooks/useSelectedSatelliteTracks';
+import { useSelectedSatelliteOrbitPaths } from '@/hooks/useSelectedSatelliteOrbitPaths';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 import RightPanel from '@/app/globe/GlobeContent/components/panels/RightPanel';
 import LeftPanel from '@/app/globe/GlobeContent/components/panels/LeftPanel';
@@ -51,6 +52,8 @@ import { SatelliteDataLoading } from '@/app/globe/GlobeContent/components/Satell
 import { SearchResultsOverlay } from '@/app/globe/GlobeContent/components/SearchResultsOverlay';
 import Map2D from './Map2d';
 import { useSatelliteMetadata } from '@/hooks/useSatelliteMetadata';
+import { MAX_SELECTED, colorForId } from '@/lib/satellite-colors';
+import { X } from 'lucide-react';
 
 // ----------------------
 // Types
@@ -86,6 +89,33 @@ function getLoadErrorMessage(error: unknown): string {
   return 'Unable to load satellite data right now.';
 }
 
+function buildSelectedMeta(
+  selectedPosition: SatellitePoint,
+  meta: TleEntry,
+  simulationOffsetHours: number
+): SelectedMeta {
+  const targetDate = new Date(
+    Date.now() + simulationOffsetHours * 60 * 60 * 1000
+  );
+  const vel = velocityFromTLE(meta.l1, meta.l2, targetDate);
+  const orbitType = classifyOrbit(meta.inclination);
+
+  return {
+    id: selectedPosition.id,
+    name: meta.name ?? 'Unknown',
+    lat: selectedPosition.lat,
+    lon: selectedPosition.lon,
+    alt: selectedPosition.alt,
+    vel,
+    inclination: meta.inclination,
+    orbitType,
+    apogeeKm: meta.apogeeKm,
+    perigeeKm: meta.perigeeKm,
+    ecc: meta.ecc,
+    tleEpoch: meta.tleEpoch,
+  };
+}
+
 // ----------------------
 // Main Component
 // ----------------------
@@ -116,10 +146,13 @@ export default function SatelliteGlobe({
     showReentry,
   } = useAppSelector((state) => state.visualization);
 
-  const [selected, setSelected] = useState<SelectedMeta | null>(null);
-  const [followSelectedSatellite, setFollowSelectedSatellite] = useState(true);
-  const [showTrack, setShowTrack] = useState(true);
-  const [showOrbitPath, setShowOrbitPath] = useState(true);
+  const [showTrackById, setShowTrackById] = useState<Record<number, boolean>>(
+    {}
+  );
+  const [showOrbitPathById, setShowOrbitPathById] = useState<
+    Record<number, boolean>
+  >({});
+  const [selectionLimitReached, setSelectionLimitReached] = useState(false);
 
   // Custom hooks
   const {
@@ -160,26 +193,35 @@ export default function SatelliteGlobe({
       densityRadiusKm,
     });
 
-  const selectedId = useAppSelector((s) => s.visualization.selectedSatelliteId);
+  const { selectedSatelliteIds, focusedSatelliteId, followingSatelliteId } =
+    useAppSelector((s) => s.visualization);
 
-  const selectedPosition = useMemo(
-    () =>
-      selectedId
-        ? (activeSatellites.find((sat) => sat.id === selectedId) ?? null)
-        : null,
-    [activeSatellites, selectedId]
+  const activeSatelliteById = useMemo(
+    () => new Map(activeSatellites.map((sat) => [sat.id, sat])),
+    [activeSatellites]
   );
 
-  const { track } = useSelectedSatelliteTrack({
+  const selectedPositionsById = useMemo(() => {
+    const selectedMap = new Map<number, SatellitePoint>();
+    for (const id of selectedSatelliteIds) {
+      const sat = activeSatelliteById.get(id);
+      if (sat) selectedMap.set(id, sat);
+    }
+    return selectedMap;
+  }, [activeSatelliteById, selectedSatelliteIds]);
+
+  const { tracksById } = useSelectedSatelliteTracks({
     entries,
-    selectedId,
-    selectedPosition,
+    selectedIds: selectedSatelliteIds,
+    selectedPositionsById,
+    enabledById: showTrackById,
   });
 
-  const { orbitPath } = useSelectedSatelliteOrbitPath({
+  const { orbitPathsById } = useSelectedSatelliteOrbitPaths({
     entries,
-    selectedId,
-    selectedPosition,
+    selectedIds: selectedSatelliteIds,
+    selectedPositionsById,
+    enabledById: showOrbitPathById,
   });
 
   const { data: satelliteMetadata } = useSatelliteMetadata();
@@ -204,6 +246,30 @@ export default function SatelliteGlobe({
     () => new Map(entries.map((entry) => [entry.id, entry])),
     [entries]
   );
+
+  const selectedById = useMemo(() => {
+    const next: Record<number, SelectedMeta> = {};
+    for (const satId of selectedSatelliteIds) {
+      const selectedPosition = selectedPositionsById.get(satId);
+      const meta = entryById.get(satId);
+      if (!selectedPosition || !meta) continue;
+      next[satId] = buildSelectedMeta(
+        selectedPosition,
+        meta,
+        simulationOffsetHours
+      );
+    }
+    return next;
+  }, [
+    selectedSatelliteIds,
+    selectedPositionsById,
+    entryById,
+    simulationOffsetHours,
+  ]);
+
+  const focusedSelected = focusedSatelliteId
+    ? (selectedById[focusedSatelliteId] ?? null)
+    : null;
 
   const searchResults = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -264,54 +330,24 @@ export default function SatelliteGlobe({
     reentryRisksRef.current = reentryRisks;
   }, [reentryRisks]);
 
-  const selectedMetadata = selected
-    ? (satelliteMetadata?.[String(selected.id)] ?? null)
+  const selectedMetadata = focusedSelected
+    ? (satelliteMetadata?.[String(focusedSelected.id)] ?? null)
     : null;
 
   useEffect(() => {
-    if (!selectedId || !selectedPosition) return;
+    if (!followingSatelliteId) return;
 
-    const meta = entries.find((t: TleEntry) => t.id === selectedId);
-    if (!meta) return;
+    const followPosition = selectedPositionsById.get(followingSatelliteId);
+    if (!followPosition) return;
 
-    const targetDate = new Date(
-      Date.now() + simulationOffsetHours * 60 * 60 * 1000
-    );
-    const vel = velocityFromTLE(meta.l1, meta.l2, targetDate);
-    const orbitType = classifyOrbit(meta.inclination);
-
-    setSelected({
-      id: selectedPosition.id,
-      name: meta.name ?? 'Unknown',
-      lat: selectedPosition.lat,
-      lon: selectedPosition.lon,
-      alt: selectedPosition.alt,
-      vel,
-      inclination: meta.inclination,
-      orbitType,
-      apogeeKm: meta.apogeeKm,
-      perigeeKm: meta.perigeeKm,
-      ecc: meta.ecc,
-      tleEpoch: meta.tleEpoch,
+    mapRef.current?.flyTo({
+      longitude: followPosition.lon,
+      latitude: followPosition.lat,
+      durationMs: 900,
+      pitch: viewMode === '3D' ? 30 : 0,
+      bearing: 0,
     });
-
-    if (followSelectedSatellite) {
-      mapRef.current?.flyTo({
-        longitude: selectedPosition.lon,
-        latitude: selectedPosition.lat,
-        durationMs: 900,
-        pitch: viewMode === '3D' ? 30 : 0,
-        bearing: 0,
-      });
-    }
-  }, [
-    entries,
-    followSelectedSatellite,
-    selectedId,
-    selectedPosition,
-    simulationOffsetHours,
-    viewMode,
-  ]);
+  }, [selectedPositionsById, followingSatelliteId, viewMode]);
 
   // split a path into segments that don't cross the antimeridian
   function splitBandAtAntimeridian(
@@ -423,23 +459,23 @@ export default function SatelliteGlobe({
 
   // Create path layers for past and future track segments
   const trackLayers = useMemo(() => {
-    if (!track) return [];
-    if (!showTrack) return [];
     const modePrefix = viewMode.toLowerCase();
+    const layersOut: PathLayer<TrackSegment>[] = [];
 
     const makePath = (
+      satId: number,
       segments: TrackSegment[],
-      color: [number, number, number],
+      color: [number, number, number, number],
       idSuffix: string
     ) =>
       segments.map(
         (seg, i) =>
           new PathLayer<TrackSegment>({
-            id: `${modePrefix}-sat-track-${idSuffix}-${i}`,
+            id: `${modePrefix}-sat-track-${satId}-${idSuffix}-${i}`,
             data: [seg],
             getPath: (d) => d.path,
             getColor: () =>
-              [...color, Math.round(seg.opacity * 100)] as [
+              [color[0], color[1], color[2], Math.round(seg.opacity * 100)] as [
                 number,
                 number,
                 number,
@@ -456,38 +492,101 @@ export default function SatelliteGlobe({
           })
       );
 
-    return [
-      ...makePath(track.past, [115, 147, 179], 'past'), // teal
-      ...makePath(track.future, [4, 55, 242], 'future'), // blue
-    ];
-  }, [track, viewMode, showTrack]);
+    for (const satId of selectedSatelliteIds) {
+      const track = tracksById[satId];
+      if (!track || !showTrackById[satId]) continue;
+      const color = colorForId(satId, selectedSatelliteIds);
+      if (!color) continue;
+      const rgba: [number, number, number, number] = [
+        color[0],
+        color[1],
+        color[2],
+        200,
+      ];
+      layersOut.push(...makePath(satId, track.past, rgba, 'past'));
+      layersOut.push(...makePath(satId, track.future, rgba, 'future'));
+    }
+
+    return layersOut;
+  }, [tracksById, viewMode, showTrackById, selectedSatelliteIds]);
 
   const orbitPathLayers = useMemo(() => {
     if (viewMode !== '3D') return [];
-    if (!showOrbitPath || !orbitPath) return [];
+    const layersOut: PathLayer<OrbitPathSegment>[] = [];
+    for (const satId of selectedSatelliteIds) {
+      if (!showOrbitPathById[satId]) continue;
+      const orbitPath = orbitPathsById[satId];
+      if (!orbitPath) continue;
+      const color = colorForId(satId, selectedSatelliteIds);
+      if (!color) continue;
+      layersOut.push(
+        ...orbitPath.segments.map(
+          (segment, i) =>
+            new PathLayer<OrbitPathSegment>({
+              id: `3d-selected-orbit-path-${satId}-${i}`,
+              data: [segment],
+              getPath: (d) =>
+                d.path.map(
+                  ([lon, lat, altKm]) =>
+                    [lon, lat, altKm * 300] as [number, number, number]
+                ),
+              getColor: [color[0], color[1], color[2], 190],
+              getWidth: 2.5,
+              widthMinPixels: 1.5,
+              widthMaxPixels: 3,
+              widthUnits: 'pixels',
+              opacity: 0.75,
+              pickable: false,
+              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+              wrapLongitude: true,
+            })
+        )
+      );
+    }
+    return layersOut;
+  }, [orbitPathsById, selectedSatelliteIds, showOrbitPathById, viewMode]);
 
-    return orbitPath.segments.map(
-      (segment, i) =>
-        new PathLayer<OrbitPathSegment>({
-          id: `3d-selected-orbit-path-${i}`,
-          data: [segment],
-          getPath: (d) =>
-            d.path.map(
-              ([lon, lat, altKm]) =>
-                [lon, lat, altKm * 300] as [number, number, number]
-            ),
-          getColor: [0, 210, 255, 190],
-          getWidth: 2.5,
-          widthMinPixels: 1.5,
-          widthMaxPixels: 3,
-          widthUnits: 'pixels',
-          opacity: 0.75,
-          pickable: false,
-          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-          wrapLongitude: true,
-        })
+  const enableDefaultSelectedLayers = useCallback((satId: number) => {
+    setShowTrackById((prev) =>
+      prev[satId] === undefined ? { ...prev, [satId]: true } : prev
     );
-  }, [orbitPath, showOrbitPath, viewMode]);
+    setShowOrbitPathById((prev) =>
+      prev[satId] === undefined ? { ...prev, [satId]: true } : prev
+    );
+  }, []);
+
+  const selectSatelliteById = useCallback(
+    (satId: number) => {
+      const isAlreadySelected = selectedSatelliteIds.includes(satId);
+      if (!isAlreadySelected && selectedSatelliteIds.length >= MAX_SELECTED) {
+        setSelectionLimitReached(true);
+        return false;
+      }
+
+      if (!activeSatelliteById.has(satId) || !entryById.has(satId)) {
+        return false;
+      }
+
+      setSelectionLimitReached(false);
+      dispatch(selectSatellite(satId));
+      enableDefaultSelectedLayers(satId);
+      return true;
+    },
+    [
+      activeSatelliteById,
+      dispatch,
+      enableDefaultSelectedLayers,
+      entryById,
+      selectedSatelliteIds,
+    ]
+  );
+
+  const focusSatellite = useCallback(
+    (sat: TleEntry) => {
+      selectSatelliteById(sat.id);
+    },
+    [selectSatelliteById]
+  );
 
   const layers = useMemo(
     () => [
@@ -515,9 +614,10 @@ export default function SatelliteGlobe({
         data: filteredSatellites,
         getPosition: (d) => [d.lon, d.lat, viewMode === '2D' ? 0 : d.alt * 300],
         getFillColor: (d): [number, number, number, number] => {
-          if (d.id === selected?.id) {
-            if (showDensity) return [240, 255, 255, 255];
-            return [0, 150, 255, 255];
+          const selectedColor = colorForId(d.id, selectedSatelliteIds);
+          const isSelected = selectedColor !== null;
+          if (isSelected && selectedColor) {
+            return [selectedColor[0], selectedColor[1], selectedColor[2], 255];
           }
           if (showBands) {
             // Highlight satellites in current band
@@ -548,7 +648,7 @@ export default function SatelliteGlobe({
         getRadius: (d) => {
           if (viewMode === '2D') {
             // pixel radii — flat, consistent across all latitudes
-            if (d.id === selected?.id) return d.isDebris ? 4 : 6;
+            if (selectedSatelliteIds.includes(d.id)) return d.isDebris ? 4 : 6;
             if (showReentry && reentryRisksRef.current.has(d.id)) return 2.5;
             const base = d.isDebris ? 2 : 2.5;
             if (showDensity) {
@@ -557,7 +657,7 @@ export default function SatelliteGlobe({
             }
             return base;
           }
-          if (d.id === selected?.id) {
+          if (selectedSatelliteIds.includes(d.id)) {
             return d.isDebris ? 30000 : 60000; // Larger radius for selected
           }
           if (showReentry && reentryRisksRef.current.has(d.id)) {
@@ -582,47 +682,30 @@ export default function SatelliteGlobe({
         onClick: (info) => {
           const pt = info.object as SatellitePoint | null;
           if (!pt) return;
-          const meta = entries.find((t: TleEntry) => t.id === pt.id);
-          if (!meta) return;
-
-          const targetDate = new Date(
-            Date.now() + simulationOffsetHours * 60 * 60 * 1000
-          );
-
-          const vel = velocityFromTLE(meta.l1, meta.l2, targetDate);
-          const orbitType = classifyOrbit(meta.inclination);
-
-          const selectedMeta = {
-            id: pt.id,
-            name: meta.name ?? 'Unknown',
-            lat: pt.lat,
-            lon: pt.lon,
-            alt: pt.alt,
-            vel,
-            inclination: meta.inclination,
-            orbitType,
-            apogeeKm: meta.apogeeKm,
-            perigeeKm: meta.perigeeKm,
-            ecc: meta.ecc,
-            tleEpoch: meta.tleEpoch,
-          };
-          setSelected(selectedMeta);
-          dispatch(setSelectedSatelliteId(pt.id));
+          selectSatelliteById(pt.id);
         },
       }),
       // Glow effect layer for selected satellite
-      ...(selected
+      ...(focusedSelected
         ? [
             new ScatterplotLayer<SatellitePoint>({
               id: `${viewMode.toLowerCase()}-selected-glow-layer`,
-              data: filteredSatellites.filter((s) => s.id === selected.id),
+              data: filteredSatellites.filter(
+                (s) => s.id === focusedSelected.id
+              ),
               getPosition: (d) => [
                 d.lon,
                 d.lat,
                 viewMode === '2D' ? 0 : d.alt * 300,
               ],
-              getFillColor: (): [number, number, number, number] =>
-                showDensity ? [240, 255, 255, 150] : [0, 200, 255, 100],
+              getFillColor: (): [number, number, number, number] => {
+                const color = colorForId(
+                  focusedSelected.id,
+                  selectedSatelliteIds
+                );
+                if (!color) return [0, 200, 255, 100];
+                return [color[0], color[1], color[2], showDensity ? 150 : 110];
+              },
               radiusUnits: viewMode === '2D' ? 'pixels' : 'meters',
               getRadius: (d) => {
                 if (viewMode === '2D') {
@@ -642,88 +725,55 @@ export default function SatelliteGlobe({
       bandTrack,
       bandSatelliteIds,
       showDensity,
-      selected,
+      focusedSelected,
+      selectedSatelliteIds,
       densityLayers,
-      dispatch,
-      entries,
-      simulationOffsetHours,
       getSatelliteDensity,
       showReentry,
       trackLayers,
       orbitPathLayers,
       viewMode,
+      selectSatelliteById,
     ]
   );
 
-  const focusSatellite = useCallback(
-    async (sat: TleEntry) => {
-      try {
-        const targetDate = new Date(
-          Date.now() + simulationOffsetHours * 60 * 60 * 1000
-        );
-
-        const p = await positionFromTLEAsync(sat.l1, sat.l2, targetDate);
-
-        if (!p) {
-          console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
-          return;
-        }
-        const pp = p as { lat: number; lon: number; altKm: number };
-        if (pp.lat === 0 && pp.lon === 0 && pp.altKm === 0) {
-          console.warn(`Cannot focus on satellite ${sat.id}: invalid position`);
-          return;
-        }
-
-        mapRef.current?.flyTo({
-          longitude: pp.lon,
-          latitude: pp.lat,
-          durationMs: 1400,
-          pitch: 30,
-          bearing: 0,
-        });
-
-        const vel = velocityFromTLE(sat.l1, sat.l2, targetDate);
-        const orbitType = classifyOrbit(sat.inclination);
-
-        const selectedMeta = {
-          id: sat.id,
-          name: sat.name ?? 'Unknown',
-          lat: pp.lat,
-          lon: pp.lon,
-          alt: pp.altKm,
-          vel,
-          inclination: sat.inclination,
-          orbitType,
-          apogeeKm: sat.apogeeKm,
-          perigeeKm: sat.perigeeKm,
-          ecc: sat.ecc,
-          tleEpoch: sat.tleEpoch,
-        };
-        setSelected(selectedMeta);
-        dispatch(setSelectedSatelliteId(sat.id));
-      } catch (error) {
-        console.error(`Error focusing on satellite ${sat.id}:`, error);
-      }
+  const handleDeselectSatellite = useCallback(
+    (satId: number) => {
+      dispatch(removeSelectedSatellite(satId));
+      setShowTrackById((prev) => {
+        const next = { ...prev };
+        delete next[satId];
+        return next;
+      });
+      setShowOrbitPathById((prev) => {
+        const next = { ...prev };
+        delete next[satId];
+        return next;
+      });
+      setSelectionLimitReached(false);
     },
-    [dispatch, simulationOffsetHours]
+    [dispatch]
   );
 
-  const handleDeselectSatellite = useCallback(() => {
-    setSelected(null);
-    dispatch(setSelectedSatelliteId(null));
+  const handleToggleFollowSelected = useCallback(() => {
+    dispatch(toggleFollowingFocusedSatellite());
   }, [dispatch]);
 
-  const handleToggleFollowSelected = useCallback(() => {
-    setFollowSelectedSatellite((enabled) => !enabled);
-  }, []);
-
   const handleToggleTrack = useCallback(() => {
-    setShowTrack((show) => !show);
-  }, []);
+    if (!focusedSatelliteId) return;
+    setShowTrackById((prev) => ({
+      ...prev,
+      [focusedSatelliteId]: !prev[focusedSatelliteId],
+    }));
+  }, [focusedSatelliteId]);
 
   const handleToggleOrbitPath = useCallback(() => {
-    setShowOrbitPath((show) => !show);
-  }, []);
+    if (!focusedSatelliteId) return;
+    setShowOrbitPathById((prev) => ({
+      ...prev,
+      [focusedSatelliteId]: !prev[focusedSatelliteId],
+    }));
+  }, [focusedSatelliteId]);
 
   const handleCommitOffset = useCallback(
     (hours: number) => dispatch(setSimulationOffset(hours)),
@@ -734,11 +784,11 @@ export default function SatelliteGlobe({
     [dispatch]
   );
 
-  const selectedReentryRisk = selected
+  const selectedReentryRisk = focusedSelected
     ? (() => {
-        const fromMap = reentryRisks.get(selected.id);
+        const fromMap = reentryRisks.get(focusedSelected.id);
         if (fromMap) return fromMap;
-        const entry = entries.find((e) => e.id === selected.id);
+        const entry = entries.find((e) => e.id === focusedSelected.id);
         return entry ? getReentryRisk(entry) : null;
       })()
     : null;
@@ -774,11 +824,65 @@ export default function SatelliteGlobe({
 
       <SearchResultsOverlay
         searchResults={searchResults}
-        selectedId={selected?.id}
+        selectedIds={selectedSatelliteIds}
         onClearSearch={onClearSearch}
-        onFocusSatellite={(sat) => void focusSatellite(sat)}
+        onFocusSatellite={focusSatellite}
       />
 
+      {/* Selected Satellites Tags - Top Center */}
+      <div className="absolute top-2 left-1/2 transform -translate-x-1/2 flex flex-col items-center gap-2">
+        {selectedSatelliteIds.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-1.5 px-2">
+            {selectedSatelliteIds.map((satId) => {
+              const sat = selectedById[satId];
+              if (!sat) return null;
+              const isFocused = satId === focusedSatelliteId;
+              const color = colorForId(satId, selectedSatelliteIds);
+              const selectedEntry = entries.find((e) => e.id === satId);
+              return (
+                <div
+                  key={satId}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium backdrop-blur-md transition-all duration-150 ${
+                    isFocused
+                      ? 'bg-cyan-500/20 border border-cyan-400/50 text-cyan-100'
+                      : 'bg-black/10 border border-white/20 text-gray-200 hover:bg-white/10'
+                  }`}
+                >
+                  {color && (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full border border-white/40 shrink-0"
+                      style={{
+                        backgroundColor: `rgb(${color[0]}, ${color[1]}, ${color[2]})`,
+                      }}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => selectedEntry && focusSatellite(selectedEntry)}
+                    className="cursor-pointer hover:brightness-110 truncate max-w-[80px]"
+                    title={sat.name}
+                  >
+                    {sat.name}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeselectSatellite(satId)}
+                    title="Remove satellite"
+                    className="text-gray-400 hover:text-red-400 transition-colors duration-150 cursor-pointer ml-0.5"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {selectionLimitReached && (
+          <div className="text-[10px] text-amber-300 border border-amber-500/50 bg-amber-500/15 px-2.5 py-1 rounded-full font-medium">
+            Selection limit reached (max 6).
+          </div>
+        )}
+      </div>
       <ForecastOverlay
         loading={loading}
         onCommitOffset={handleCommitOffset}
@@ -786,18 +890,19 @@ export default function SatelliteGlobe({
       />
 
       {/* Left Panel - Selected Satellite  */}
+
       <LeftPanel
-        selected={selected}
-        onClose={handleDeselectSatellite}
+        selected={focusedSelected}
         reentryRisk={selectedReentryRisk}
         metadata={selectedMetadata}
-        isFollowingSelected={followSelectedSatellite}
+        isFollowingSelected={followingSatelliteId === focusedSatelliteId}
         onToggleFollow={handleToggleFollowSelected}
-        showTrack={showTrack}
+        showTrack={Boolean(showTrackById[focusedSatelliteId ?? -1])}
         onToggleTrack={handleToggleTrack}
-        showOrbitPath={showOrbitPath}
+        showOrbitPath={Boolean(showOrbitPathById[focusedSatelliteId ?? -1])}
         onToggleOrbitPath={handleToggleOrbitPath}
       />
+
       {/* Right Panel */}
       <RightPanel
         stats={stats}

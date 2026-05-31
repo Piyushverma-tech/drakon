@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { MAX_SELECTED } from './satellite-colors';
 
 export type VisualizationState = {
   // Filter state
@@ -14,8 +15,10 @@ export type VisualizationState = {
   showDensity: boolean;
   densityRadiusKm: number;
 
-  // Selected satellite
-  selectedSatelliteId: number | null;
+  // Multi-selected satellites
+  selectedSatelliteIds: number[];
+  focusedSatelliteId: number | null;
+  followingSatelliteId: number | null;
 
   simulationOffsetHours: number; // 0 = live
   isSimulating: boolean; // derived: offset > 0
@@ -33,7 +36,9 @@ const initialState: VisualizationState = {
   bandTolerance: 2,
   showDensity: false,
   densityRadiusKm: 75,
-  selectedSatelliteId: null,
+  selectedSatelliteIds: [],
+  focusedSatelliteId: null,
+  followingSatelliteId: null,
   simulationOffsetHours: 0,
   isSimulating: false,
   simLoading: false,
@@ -84,8 +89,33 @@ const visualizationSlice = createSlice({
     setDensityRadiusKm(state, action: PayloadAction<number>) {
       state.densityRadiusKm = action.payload;
     },
-    setSelectedSatelliteId(state, action: PayloadAction<number | null>) {
-      state.selectedSatelliteId = action.payload;
+    selectSatellite(state, action: PayloadAction<number>) {
+      const satId = action.payload;
+      const existingIdx = state.selectedSatelliteIds.indexOf(satId);
+      if (existingIdx === -1) {
+        if (state.selectedSatelliteIds.length >= MAX_SELECTED) return;
+        state.selectedSatelliteIds.push(satId);
+      }
+      state.focusedSatelliteId = satId;
+      state.followingSatelliteId = satId;
+    },
+    removeSelectedSatellite(state, action: PayloadAction<number>) {
+      const satId = action.payload;
+      const nextIds = state.selectedSatelliteIds.filter((id) => id !== satId);
+      state.selectedSatelliteIds = nextIds;
+
+      if (state.focusedSatelliteId === satId) {
+        state.focusedSatelliteId = nextIds.at(-1) ?? null;
+      }
+      if (state.followingSatelliteId === satId) {
+        state.followingSatelliteId = null;
+      }
+    },
+    toggleFollowingFocusedSatellite(state) {
+      const focusedId = state.focusedSatelliteId;
+      if (!focusedId) return;
+      state.followingSatelliteId =
+        state.followingSatelliteId === focusedId ? null : focusedId;
     },
     // Simulation state
     setSimulationOffset(state, action: PayloadAction<number>) {
@@ -122,7 +152,9 @@ export const {
   setBandTolerance,
   setShowDensity,
   setDensityRadiusKm,
-  setSelectedSatelliteId,
+  selectSatellite,
+  removeSelectedSatellite,
+  toggleFollowingFocusedSatellite,
   setSimulationOffset,
   resetSimulation,
   setSimLoading,

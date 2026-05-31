@@ -43,7 +43,7 @@ function GlobeContent() {
         {/* CENTER (Search + Toggle together) */}
         <div className="flex items-center gap-4 ml-[8rem]">
           {/* Search */}
-          <div className="relative w-[580px]">
+          <div className="relative w-[560px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <input
               type="search"

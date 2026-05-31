@@ -1,4 +1,5 @@
 'use client';
+//For single satellite track generation - unused for now, keeping it for reference and potential future use
 import { useState, useEffect, useRef } from 'react';
 import { useAppSelector } from '@/lib/store';
 import { generateSatelliteTrackAsync } from '@/lib/satelliteWorker';
