@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { LayoutGrid, Radar, Move3D, ChartPie, Settings } from 'lucide-react';
+import Image from 'next/image';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutGrid },
@@ -19,7 +20,7 @@ export function Sidebar() {
     <div className="flex flex-col min-h-screen">
       <div className="h-14 px-4 flex items-center border-b/50">
         <Link href="/dashboard" className="font-semibold tracking-tight">
-          DRAKON
+          <Image alt="logo" src="/drakon.png" width={160} height={160} />
         </Link>
       </div>
 

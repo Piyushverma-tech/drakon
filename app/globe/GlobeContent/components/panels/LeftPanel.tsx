@@ -8,7 +8,7 @@ import {
   Orbit,
 } from 'lucide-react';
 import { ReentryRisk, SatelliteMetadata } from '@/lib/types';
-import { SelectedMeta } from '../../GlobeContainer';
+import { SelectedMeta } from '../../globe-model';
 
 type Props = {
   selected: SelectedMeta | null;
