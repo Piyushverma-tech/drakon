@@ -182,19 +182,6 @@ const LeftPanel = memo(function LeftPanel({
           </button>
           <button
             type="button"
-            onClick={onToggleTrack}
-            title={showTrack ? 'Hide Track' : 'Show Track'}
-            aria-pressed={showTrack}
-            className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer ${
-              showTrack
-                ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30'
-                : 'border-white/20 bg-white/5 text-gray-400 hover:border-cyan-400/30 hover:text-cyan-300'
-            }`}
-          >
-            <TrainTrack size={16} />
-          </button>
-          <button
-            type="button"
             onClick={onToggleOrbitPath}
             title={showOrbitPath ? 'Hide 3D Orbit' : 'Show 3D Orbit'}
             aria-pressed={showOrbitPath}
@@ -205,6 +192,19 @@ const LeftPanel = memo(function LeftPanel({
             }`}
           >
             <Orbit size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleTrack}
+            title={showTrack ? 'Hide Track' : 'Show Track'}
+            aria-pressed={showTrack}
+            className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer ${
+              showTrack
+                ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30'
+                : 'border-white/20 bg-white/5 text-gray-400 hover:border-cyan-400/30 hover:text-cyan-300'
+            }`}
+          >
+            <TrainTrack size={16} />
           </button>
         </div>
         {/* NORAD badge — always visible */}

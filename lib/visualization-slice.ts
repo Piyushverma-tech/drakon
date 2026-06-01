@@ -96,17 +96,30 @@ const visualizationSlice = createSlice({
         if (state.selectedSatelliteIds.length >= MAX_SELECTED) return;
         state.selectedSatelliteIds.push(satId);
       }
+      if (state.followingSatelliteId !== satId) {
+        state.followingSatelliteId = null;
+      }
       state.focusedSatelliteId = satId;
-      state.followingSatelliteId = satId;
+    },
+    focusSelectedSatellite(state, action: PayloadAction<number>) {
+      const satId = action.payload;
+      if (!state.selectedSatelliteIds.includes(satId)) return;
+      if (state.followingSatelliteId !== satId) {
+        state.followingSatelliteId = null;
+      }
+      state.focusedSatelliteId = satId;
     },
     removeSelectedSatellite(state, action: PayloadAction<number>) {
       const satId = action.payload;
       const nextIds = state.selectedSatelliteIds.filter((id) => id !== satId);
-      state.selectedSatelliteIds = nextIds;
+      const nextFocus =
+        state.focusedSatelliteId === satId
+          ? (nextIds.at(-1) ?? null)
+          : state.focusedSatelliteId;
 
-      if (state.focusedSatelliteId === satId) {
-        state.focusedSatelliteId = nextIds.at(-1) ?? null;
-      }
+      state.selectedSatelliteIds = nextIds;
+      state.focusedSatelliteId = nextFocus;
+
       if (state.followingSatelliteId === satId) {
         state.followingSatelliteId = null;
       }
@@ -153,6 +166,7 @@ export const {
   setShowDensity,
   setDensityRadiusKm,
   selectSatellite,
+  focusSelectedSatellite,
   removeSelectedSatellite,
   toggleFollowingFocusedSatellite,
   setSimulationOffset,

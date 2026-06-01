@@ -25,6 +25,7 @@ import {
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import {
   selectSatellite,
+  focusSelectedSatellite,
   removeSelectedSatellite,
   setSimulationOffset,
   resetSimulation,
@@ -75,6 +76,11 @@ export type SelectedMeta = {
 
 type CandidatePairDatum = DensityResult['candidatePairs'][number];
 const EMPTY_ENTRIES: TleEntry[] = [];
+
+type SelectedTagMeta = {
+  id: number;
+  name: string;
+};
 
 type Props = {
   searchQuery?: string;
@@ -247,29 +253,32 @@ export default function SatelliteGlobe({
     [entries]
   );
 
-  const selectedById = useMemo(() => {
-    const next: Record<number, SelectedMeta> = {};
+  const selectedTagsById = useMemo(() => {
+    const next: Record<number, SelectedTagMeta> = {};
     for (const satId of selectedSatelliteIds) {
-      const selectedPosition = selectedPositionsById.get(satId);
+      const position = selectedPositionsById.get(satId);
       const meta = entryById.get(satId);
-      if (!selectedPosition || !meta) continue;
-      next[satId] = buildSelectedMeta(
-        selectedPosition,
-        meta,
-        simulationOffsetHours
-      );
+      if (!position && !meta) continue;
+      next[satId] = {
+        id: satId,
+        name: position?.name ?? meta?.name ?? 'Unknown',
+      };
     }
     return next;
+  }, [selectedSatelliteIds, selectedPositionsById, entryById]);
+
+  const focusedSelected = useMemo(() => {
+    if (!focusedSatelliteId) return null;
+    const selectedPosition = selectedPositionsById.get(focusedSatelliteId);
+    const meta = entryById.get(focusedSatelliteId);
+    if (!selectedPosition || !meta) return null;
+    return buildSelectedMeta(selectedPosition, meta, simulationOffsetHours);
   }, [
-    selectedSatelliteIds,
+    focusedSatelliteId,
     selectedPositionsById,
     entryById,
     simulationOffsetHours,
   ]);
-
-  const focusedSelected = focusedSatelliteId
-    ? (selectedById[focusedSatelliteId] ?? null)
-    : null;
 
   const searchResults = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -555,6 +564,19 @@ export default function SatelliteGlobe({
     );
   }, []);
 
+  const flyToSatellite = useCallback(
+    (position: SatellitePoint) => {
+      mapRef.current?.flyTo({
+        longitude: position.lon,
+        latitude: position.lat,
+        durationMs: 900,
+        pitch: viewMode === '3D' ? 30 : 0,
+        bearing: 0,
+      });
+    },
+    [viewMode]
+  );
+
   const selectSatelliteById = useCallback(
     (satId: number) => {
       const isAlreadySelected = selectedSatelliteIds.includes(satId);
@@ -563,13 +585,20 @@ export default function SatelliteGlobe({
         return false;
       }
 
-      if (!activeSatelliteById.has(satId) || !entryById.has(satId)) {
+      const position = activeSatelliteById.get(satId);
+      if (!position || !entryById.has(satId)) {
         return false;
       }
 
       setSelectionLimitReached(false);
-      dispatch(selectSatellite(satId));
-      enableDefaultSelectedLayers(satId);
+      flyToSatellite(position);
+
+      if (isAlreadySelected) {
+        dispatch(focusSelectedSatellite(satId));
+      } else {
+        dispatch(selectSatellite(satId));
+        enableDefaultSelectedLayers(satId);
+      }
       return true;
     },
     [
@@ -577,6 +606,7 @@ export default function SatelliteGlobe({
       dispatch,
       enableDefaultSelectedLayers,
       entryById,
+      flyToSatellite,
       selectedSatelliteIds,
     ]
   );
@@ -834,11 +864,11 @@ export default function SatelliteGlobe({
         {selectedSatelliteIds.length > 0 && (
           <div className="flex flex-wrap justify-center gap-1.5 px-2">
             {selectedSatelliteIds.map((satId) => {
-              const sat = selectedById[satId];
-              if (!sat) return null;
+              const tag = selectedTagsById[satId];
+              if (!tag) return null;
               const isFocused = satId === focusedSatelliteId;
               const color = colorForId(satId, selectedSatelliteIds);
-              const selectedEntry = entries.find((e) => e.id === satId);
+              const selectedEntry = entryById.get(satId);
               return (
                 <div
                   key={satId}
@@ -858,11 +888,13 @@ export default function SatelliteGlobe({
                   )}
                   <button
                     type="button"
-                    onClick={() => selectedEntry && focusSatellite(selectedEntry)}
+                    onClick={() =>
+                      selectedEntry && focusSatellite(selectedEntry)
+                    }
                     className="cursor-pointer hover:brightness-110 truncate max-w-[80px]"
-                    title={sat.name}
+                    title={tag.name}
                   >
-                    {sat.name}
+                    {tag.name}
                   </button>
                   <button
                     type="button"
