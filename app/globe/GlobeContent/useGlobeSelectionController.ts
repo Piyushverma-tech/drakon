@@ -1,6 +1,6 @@
 'use client';
 
-import { RefObject, useCallback, useEffect, useState } from 'react';
+import { RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { GlobeHandle } from './Globe3D';
 import { SatellitePoint, TleEntry } from '@/lib/types';
 import { useAppDispatch } from '@/lib/store';
@@ -71,6 +71,16 @@ export function useGlobeSelectionController({
     );
   }, []);
 
+  const activeSatelliteByIdRef = useRef(activeSatelliteById);
+  useEffect(() => {
+    activeSatelliteByIdRef.current = activeSatelliteById;
+  }, [activeSatelliteById]);
+
+  const entryByIdRef = useRef(entryById);
+  useEffect(() => {
+    entryByIdRef.current = entryById;
+  }, [entryById]);
+
   const selectSatelliteById = useCallback(
     (satId: number) => {
       const isAlreadySelected = selectedSatelliteIds.includes(satId);
@@ -79,8 +89,8 @@ export function useGlobeSelectionController({
         return false;
       }
 
-      const position = activeSatelliteById.get(satId);
-      if (!position || !entryById.has(satId)) {
+      const position = activeSatelliteByIdRef.current.get(satId);
+      if (!position || !entryByIdRef.current.has(satId)) {
         return false;
       }
 
@@ -97,10 +107,8 @@ export function useGlobeSelectionController({
       return true;
     },
     [
-      activeSatelliteById,
       dispatch,
       enableDefaultSelectedLayers,
-      entryById,
       flyToSatellite,
       selectedSatelliteIds,
     ]
