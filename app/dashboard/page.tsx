@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import React from 'react';
 import UnderDevelopment from '@/app/dashboard/components/UnderDevelopment';
-import GlobeContainer from '../globe/GlobeContent/GlobeContainer';
+import { Globe2Icon } from 'lucide-react';
 
 export default function DashboardPage() {
-  const inDevelopment = process.env.InDevelopment === 'true';
+  const inDevelopment = process.env.InDevelopment === 'false';
   if (inDevelopment) {
     return <UnderDevelopment />;
   }
@@ -19,7 +19,7 @@ export default function DashboardPage() {
       <div className="border md:row-span-2 rounded-xl p-2 bg-black">
         <h2 className="text-lg font-semibold mb-2 w-full border-b-2">Globe</h2>
         <div className="h-[280px] md:h-[400px] rounded-lg overflow-hidden">
-          <GlobeContainer />
+          <Globe2Icon />
         </div>
         <div className="mt-2 text-right text-xs">
           <Link

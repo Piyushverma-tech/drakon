@@ -1,0 +1,157 @@
+{
+  "id": "2faf82ac-439b-41fb-a672-8ab82e11e9ba",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.tle_history": {
+      "name": "tle_history",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "norad_id": {
+          "name": "norad_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "epoch": {
+          "name": "epoch",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bstar": {
+          "name": "bstar",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mean_motion": {
+          "name": "mean_motion",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mean_motion_dot": {
+          "name": "mean_motion_dot",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "eccentricity": {
+          "name": "eccentricity",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "inclination": {
+          "name": "inclination",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "perigee_km": {
+          "name": "perigee_km",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "apogee_km": {
+          "name": "apogee_km",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tle_line1": {
+          "name": "tle_line1",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tle_line2": {
+          "name": "tle_line2",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ingested_at": {
+          "name": "ingested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_tle_history_norad_epoch": {
+          "name": "idx_tle_history_norad_epoch",
+          "columns": [
+            {
+              "expression": "norad_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "epoch",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_tle_history_ingested_at": {
+          "name": "idx_tle_history_ingested_at",
+          "columns": [
+            {
+              "expression": "ingested_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "tle_history_norad_epoch_unique": {
+          "name": "tle_history_norad_epoch_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "norad_id",
+            "epoch"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
