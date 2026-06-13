@@ -12,7 +12,6 @@ import {
 import {
   formatDistance,
   getOrbitType,
-  getReentryRisk,
 } from '@/lib/satelliteHelpers';
 import { useSatellitePositions } from '@/hooks/useSatellitePositions';
 import { useInclinationBands } from '@/hooks/useInclinationBands';
@@ -21,6 +20,7 @@ import { useSimulatedPositions } from '@/hooks/useSimulatedPositions';
 import { useSelectedSatelliteTracks } from '@/hooks/useSelectedSatelliteTracks';
 import { useSelectedSatelliteOrbitPaths } from '@/hooks/useSelectedSatelliteOrbitPaths';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
+import { useObjectTrendsQuery } from '@/hooks/useObjectTrendsQuery';
 import { useSatelliteMetadata } from '@/hooks/useSatelliteMetadata';
 import RightPanel from '@/app/globe/GlobeContent/components/panels/RightPanel';
 import LeftPanel from '@/app/globe/GlobeContent/components/panels/LeftPanel';
@@ -37,6 +37,7 @@ import {
 } from './globe-model';
 import { useGlobeLayers } from './useGlobeLayers';
 import { useGlobeSelectionController } from './useGlobeSelectionController';
+import { resolveReentryRisk } from '@/lib/objectTrendRisk';
 
 const EMPTY_ENTRIES: TleEntry[] = [];
 
@@ -182,6 +183,8 @@ export default function SatelliteGlobe({
     });
 
   const { data: satelliteMetadata } = useSatelliteMetadata();
+  const { data: objectTrendsById, isFetching: trendsFetching } =
+    useObjectTrendsQuery(showReentry);
 
   const selectedTagsById = useMemo(
     () => buildSelectedTagsById(selectedSatelliteIds, selectedPositionsById, entryById),
@@ -230,11 +233,14 @@ export default function SatelliteGlobe({
     if (!showReentry) return new Map<number, ReentryRisk>();
     const map = new Map<number, ReentryRisk>();
     for (const entry of entries) {
-      const risk = getReentryRisk(entry);
+      const risk = resolveReentryRisk(
+        entry,
+        objectTrendsById?.get(entry.id)
+      );
       if (risk.tier !== 'stable') map.set(entry.id, risk);
     }
     return map;
-  }, [entries, showReentry]);
+  }, [entries, objectTrendsById, showReentry]);
 
   const selectedMetadata = focusedSelected
     ? (satelliteMetadata?.[String(focusedSelected.id)] ?? null)
@@ -244,7 +250,11 @@ export default function SatelliteGlobe({
     ? (reentryRisks.get(focusedSelected.id) ??
       (() => {
         const entry = entryById.get(focusedSelected.id);
-        return entry ? getReentryRisk(entry) : null;
+        if (!entry) return null;
+        return resolveReentryRisk(
+          entry,
+          objectTrendsById?.get(entry.id)
+        );
       })())
     : null;
 
@@ -351,6 +361,7 @@ export default function SatelliteGlobe({
         formatDistance={formatDistance}
         reentryRisks={reentryRisks}
         showReentry={showReentry}
+        trendsFetching={trendsFetching}
         onFocusSatellite={focusSatellite}
       />
     </div>

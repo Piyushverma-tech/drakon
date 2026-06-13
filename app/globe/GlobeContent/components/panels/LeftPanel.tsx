@@ -106,6 +106,11 @@ function formatConfidence(confidence: ReentryRisk['confidence']): string {
   return confidence.charAt(0).toUpperCase() + confidence.slice(1);
 }
 
+function formatSignal(signal: string | undefined): string {
+  if (!signal) return 'Single epoch';
+  return signal.replace(/_/g, ' ');
+}
+
 // Which sections are open by default
 const DEFAULT_OPEN: Record<string, boolean> = {
   mission: false,
@@ -313,6 +318,15 @@ const LeftPanel = memo(function LeftPanel({
                 label="Apogee"
                 value={`${Math.round(selected.apogeeKm).toLocaleString()} km`}
               />
+              <StatRow label="RAAN" value={`${selected.raan.toFixed(2)}°`} />
+              <StatRow
+                label="Arg. Perigee"
+                value={`${selected.argPerigee.toFixed(2)}°`}
+              />
+              <StatRow
+                label="mean motion"
+                value={`${selected.meanMotion.toFixed(2)} rev/day`}
+              />
             </>
           )}
 
@@ -340,6 +354,37 @@ const LeftPanel = memo(function LeftPanel({
                     value={formatConfidence(reentryRisk.confidence)}
                     accent={reentryRisk.confidence === 'high'}
                   />
+                  <StatRow
+                    label="Signal"
+                    value={formatSignal(reentryRisk.decaySignal)}
+                    accent={reentryRisk.source === 'multi_epoch'}
+                  />
+                  {reentryRisk.decayConfidence !== undefined && (
+                    <StatRow
+                      label="Trend conf."
+                      value={`${Math.round((reentryRisk.decayConfidence ?? 0) * 100)}%`}
+                    />
+                  )}
+                  {reentryRisk.epochsAvailable !== undefined && (
+                    <StatRow
+                      label="Epochs"
+                      value={`${reentryRisk.epochsAvailable}`}
+                    />
+                  )}
+                  {reentryRisk.historyDaysAvailable !== undefined && (
+                    <StatRow
+                      label="History"
+                      value={`${reentryRisk.historyDaysAvailable.toFixed(1)}d`}
+                    />
+                  )}
+                  {reentryRisk.estimatedReentryAt && (
+                    <StatRow
+                      label="Est. date"
+                      value={new Date(reentryRisk.estimatedReentryAt)
+                        .toISOString()
+                        .slice(0, 10)}
+                    />
+                  )}
                   <StatRow
                     label="N-dot"
                     value={reentryRisk.signalsAgree ? 'Agrees' : 'Disagrees'}

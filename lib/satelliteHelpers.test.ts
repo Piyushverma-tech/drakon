@@ -17,11 +17,15 @@ function makeEntry(overrides: Partial<TleEntry> = {}): TleEntry {
     l1: ' '.repeat(53) + '50000-6' + ' '.repeat(8),
     l2: '2 12345  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000',
     inclination: 51.6,
+    raan: 0,
+    argPerigee: 0,
+    meanAnomaly: 0,
     meanMotion: 16,
     meanMotionDot: 0.00002182,
     ecc: 0,
     perigeeKm: 415,
     apogeeKm: 415,
+    semiMajorAxisKm: 6793.137,
     tleEpoch: '2026-01-01T00:00:00.000Z',
     isDebris: true,
     ...overrides,
@@ -106,8 +110,12 @@ describe('satelliteHelpers', () => {
       expect(parseTLEMeta(l1, l2)).toEqual(
         expect.objectContaining({
           inclination: 51.6391,
+          raan: 62.1234,
+          argPerigee: 33.1234,
+          meanAnomaly: 88.1234,
           meanMotion: 15.5,
           meanMotionDot: 0.00002182,
+          semiMajorAxisKm: expect.any(Number),
         })
       );
     });
@@ -154,6 +162,18 @@ describe('satelliteHelpers', () => {
       );
 
       expect(risk.decayRateKmPerDay).toBe(0);
+      expect(risk.tier).toBe('stable');
+    });
+
+    it('returns stable for active payloads — single-epoch BSTAR is not reliable', () => {
+      const risk = getReentryRisk(
+        makeEntry({
+          name: 'STARLINK-1494',
+          isDebris: false,
+        }),
+        218
+      );
+
       expect(risk.tier).toBe('stable');
     });
 

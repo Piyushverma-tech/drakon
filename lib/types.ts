@@ -63,6 +63,9 @@ export type TleEntry = {
   l1: string;
   l2: string;
   inclination: number;
+  raan: number;
+  argPerigee: number;
+  meanAnomaly: number;
   meanMotion: number;
   meanMotionDot: number;
   tleEpoch: string;
@@ -71,6 +74,7 @@ export type TleEntry = {
   ecc: number;
   perigeeKm: number;
   apogeeKm: number;
+  semiMajorAxisKm: number;
 };
 
 export type SatellitePoint = {
@@ -138,9 +142,49 @@ export type ReentryRisk = {
   decayRateKmPerDay: number; // estimated altitude loss per day
   estimatedDaysRemaining: number | null; // null = stable / indeterminate
   tier: 'critical' | 'warning' | 'nominal' | 'stable';
+  source?: 'single_epoch' | 'multi_epoch';
+  decaySignal?: ObjectTrend['decaySignal'];
+  decayConfidence?: number | null;
+  maneuverLikelihood?: number | null;
+  epochsAvailable?: number;
+  historyDaysAvailable?: number;
+  estimatedReentryAt?: string | null;
   // critical = < 30 days
   // warning/nominal = altitude- and confidence-adjusted longer horizons
   // stable = beyond horizon, invalid signal, or GEO/deep-space
+};
+
+export type ObjectTrend = {
+  noradId: number;
+  updatedAt: string;
+  trendVersion: number;
+  epochsAvailable: number;
+  historyDaysAvailable: number;
+  bstarLatest: number | null;
+  bstarSlope7d: number | null;
+  bstarSlope14d: number | null;
+  bstarSlope30d: number | null;
+  bstarMean14d: number | null;
+  bstarStddev14d: number | null;
+  bstarRsq14d: number | null;
+  perigeeLatest: number | null;
+  perigeeSlope7d: number | null;
+  perigeeSlope14d: number | null;
+  perigeeSlope30d: number | null;
+  apogeeLatest: number | null;
+  apogeeSlope14d: number | null;
+  smaLatest: number | null;
+  smaSlope14d: number | null;
+  meanMotionDotLatest: number | null;
+  meanMotionDotMean14d: number | null;
+  decaySignal: 'decaying' | 'stable' | 'maneuvering' | 'insufficient_data';
+  maneuverLikelihood: number | null;
+  decayConfidence: number | null;
+  estimatedDaysRemaining: number | null;
+  estimatedReentryAt: string | null;
+  reentryTier: 'critical' | 'warning' | 'nominal' | 'stable';
+  objectType: 'debris' | 'rocket_body' | 'payload' | 'unknown' | null;
+  isDebris: boolean;
 };
 export type TrackSegment = {
   path: [number, number][]; // [lon, lat] pairs, antimeridian-split

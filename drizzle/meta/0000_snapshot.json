@@ -1,19 +1,309 @@
 {
-  "id": "2faf82ac-439b-41fb-a672-8ab82e11e9ba",
+  "id": "124c48ea-bc2c-4b2e-9671-c6bee17aad93",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.object_trends": {
+      "name": "object_trends",
+      "schema": "",
+      "columns": {
+        "norad_id": {
+          "name": "norad_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "trend_version": {
+          "name": "trend_version",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "epochs_available": {
+          "name": "epochs_available",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "history_days_available": {
+          "name": "history_days_available",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "bstar_latest": {
+          "name": "bstar_latest",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bstar_slope_7d": {
+          "name": "bstar_slope_7d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bstar_slope_14d": {
+          "name": "bstar_slope_14d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bstar_slope_30d": {
+          "name": "bstar_slope_30d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bstar_mean_14d": {
+          "name": "bstar_mean_14d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bstar_stddev_14d": {
+          "name": "bstar_stddev_14d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bstar_rsq_14d": {
+          "name": "bstar_rsq_14d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "perigee_latest": {
+          "name": "perigee_latest",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "perigee_slope_7d": {
+          "name": "perigee_slope_7d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "perigee_slope_14d": {
+          "name": "perigee_slope_14d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "perigee_slope_30d": {
+          "name": "perigee_slope_30d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "apogee_latest": {
+          "name": "apogee_latest",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "apogee_slope_14d": {
+          "name": "apogee_slope_14d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sma_latest": {
+          "name": "sma_latest",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sma_slope_14d": {
+          "name": "sma_slope_14d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mean_motion_dot_latest": {
+          "name": "mean_motion_dot_latest",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mean_motion_dot_mean_14d": {
+          "name": "mean_motion_dot_mean_14d",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decay_signal": {
+          "name": "decay_signal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'insufficient_data'"
+        },
+        "maneuver_likelihood": {
+          "name": "maneuver_likelihood",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decay_confidence": {
+          "name": "decay_confidence",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estimated_days_remaining": {
+          "name": "estimated_days_remaining",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estimated_reentry_at": {
+          "name": "estimated_reentry_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reentry_tier": {
+          "name": "reentry_tier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'stable'"
+        },
+        "object_type": {
+          "name": "object_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_debris": {
+          "name": "is_debris",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {
+        "idx_reentry_tier_confidence": {
+          "name": "idx_reentry_tier_confidence",
+          "columns": [
+            {
+              "expression": "reentry_tier",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "decay_confidence",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_object_trends_version": {
+          "name": "idx_object_trends_version",
+          "columns": [
+            {
+              "expression": "trend_version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.tle_archive": {
+      "name": "tle_archive",
+      "schema": "",
+      "columns": {
+        "norad_id": {
+          "name": "norad_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "epoch": {
+          "name": "epoch",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tle_line1": {
+          "name": "tle_line1",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tle_line2": {
+          "name": "tle_line2",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stored_at": {
+          "name": "stored_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "tle_archive_norad_epoch_unique": {
+          "name": "tle_archive_norad_epoch_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "norad_id",
+            "epoch"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.tle_history": {
       "name": "tle_history",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
-          "notNull": true
-        },
         "norad_id": {
           "name": "norad_id",
           "type": "integer",
@@ -56,6 +346,24 @@
           "primaryKey": false,
           "notNull": true
         },
+        "raan": {
+          "name": "raan",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "arg_perigee": {
+          "name": "arg_perigee",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mean_anomaly": {
+          "name": "mean_anomaly",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
         "perigee_km": {
           "name": "perigee_km",
           "type": "double precision",
@@ -68,15 +376,9 @@
           "primaryKey": false,
           "notNull": true
         },
-        "tle_line1": {
-          "name": "tle_line1",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "tle_line2": {
-          "name": "tle_line2",
-          "type": "text",
+        "semi_major_axis_km": {
+          "name": "semi_major_axis_km",
+          "type": "double precision",
           "primaryKey": false,
           "notNull": true
         },
@@ -86,6 +388,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "source_group": {
+          "name": "source_group",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {
@@ -128,16 +436,96 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "tle_history_norad_epoch_unique": {
-          "name": "tle_history_norad_epoch_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "norad_id",
-            "epoch"
-          ]
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.trend_jobs": {
+      "name": "trend_jobs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "norad_id": {
+          "name": "norad_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retry_count": {
+          "name": "retry_count",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         }
       },
+      "indexes": {
+        "idx_trend_jobs_status_created": {
+          "name": "idx_trend_jobs_status_created",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_trend_jobs_norad_id": {
+          "name": "idx_trend_jobs_norad_id",
+          "columns": [
+            {
+              "expression": "norad_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

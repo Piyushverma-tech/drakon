@@ -1,0 +1,57 @@
+import { parseTLEMeta } from './satelliteHelpers';
+import type { TleEntry } from './types';
+
+export function isDebrisLikeName(name: string): boolean {
+  const lowerName = name.toLowerCase();
+  return (
+    lowerName.includes('deb') ||
+    lowerName.includes('r/b') ||
+    lowerName.includes('rkt') ||
+    lowerName.includes('rocket') ||
+    lowerName.includes('platform')
+  );
+}
+
+export function classifyObjectType(
+  name: string
+): 'debris' | 'rocket_body' | 'payload' | 'unknown' {
+  const lowerName = name.toLowerCase();
+  if (lowerName.includes('deb')) return 'debris';
+  if (
+    lowerName.includes('r/b') ||
+    lowerName.includes('rkt') ||
+    lowerName.includes('rocket')
+  ) {
+    return 'rocket_body';
+  }
+  if (!name.trim()) return 'unknown';
+  return 'payload';
+}
+
+export function parseTleText(tleText: string): TleEntry[] {
+  const lines = tleText.split(/\r?\n/).filter(Boolean);
+  const entries: TleEntry[] = [];
+
+  for (let i = 0; i + 2 < lines.length; i += 3) {
+    const name = lines[i].trim();
+    const l1 = lines[i + 1];
+    const l2 = lines[i + 2];
+
+    if (!l1.startsWith('1 ') || !l2.startsWith('2 ')) continue;
+
+    const id = Number(l1.substring(2, 7));
+    if (!Number.isFinite(id)) continue;
+
+    entries.push({
+      id,
+      name,
+      operator: name.split('-')[0],
+      l1,
+      l2,
+      ...parseTLEMeta(l1, l2),
+      isDebris: isDebrisLikeName(name),
+    });
+  }
+
+  return entries;
+}

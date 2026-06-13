@@ -13,6 +13,10 @@ export type SelectedMeta = {
   alt: number;
   vel: number;
   inclination: number;
+  raan: number;
+  meanAnomaly: number;
+  argPerigee: number;
+  meanMotion: number;
   orbitType: string;
   apogeeKm: number;
   perigeeKm: number;
@@ -63,6 +67,11 @@ export function buildSelectedMeta(
     alt: selectedPosition.alt,
     vel,
     inclination: meta.inclination,
+    raan: meta.raan,
+    meanAnomaly: meta.meanAnomaly,
+    argPerigee: meta.argPerigee,
+    meanMotion: meta.meanMotion,
+
     orbitType,
     apogeeKm: meta.apogeeKm,
     perigeeKm: meta.perigeeKm,

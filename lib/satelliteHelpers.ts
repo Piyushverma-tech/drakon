@@ -38,23 +38,30 @@ export function parseMeanMotionDot(l1: string): number {
 
 export function parseTLEMeta(l1: string, l2: string) {
   const inclination = parseFloat(l2.slice(8, 16));
+  const raan = parseFloat(l2.slice(17, 25));
   const meanMotion = parseFloat(l2.slice(52, 63));
   const meanMotionDot = parseMeanMotionDot(l1);
   const tleEpoch = tleEpochToIso(l1);
 
   const ecc = parseFloat('0.' + l2.slice(26, 33).trim()) || 0;
+  const argPerigee = parseFloat(l2.slice(34, 42));
+  const meanAnomaly = parseFloat(l2.slice(43, 51));
   const n = (meanMotion * 2 * Math.PI) / 1440 / 60;
   const a = Math.pow(398600.4418 / (n * n), 1 / 3);
   const perigeeKm = Math.max(0, a * (1 - ecc) - 6378.137);
   const apogeeKm = Math.max(0, a * (1 + ecc) - 6378.137);
   return {
     inclination,
+    raan,
+    argPerigee,
+    meanAnomaly,
     tleEpoch,
     meanMotion,
     meanMotionDot,
     ecc,
     perigeeKm,
     apogeeKm,
+    semiMajorAxisKm: a,
   };
 }
 
@@ -160,7 +167,7 @@ function maxPlausibleDecayRateKmPerDay(altKm: number): number {
 }
 
 /** Ṅ threshold (rev/day²) scales with altitude — TLE fit noise dominates above ~500 km. */
-function ndotIndicatesDecay(nDot: number, decayAltKm: number): boolean {
+export function ndotIndicatesDecay(nDot: number, decayAltKm: number): boolean {
   if (nDot <= 0) return false;
   if (decayAltKm > 500) return nDot > 5e-5;
   if (decayAltKm > 400) return nDot > 2e-5;
@@ -171,7 +178,7 @@ function lerp(start: number, end: number, t: number): number {
   return start + (end - start) * t;
 }
 
-function getReentryTierThresholds(altKm: number) {
+export function getReentryTierThresholds(altKm: number) {
   const critical = 30;
 
   if (altKm <= 300) {
@@ -213,16 +220,11 @@ function getReentryTierThresholds(altKm: number) {
   };
 }
 
-type TierThresholds = {
-  critical: number;
-  warning: number;
-  nominal: number;
-};
-
-function assignTier(
+export function assignReentryTier(
   estimatedDays: number,
-  thresholds: TierThresholds
+  decayAltKm: number
 ): ReentryRisk['tier'] {
+  const thresholds = getReentryTierThresholds(decayAltKm);
   if (estimatedDays < thresholds.critical) return 'critical';
   if (thresholds.warning > 0 && estimatedDays < thresholds.warning)
     return 'warning';
@@ -263,6 +265,7 @@ export function getReentryRisk(
     decayRateKmPerDay: 0,
     estimatedDaysRemaining: null,
     tier: 'stable',
+    source: 'single_epoch',
   };
 
   // GEO / deep space — not re-entering
@@ -270,8 +273,8 @@ export function getReentryRisk(
   // if perigee is above 2000km, drag is negligible regardless of what mean motion says.
   if (periodMin > 600 || perigeeKm > 2000) return stable;
 
-  // Only screen objects classified as debris by the parser.
-  // Active satellites with propulsion have meaningless BSTAR.
+  // Single-epoch BSTAR is only meaningful for debris. Active satellites with
+  // propulsion produce false drag coefficients at operational altitudes.
   const nameUpper = entry.name.toUpperCase();
   const isDebrisObject =
     entry.isDebris || nameUpper.includes('DEB') || nameUpper.includes('DEBRIS');
@@ -314,9 +317,7 @@ export function getReentryRisk(
   // 2/3 correction: accounts for increasing drag as altitude decreases.
   const estimatedDaysRemaining = Math.max(1, Math.ceil(linearDays * (2 / 3)));
 
-  const thresholds = getReentryTierThresholds(decayAltKm);
-
-  const tier = assignTier(estimatedDaysRemaining, thresholds);
+  const tier = assignReentryTier(estimatedDaysRemaining, decayAltKm);
 
   return {
     satId: entry.id,
@@ -329,5 +330,6 @@ export function getReentryRisk(
     decayRateKmPerDay,
     estimatedDaysRemaining,
     tier,
+    source: 'single_epoch',
   };
 }

@@ -33,6 +33,7 @@ type Props = {
   formatDistance: (d: number) => string;
   reentryRisks: Map<number, ReentryRisk>;
   showReentry: boolean;
+  trendsFetching?: boolean;
   onFocusSatellite: (sat: TleEntry) => void;
 };
 
@@ -47,6 +48,7 @@ function RightPanel({
   formatDistance,
   reentryRisks,
   showReentry,
+  trendsFetching = false,
   onFocusSatellite,
 }: Props) {
   const dispatch = useAppDispatch();
@@ -274,8 +276,14 @@ function RightPanel({
 
                   {/* Disclaimer */}
                   <div className="text-[9.5px] text-gray-500 leading-relaxed">
-                    Estimates from BSTAR drag term + N-dot confidence signal.
-                    Accuracy ±order of magnitude. Solar activity not modeled.
+                    Debris: single-epoch BSTAR + N-dot. Active satellites:
+                    multi-epoch only when all signals agree.
+                    {trendsFetching && (
+                      <span className="ml-1 inline-flex items-center gap-0.5 text-cyan-400/80">
+                        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                        refreshing trends
+                      </span>
+                    )}
                   </div>
 
                   {/* Top at-risk list */}
@@ -315,17 +323,28 @@ function RightPanel({
                                     {entry?.name ?? `#${risk.satId}`}
                                   </span>
                                   <span className="text-[9px] text-gray-400">
-                                    ~{Math.round(risk.decayAltKm)} km mean
-                                    altitude
+                                    {risk.source === 'multi_epoch'
+                                      ? `${risk.decaySignal?.replace(/_/g, ' ') ?? 'trend'} · ${risk.epochsAvailable ?? 0} epochs`
+                                      : `~${Math.round(risk.decayAltKm)} km mean altitude`}
                                   </span>
                                 </div>
 
                                 <div
                                   className={`text-right shrink-0 ml-2 ${tierColor}`}
                                 >
-                                  {risk.estimatedDaysRemaining === 0
-                                    ? '<1d'
-                                    : `~${risk.estimatedDaysRemaining}d`}
+                                  <div>
+                                    {risk.estimatedDaysRemaining === 0
+                                      ? '<1d'
+                                      : `~${risk.estimatedDaysRemaining}d`}
+                                  </div>
+                                  {risk.source === 'multi_epoch' && (
+                                    <div className="text-[9px] text-gray-400">
+                                      {Math.round(
+                                        (risk.decayConfidence ?? 0) * 100
+                                      )}
+                                      %
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -502,6 +521,7 @@ export default memo(RightPanel, (prev, next) => {
     prev.stats.total === next.stats.total &&
     prev.stats.filtered === next.stats.filtered &&
     prev.showReentry === next.showReentry &&
+    prev.trendsFetching === next.trendsFetching &&
     prev.reentryRisks === next.reentryRisks &&
     prev.onFocusSatellite === next.onFocusSatellite
   );
