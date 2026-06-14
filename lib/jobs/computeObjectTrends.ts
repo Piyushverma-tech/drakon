@@ -1,9 +1,11 @@
 import { db } from '@/lib/db';
-import { objectTrends, tleArchive, tleHistory, trendJobs } from '@/lib/db/schema';
 import {
-  assignReentryTier,
-  ndotIndicatesDecay,
-} from '@/lib/satelliteHelpers';
+  objectTrends,
+  tleArchive,
+  tleHistory,
+  trendJobs,
+} from '@/lib/db/schema';
+import { assignReentryTier, ndotIndicatesDecay } from '@/lib/satelliteHelpers';
 import { allSignalsAgreeFromSlopes } from '@/lib/reentrySignals';
 import { classifyObjectType } from '@/lib/tle';
 import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm';
@@ -79,10 +81,7 @@ function slopeOverWindow(
 
 function bstarSignalStrength(bstarReg: RegressionResult): number {
   if (!bstarReg || bstarReg.slope <= 0) return 0;
-  return Math.min(
-    1,
-    bstarReg.rSquared * Math.min(1, bstarReg.slope / 1e-7)
-  );
+  return Math.min(1, bstarReg.rSquared * Math.min(1, bstarReg.slope / 1e-7));
 }
 
 function ndotSignalStrength(
@@ -95,7 +94,9 @@ function ndotSignalStrength(
       ? Math.min(1, ndotReg.rSquared * Math.min(1, ndotReg.slope / 1e-5))
       : 0;
   const fromInstant =
-    ndotLatest !== null && ndotIndicatesDecay(ndotLatest, decayAltKm) ? 0.65 : 0;
+    ndotLatest !== null && ndotIndicatesDecay(ndotLatest, decayAltKm)
+      ? 0.65
+      : 0;
   return Math.max(fromTrend, fromInstant);
 }
 
@@ -110,8 +111,9 @@ function altitudeSignalStrength(
   if (!regs.length) return 0;
 
   return Math.max(
-    ...regs.map((reg) =>
-      Math.min(1, Math.abs(reg.slope) / 0.5) * Math.max(reg.rSquared, 0.35)
+    ...regs.map(
+      (reg) =>
+        Math.min(1, Math.abs(reg.slope) / 0.5) * Math.max(reg.rSquared, 0.35)
     )
   );
 }
@@ -145,8 +147,7 @@ export function classifyDecaySignal(
   const altSig = altitudeSignalStrength(perigeeReg, smaReg);
   const maneuverLikelihood = computeManeuverLikelihood(bstarReg, altSig);
 
-  const rawConfidence =
-    0.35 * bstarSig + 0.25 * ndotSig + 0.4 * altSig;
+  const rawConfidence = 0.35 * bstarSig + 0.25 * ndotSig + 0.4 * altSig;
   const decayConfidence = Math.max(
     0,
     Math.min(1, rawConfidence * (1 - maneuverLikelihood * 0.75))
@@ -254,16 +255,16 @@ function estimateReentry(
   };
 }
 
-async function getLatestObjectType(noradId: number): Promise<ObjectType> {
-  const [latestArchive] = await db
-    .select({ name: tleArchive.name })
-    .from(tleArchive)
-    .where(eq(tleArchive.noradId, noradId))
-    .orderBy(desc(tleArchive.epoch))
-    .limit(1);
+// async function getLatestObjectType(noradId: number): Promise<ObjectType> {
+//   const [latestArchive] = await db
+//     .select({ name: tleArchive.name })
+//     .from(tleArchive)
+//     .where(eq(tleArchive.noradId, noradId))
+//     .orderBy(desc(tleArchive.epoch))
+//     .limit(1);
 
-  return latestArchive ? classifyObjectType(latestArchive.name) : 'unknown';
-}
+//   return latestArchive ? classifyObjectType(latestArchive.name) : 'unknown';
+// }
 
 function buildTrendSet(values: TrendValues) {
   return {
@@ -331,16 +332,25 @@ export async function processTrendJobs(batchSize = 100): Promise<number> {
   const doneIds: number[] = [];
   const failedJobs: { id: number; error: string }[] = [];
 
+  const noradIds = claimed.rows.map((job) => job.norad_id);
+
+  // One query for all names
+  const archiveRows = await db
+    .select({ noradId: tleArchive.noradId, name: tleArchive.name })
+    .from(tleArchive)
+    .where(inArray(tleArchive.noradId, noradIds))
+    .orderBy(desc(tleArchive.epoch));
+
+  // Keep only the latest name per noradId
+  const nameByNoradId = new Map<number, string>();
+  for (const row of archiveRows) {
+    if (!nameByNoradId.has(row.noradId))
+      nameByNoradId.set(row.noradId, row.name);
+  }
+
   for (const job of claimed.rows) {
-    try {
-      await recomputeTrends(job.norad_id);
-      doneIds.push(job.id);
-    } catch (err) {
-      failedJobs.push({
-        id: job.id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    const objectName = nameByNoradId.get(job.norad_id) ?? '';
+    await recomputeTrends(job.norad_id, objectName);
   }
 
   if (doneIds.length > 0) {
@@ -363,7 +373,10 @@ export async function processTrendJobs(batchSize = 100): Promise<number> {
   return claimed.rows.length;
 }
 
-async function recomputeTrends(noradId: number): Promise<void> {
+async function recomputeTrends(
+  noradId: number,
+  objectName: string
+): Promise<void> {
   const now = Date.now();
   const cutoff30d = new Date(now - 30 * MS_PER_DAY);
 
@@ -387,7 +400,7 @@ async function recomputeTrends(noradId: number): Promise<void> {
   const historyDaysAvailable = latest
     ? (latest.epochMs - rows[0].epochMs) / MS_PER_DAY
     : 0;
-  const objectType = await getLatestObjectType(noradId);
+  const objectType = classifyObjectType(objectName);
   const isDebris = objectType === 'debris' || objectType === 'rocket_body';
   const decayAltKm = latest
     ? Math.max(0, latest.semiMajorAxisKm - 6378.137)
@@ -437,9 +450,7 @@ async function recomputeTrends(noradId: number): Promise<void> {
   const sma14d = slopeOverWindow(toSeries('semiMajorAxisKm'), 14, now);
   const ndot14d = slopeOverWindow(toSeries('meanMotionDot'), 14, now);
 
-  const ndotWindow = rows.filter(
-    (row) => row.epochMs >= now - 14 * MS_PER_DAY
-  );
+  const ndotWindow = rows.filter((row) => row.epochMs >= now - 14 * MS_PER_DAY);
   const ndotMean14d = ndotWindow.length
     ? ndotWindow.reduce((sum, row) => sum + row.meanMotionDot, 0) /
       ndotWindow.length

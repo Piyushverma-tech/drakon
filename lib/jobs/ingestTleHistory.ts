@@ -12,7 +12,6 @@ export async function ingestTleHistory(
   let inserted = 0;
   let skipped = 0;
   let invalid = 0;
-  const newNoradIds = new Set<number>();
 
   for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
     const chunk = entries.slice(i, i + CHUNK_SIZE);
@@ -31,21 +30,21 @@ export async function ingestTleHistory(
     if (!validChunk.length) continue;
 
     const historyRows = validChunk.map((e) => ({
-        noradId: e.id,
-        epoch: new Date(e.tleEpoch),
-        bstar: parseBSTAR(e.l1),
-        meanMotion: e.meanMotion,
-        meanMotionDot: e.meanMotionDot,
-        eccentricity: e.ecc,
-        inclination: e.inclination,
-        raan: e.raan,
-        argPerigee: e.argPerigee,
-        meanAnomaly: e.meanAnomaly,
-        perigeeKm: e.perigeeKm,
-        apogeeKm: e.apogeeKm,
-        semiMajorAxisKm: e.semiMajorAxisKm,
-        sourceGroup,
-      }));
+      noradId: e.id,
+      epoch: new Date(e.tleEpoch),
+      bstar: parseBSTAR(e.l1),
+      meanMotion: e.meanMotion,
+      meanMotionDot: e.meanMotionDot,
+      eccentricity: e.ecc,
+      inclination: e.inclination,
+      raan: e.raan,
+      argPerigee: e.argPerigee,
+      meanAnomaly: e.meanAnomaly,
+      perigeeKm: e.perigeeKm,
+      apogeeKm: e.apogeeKm,
+      semiMajorAxisKm: e.semiMajorAxisKm,
+      sourceGroup,
+    }));
 
     const historyResult = await db
       .insert(tleHistory)
@@ -54,9 +53,6 @@ export async function ingestTleHistory(
       .returning({ noradId: tleHistory.noradId });
 
     const insertedIds = historyResult.map((r) => r.noradId);
-    insertedIds.forEach((id) => newNoradIds.add(id));
-    inserted += insertedIds.length;
-    skipped += validChunk.length - insertedIds.length;
 
     // ── Write raw TLE lines to tle_archive ───────────────────────────────────
     // Only for rows that were actually new (don't re-archive known epochs)
@@ -74,17 +70,15 @@ export async function ingestTleHistory(
     if (archiveRows.length > 0) {
       await db.insert(tleArchive).values(archiveRows).onConflictDoNothing();
     }
-  }
 
-  // ── Enqueue trend jobs for updated objects ───────────────────────────────
-  // One job per unique NORAD ID that received a new epoch.
-  // Skip if already a pending job for this NORAD ID (prevents pile-up).
-  if (newNoradIds.size > 0) {
-    const jobRows = [...newNoradIds].map((id) => ({ noradId: id }));
+    // ── Enqueue trend jobs for this chunk only ──────────────────────────────
+    if (insertedIds.length > 0) {
+      const jobRows = insertedIds.map((id) => ({ noradId: id }));
+      await db.insert(trendJobs).values(jobRows).onConflictDoNothing();
+    }
 
-    await db.insert(trendJobs).values(jobRows).onConflictDoNothing(); // if pending job exists, leave it
-    // Note: add UNIQUE(norad_id) WHERE status='pending' as a partial unique
-    // index in migration to make this work correctly
+    inserted += insertedIds.length;
+    skipped += validChunk.length - insertedIds.length;
   }
 
   return { inserted, skipped, invalid };

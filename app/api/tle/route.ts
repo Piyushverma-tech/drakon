@@ -155,14 +155,18 @@ export async function GET(request: Request) {
     }
   }
 
-
   after(async () => {
-    const parsedEntries = parseTleText(combined);
-    const ingestResult = await ingestTleHistory(parsedEntries, effectiveGroups.join(','));
-    console.log('[TLE] Historical ingest:', ingestResult);
-    await processTrendJobs(100).catch((err) =>
-      console.warn('[TLE] Trend processing failed:', err)
-    );
+    try {
+      const parsedEntries = parseTleText(combined);
+      const ingestResult = await ingestTleHistory(
+        parsedEntries,
+        effectiveGroups.join(',')
+      );
+      console.log('[TLE] Historical ingest:', ingestResult);
+      await processTrendJobs(100);
+    } catch (err) {
+      console.warn('[TLE] Post-response pipeline failed:', err);
+    }
   });
 
   return new NextResponse(combined, {
