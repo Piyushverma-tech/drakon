@@ -3,6 +3,7 @@ import redis from '@/lib/redis';
 import { ingestTleHistory } from '@/lib/jobs/ingestTleHistory';
 import { processTrendJobs } from '@/lib/jobs/computeObjectTrends';
 import { parseTleText } from '@/lib/tle';
+import { after } from 'next/server';
 
 const GROUPS = [
   'active',
@@ -154,20 +155,15 @@ export async function GET(request: Request) {
     }
   }
 
-  try {
-    const parsedEntries = parseTleText(combined);
-    const ingestResult = await ingestTleHistory(
-      parsedEntries,
-      effectiveGroups.join(',')
-    );
-    console.log('[TLE] Historical ingest:', ingestResult);
 
-    void processTrendJobs(100).catch((err) =>
+  after(async () => {
+    const parsedEntries = parseTleText(combined);
+    const ingestResult = await ingestTleHistory(parsedEntries, effectiveGroups.join(','));
+    console.log('[TLE] Historical ingest:', ingestResult);
+    await processTrendJobs(100).catch((err) =>
       console.warn('[TLE] Trend processing failed:', err)
     );
-  } catch (err) {
-    console.warn('[TLE] Historical ingest failed:', err);
-  }
+  });
 
   return new NextResponse(combined, {
     headers: {
