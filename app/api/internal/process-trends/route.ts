@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
+import { trendJobs } from '@/lib/db/schema';
 import { processTrendJobs } from '@/lib/jobs/computeObjectTrends';
-import { sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 
 export const maxDuration = 60; // seconds
@@ -15,12 +16,7 @@ export async function POST(req: Request) {
   const batchSize = parseInt(searchParams.get('batchSize') || '200');
 
   // Reset jobs stuck in processing
-  await db.execute(sql`
-    UPDATE trend_jobs
-    SET status = 'pending', error_message = 'reset: stuck in processing'
-    WHERE status = 'processing'
-      AND created_at < NOW() - INTERVAL '60 minutes'
-  `);
+  await db.delete(trendJobs).where(eq(trendJobs.status, 'processing'));
 
   const processed = await processTrendJobs(batchSize);
   return NextResponse.json({ processed, timestamp: new Date().toISOString() });
