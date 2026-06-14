@@ -255,17 +255,6 @@ function estimateReentry(
   };
 }
 
-// async function getLatestObjectType(noradId: number): Promise<ObjectType> {
-//   const [latestArchive] = await db
-//     .select({ name: tleArchive.name })
-//     .from(tleArchive)
-//     .where(eq(tleArchive.noradId, noradId))
-//     .orderBy(desc(tleArchive.epoch))
-//     .limit(1);
-
-//   return latestArchive ? classifyObjectType(latestArchive.name) : 'unknown';
-// }
-
 function buildTrendSet(values: TrendValues) {
   return {
     updatedAt: values.updatedAt,
@@ -339,7 +328,7 @@ export async function processTrendJobs(batchSize = 100): Promise<number> {
     .select({ noradId: tleArchive.noradId, name: tleArchive.name })
     .from(tleArchive)
     .where(inArray(tleArchive.noradId, noradIds))
-    .orderBy(desc(tleArchive.epoch));
+    .orderBy(asc(tleArchive.noradId), desc(tleArchive.epoch));
 
   // Keep only the latest name per noradId
   const nameByNoradId = new Map<number, string>();
@@ -349,8 +338,16 @@ export async function processTrendJobs(batchSize = 100): Promise<number> {
   }
 
   for (const job of claimed.rows) {
-    const objectName = nameByNoradId.get(job.norad_id) ?? '';
-    await recomputeTrends(job.norad_id, objectName);
+    try {
+      const objectName = nameByNoradId.get(job.norad_id) ?? '';
+      await recomputeTrends(job.norad_id, objectName);
+      doneIds.push(job.id);
+    } catch (err) {
+      failedJobs.push({
+        id: job.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   if (doneIds.length > 0) {
