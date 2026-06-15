@@ -337,16 +337,45 @@ export async function processTrendJobs(batchSize = 100): Promise<number> {
       nameByNoradId.set(row.noradId, row.name);
   }
 
-  for (const job of claimed.rows) {
-    try {
-      const objectName = nameByNoradId.get(job.norad_id) ?? '';
-      await recomputeTrends(job.norad_id, objectName);
-      doneIds.push(job.id);
-    } catch (err) {
-      failedJobs.push({
-        id: job.id,
-        error: err instanceof Error ? err.message : String(err),
-      });
+  // for (const job of claimed.rows) {
+  //   try {
+  //     const objectName = nameByNoradId.get(job.norad_id) ?? '';
+  //     await recomputeTrends(job.norad_id, objectName);
+  //     doneIds.push(job.id);
+  //   } catch (err) {
+  //     failedJobs.push({
+  //       id: job.id,
+  //       error: err instanceof Error ? err.message : String(err),
+  //     });
+  //   }
+  // }
+
+  const CONCURRENCY = 10;
+
+  for (let i = 0; i < claimed.rows.length; i += CONCURRENCY) {
+    const slice = claimed.rows.slice(i, i + CONCURRENCY);
+
+    const results = await Promise.allSettled(
+      slice.map(async (job) => {
+        const objectName = nameByNoradId.get(job.norad_id) ?? '';
+        await recomputeTrends(job.norad_id, objectName);
+        return job.id;
+      })
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        doneIds.push(result.value);
+      } else {
+        const job = slice[results.indexOf(result)];
+        failedJobs.push({
+          id: job.id,
+          error:
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason),
+        });
+      }
     }
   }
 
