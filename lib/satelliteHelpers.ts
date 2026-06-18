@@ -273,7 +273,7 @@ export function applyConfidenceCeiling(
   return tier;
 }
 
-const F10_7_CURRENT = 400; // this is a placeholder; in practice
+const F10_7_CURRENT = 200; // this is a placeholder; in practice
 const F10_7_BASELINE = 150;
 export const SOLAR_FLUX_MULTIPLIER = Math.pow(
   F10_7_CURRENT / F10_7_BASELINE,

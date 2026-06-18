@@ -52,7 +52,7 @@ export function resolveReentryRisk(
   // Altitude emergency gate: below 240km, compute from altitude directly.
   // at this altitude drag overwhelms maneuver authority for most platforms.
   // Debris below 300km also benefits from the altitude estimate as a sanity check.
-  const altThreshold = debris ? 300 : 240;
+  const altThreshold = debris ? 300 : 235;
 
   // Altitude emergency override: below 200km.
   // At this altitude drag dominates even for maneuvering satellites.
