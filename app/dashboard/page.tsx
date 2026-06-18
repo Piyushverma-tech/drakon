@@ -4,7 +4,7 @@ import UnderDevelopment from '@/app/dashboard/components/UnderDevelopment';
 import { Globe2Icon } from 'lucide-react';
 
 export default function DashboardPage() {
-  const inDevelopment = process.env.InDevelopment === 'false';
+  const inDevelopment = process.env.InDevelopment === 'true';
   if (inDevelopment) {
     return <UnderDevelopment />;
   }

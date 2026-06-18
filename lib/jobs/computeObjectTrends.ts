@@ -5,7 +5,11 @@ import {
   tleHistory,
   trendJobs,
 } from '@/lib/db/schema';
-import { assignReentryTier, ndotIndicatesDecay } from '@/lib/satelliteHelpers';
+import {
+  applyConfidenceCeiling,
+  assignReentryTier,
+  ndotIndicatesDecay,
+} from '@/lib/satelliteHelpers';
 import { allSignalsAgreeFromSlopes } from '@/lib/reentrySignals';
 import { classifyObjectType } from '@/lib/tle';
 import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm';
@@ -26,9 +30,12 @@ type TrendValues = typeof objectTrends.$inferInsert;
 
 const MS_PER_DAY = 86_400_000;
 const MIN_EPOCHS_FOR_TREND = 3;
-const MIN_HISTORY_DAYS_FOR_TREND = 1;
+// const MIN_HISTORY_DAYS_FOR_TREND = 1;
 const MAX_RETRIES = 3;
 const REENTRY_ALTITUDE_KM = 120;
+
+const MIN_HISTORY_DAYS_PAYLOAD = 7;
+const MIN_HISTORY_DAYS_DEBRIS = 1;
 
 // Bump this when the regression algorithm or confidence formula changes.
 export const CURRENT_TREND_VERSION = 3;
@@ -184,6 +191,26 @@ export function classifyDecaySignal(
   };
 }
 
+function payloadConsensusRequired(
+  objectType: ObjectType,
+  perigeeLatest: number | null
+): boolean {
+  // Below 220km, altitude drop alone is sufficient evidence.
+  // Drag overwhelms maneuver authority at this altitude — even if
+  // BSTAR is contaminated by prior burns, the satellite is coming down.
+  if (perigeeLatest !== null && perigeeLatest < 220) return false;
+
+  if (perigeeLatest !== null && perigeeLatest < 300) {
+    return false;
+  }
+
+  return objectType === 'payload' || objectType === 'unknown';
+}
+
+function partialConsensusRequired(perigeeLatest: number | null): boolean {
+  return perigeeLatest !== null && perigeeLatest >= 220 && perigeeLatest < 300;
+}
+
 function estimateReentry(
   signal: DecaySignal,
   decayConfidence: number,
@@ -198,8 +225,10 @@ function estimateReentry(
   ndotMean14d: number | null,
   nowMs: number
 ) {
-  const payloadNeedsConsensus =
-    objectType === 'payload' || objectType === 'unknown';
+  const fullConsensusRequired = payloadConsensusRequired(
+    objectType,
+    perigeeLatest
+  );
   const allAgree = allSignalsAgreeFromSlopes({
     bstarSlope14d: bstarReg?.slope ?? null,
     ndotSlope14d: ndotReg?.slope ?? null,
@@ -210,11 +239,18 @@ function estimateReentry(
     decayAltKm,
   });
 
+  const partialConsensus = partialConsensusRequired(perigeeLatest);
+  const altAgrees =
+    (perigeeReg?.slope ?? 0) < -0.01 || (smaReg?.slope ?? 0) < -0.01;
+
+  const consensusBlocks =
+    (fullConsensusRequired && !allAgree) || (partialConsensus && !altAgrees); // at 220-300km, only altitude must agree
+
   if (
     signal === 'maneuvering' ||
     signal === 'insufficient_data' ||
     (signal !== 'decaying' && decayConfidence < 0.35) ||
-    (payloadNeedsConsensus && !allAgree) ||
+    consensusBlocks ||
     perigeeLatest === null ||
     perigeeLatest <= REENTRY_ALTITUDE_KM
   ) {
@@ -248,10 +284,13 @@ function estimateReentry(
     nowMs + estimatedDaysRemaining * MS_PER_DAY
   );
 
+  const rawTier = assignReentryTier(estimatedDaysRemaining, decayAltKm);
+  const tier = applyConfidenceCeiling(rawTier, decayConfidence);
+
   return {
     estimatedDaysRemaining,
     estimatedReentryAt,
-    reentryTier: assignReentryTier(estimatedDaysRemaining, decayAltKm),
+    reentryTier: tier,
   };
 }
 
@@ -337,19 +376,6 @@ export async function processTrendJobs(batchSize = 100): Promise<number> {
       nameByNoradId.set(row.noradId, row.name);
   }
 
-  // for (const job of claimed.rows) {
-  //   try {
-  //     const objectName = nameByNoradId.get(job.norad_id) ?? '';
-  //     await recomputeTrends(job.norad_id, objectName);
-  //     doneIds.push(job.id);
-  //   } catch (err) {
-  //     failedJobs.push({
-  //       id: job.id,
-  //       error: err instanceof Error ? err.message : String(err),
-  //     });
-  //   }
-  // }
-
   const CONCURRENCY = 10;
 
   for (let i = 0; i < claimed.rows.length; i += CONCURRENCY) {
@@ -432,9 +458,13 @@ async function recomputeTrends(
     ? Math.max(0, latest.semiMajorAxisKm - 6378.137)
     : 0;
 
+  const minHistoryDays = isDebris
+    ? MIN_HISTORY_DAYS_DEBRIS
+    : MIN_HISTORY_DAYS_PAYLOAD;
+
   if (
     rows.length < MIN_EPOCHS_FOR_TREND ||
-    historyDaysAvailable < MIN_HISTORY_DAYS_FOR_TREND ||
+    historyDaysAvailable < minHistoryDays ||
     !latest
   ) {
     await upsertTrend({
@@ -490,6 +520,7 @@ async function recomputeTrends(
     latest.meanMotionDot,
     decayAltKm
   );
+
   const reentry = estimateReentry(
     signal,
     decayConfidence,

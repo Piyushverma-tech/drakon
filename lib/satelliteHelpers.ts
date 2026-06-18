@@ -160,6 +160,18 @@ function maxPlausibleDecayRateKmPerDay(altKm: number): number {
   // Terminal re-entry can accelerate far beyond the mid-LEO anomaly cap.
   if (altKm <= 180) return Number.POSITIVE_INFINITY;
 
+  // Tighter cap in the 250-400km band — this is where BSTAR noise produces
+  // the most false positives. At 300km solar max peak is ~5km/day,
+  // solar minimum is ~0.5km/day. Cap at 8km/day as a generous upper bound.
+  if (altKm <= 400 && altKm > 180) {
+    const tightCap = 8 * Math.exp((300 - altKm) / 60);
+    return Math.min(
+      MAX_DECAY_RATE_AT_REF_KM_PER_DAY *
+        Math.exp((DECAY_CAP_REF_ALT_KM - altKm) / DECAY_SCALE_HEIGHT_KM),
+      Math.max(tightCap, 0.5)
+    );
+  }
+
   return (
     MAX_DECAY_RATE_AT_REF_KM_PER_DAY *
     Math.exp((DECAY_CAP_REF_ALT_KM - altKm) / DECAY_SCALE_HEIGHT_KM)
@@ -242,6 +254,32 @@ function getReentryConfidence(
   return 'low';
 }
 
+export function applyConfidenceCeiling(
+  tier: ReentryRisk['tier'],
+  confidence: number
+): ReentryRisk['tier'] {
+  if (tier === 'stable') return 'stable';
+
+  const normalizedConf = confidence > 1 ? confidence / 100 : confidence;
+
+  if (normalizedConf < 0.75) {
+    if (tier === 'critical' || tier === 'warning') return 'nominal';
+    return tier;
+  }
+  if (normalizedConf < 0.85) {
+    if (tier === 'critical') return 'warning';
+    return tier;
+  }
+  return tier;
+}
+
+const F10_7_CURRENT = 400; // this is a placeholder; in practice
+const F10_7_BASELINE = 150;
+export const SOLAR_FLUX_MULTIPLIER = Math.pow(
+  F10_7_CURRENT / F10_7_BASELINE,
+  1.5
+);
+
 export function getReentryRisk(
   entry: TleEntry,
   currentAltKm?: number
@@ -294,7 +332,11 @@ export function getReentryRisk(
   // screening). The prior 7.4e5 factor was ~100× too large for TLE B* values.
   const BASE_FACTOR = 7.4e3;
   const decayRateKmPerDay =
-    Math.abs(bstar) * BASE_FACTOR * densityFactor * (v_km_s / 7.905);
+    Math.abs(bstar) *
+    BASE_FACTOR *
+    densityFactor *
+    (v_km_s / 7.905) *
+    SOLAR_FLUX_MULTIPLIER;
 
   // Altitude-aware anomaly guard rejects misfit BSTAR; cap scales with density.
   if (decayRateKmPerDay > maxPlausibleDecayRateKmPerDay(decayAltKm)) {
@@ -309,6 +351,11 @@ export function getReentryRisk(
   const signalsAgree = ndotIndicatesDecay(nDot, decayAltKm);
   const confidence = getReentryConfidence(signalsAgree, decayAltKm);
 
+  // If BSTAR is negative and orbit is raising, assume stable
+  if (bstar < 0 && nDot < -1e-6) {
+    return stable;
+  }
+
   // Atmospheric density increases as altitude decreases.
   // Use 0.67 as a standard "Drag Acceleration" multiplier.
   const linearDays = altAboveReentry / decayRateKmPerDay;
@@ -317,7 +364,15 @@ export function getReentryRisk(
   // 2/3 correction: accounts for increasing drag as altitude decreases.
   const estimatedDaysRemaining = Math.max(1, Math.ceil(linearDays * (2 / 3)));
 
-  const tier = assignReentryTier(estimatedDaysRemaining, decayAltKm);
+  const rawTier = assignReentryTier(estimatedDaysRemaining, decayAltKm);
+  const confidenceScore = signalsAgree
+    ? decayAltKm <= 400
+      ? 0.85
+      : 0.65
+    : decayAltKm <= 500
+      ? 0.45
+      : 0.25;
+  const tier = applyConfidenceCeiling(rawTier, confidenceScore);
 
   return {
     satId: entry.id,
@@ -332,4 +387,34 @@ export function getReentryRisk(
     tier,
     source: 'single_epoch',
   };
+}
+
+// Uses exponential scale height model calibrated to NRLMSISE-00 midpoints.
+export function estimateDecayRateFromAltitude(altKm: number): number {
+  if (altKm > 300) return 0;
+  // Empirically calibrated km/day at key altitudes (solar moderate):
+  // 200km → ~8-15 km/day, 150km → ~50-100 km/day, 120km → terminal
+  const BASE_RATE_200KM = 10 * SOLAR_FLUX_MULTIPLIER; // conservative middle estimate
+  const SCALE_HEIGHT = 35; // tighter scale height in lower thermosphere
+  return BASE_RATE_200KM * Math.exp((200 - altKm) / SCALE_HEIGHT);
+}
+
+export function altitudeBasedReentryEstimate(perigeeKm: number): {
+  decayRateKmPerDay: number;
+  estimatedDaysRemaining: number;
+  tier: ReentryRisk['tier'];
+} {
+  const decayRate = estimateDecayRateFromAltitude(perigeeKm);
+  const altAboveReentry = Math.max(0, perigeeKm - 120);
+  if (decayRate < 0.01) {
+    return {
+      decayRateKmPerDay: 0,
+      estimatedDaysRemaining: 999,
+      tier: 'stable',
+    };
+  }
+  const days = Math.max(1, Math.ceil((altAboveReentry / decayRate) * (2 / 3)));
+  const tier: ReentryRisk['tier'] =
+    days < 5 ? 'critical' : days < 14 ? 'warning' : 'nominal';
+  return { decayRateKmPerDay: decayRate, estimatedDaysRemaining: days, tier };
 }

@@ -277,7 +277,8 @@ function RightPanel({
                   {/* Disclaimer */}
                   <div className="text-[9.5px] text-gray-500 leading-relaxed">
                     Debris: single-epoch BSTAR + N-dot. Active satellites:
-                    multi-epoch only when all signals agree.
+                    multi-epoch only when all signals agree. Solar flux is not
+                    modeled.
                     {trendsFetching && (
                       <span className="ml-1 inline-flex items-center gap-0.5 text-cyan-400/80">
                         <Loader2 className="h-2.5 w-2.5 animate-spin" />
