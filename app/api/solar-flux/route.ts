@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getSolarFlux, refreshSolarFluxInRedis } from '@/lib/solarFlux';
+import {
+  CALIBRATION_MULTIPLIER,
+  F107_CALIBRATION,
+  getSolarFlux,
+  refreshSolarFluxInRedis,
+} from '@/lib/solarFlux';
 
 export async function GET() {
   const { f107, multiplier } = await getSolarFlux();
@@ -7,6 +12,8 @@ export async function GET() {
   return NextResponse.json({
     f107,
     multiplier,
+    calibrationF107: F107_CALIBRATION,
+    calibrationMultiplier: CALIBRATION_MULTIPLIER,
     source: f107 !== null ? 'redis' : 'default',
   });
 }
