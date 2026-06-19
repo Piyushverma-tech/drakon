@@ -3,6 +3,7 @@ import redis from '@/lib/redis';
 import { ingestTleHistory } from '@/lib/jobs/ingestTleHistory';
 import { processTrendJobs } from '@/lib/jobs/computeObjectTrends';
 import { parseTleText } from '@/lib/tle';
+import { solarFluxResponseHeaders } from '@/lib/solarFlux';
 import { after } from 'next/server';
 
 const GROUPS = [
@@ -89,13 +90,17 @@ export async function GET(request: Request) {
   // Step 1: Try Redis cache
   if (isDefaultGroups) {
     try {
-      const cached = await redis.get<string>(CACHE_KEY);
+      const [cached, solarHeaders] = await Promise.all([
+        redis.get<string>(CACHE_KEY),
+        solarFluxResponseHeaders(),
+      ]);
       if (cached && cached.trim()) {
         console.log(`[TLE] Cache HIT (${cached.length} bytes)`);
         return new NextResponse(normalizeNewlines(cached), {
           headers: {
             'content-type': 'text/plain',
             'x-cache': 'HIT',
+            ...solarHeaders,
           },
         });
       }
@@ -117,18 +122,18 @@ export async function GET(request: Request) {
     // Celestrak blocked — serve stale
     console.warn('[TLE] Celestrak empty — trying stale cache');
     try {
-      const stale = await redis.get<string>(STALE_CACHE_KEY);
-      // Log first 200 chars to diagnose newline encoding
-      console.log(
-        '[TLE] Stale sample:',
-        JSON.stringify((stale ?? '').substring(0, 200))
-      );
+      const [stale, solarHeaders] = await Promise.all([
+        redis.get<string>(STALE_CACHE_KEY),
+        solarFluxResponseHeaders(),
+      ]);
+
       if (stale && stale.trim()) {
         console.warn('[TLE] Serving stale TLE data');
         return new NextResponse(normalizeNewlines(stale), {
           headers: {
             'content-type': 'text/plain',
             'x-cache': 'STALE',
+            ...solarHeaders,
           },
         });
       }
@@ -169,26 +174,13 @@ export async function GET(request: Request) {
     }
   });
 
-  after(async () => {
-    try {
-      const res = await fetch(
-        'https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json'
-      );
-      const data = (await res.json()) as Array<{ 'f10.7': number }>;
-      const latest = data[data.length - 1];
-      const f107 = latest?.['f10.7'];
-      if (f107 && Number.isFinite(f107) && f107 > 50) {
-        await redis.set('solar:f107', f107, { ex: 86400 }); // 24h TTL
-      }
-    } catch {
-      // non-fatal
-    }
-  });
+  const solarHeaders = await solarFluxResponseHeaders();
 
   return new NextResponse(combined, {
     headers: {
       'content-type': 'text/plain',
       'x-cache': 'MISS',
+      ...solarHeaders,
     },
   });
 }

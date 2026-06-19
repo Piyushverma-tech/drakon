@@ -4,6 +4,7 @@ import {
   trendSignalsAgree,
 } from './reentrySignals';
 import type { ObjectTrend, ReentryRisk, TleEntry } from './types';
+import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from '@/lib/solarFlux';
 import {
   altitudeBasedReentryEstimate,
   getReentryRisk,
@@ -44,7 +45,8 @@ function stableReentryRisk(entry: TleEntry): ReentryRisk {
 
 export function resolveReentryRisk(
   entry: TleEntry,
-  trend: ObjectTrend | undefined
+  trend: ObjectTrend | undefined,
+  solarFluxMultiplier: number = DEFAULT_SOLAR_FLUX_MULTIPLIER
 ): ReentryRisk {
   const debris = isDebrisEntry(entry);
   const perigeeKm = entry.perigeeKm;
@@ -85,7 +87,10 @@ export function resolveReentryRisk(
     const eccentricityFactor =
       apogeeKm > perigeeKm * 3 && apogeeKm > 500 ? perigeeKm / apogeeKm : 1.0;
 
-    const altEstimate = altitudeBasedReentryEstimate(perigeeKm);
+    const altEstimate = altitudeBasedReentryEstimate(
+      perigeeKm,
+      solarFluxMultiplier
+    );
     const adjustedDays = Math.max(
       1,
       Math.ceil((altEstimate.estimatedDaysRemaining / eccentricityFactor) * 0.8)
@@ -139,7 +144,7 @@ export function resolveReentryRisk(
   }
 
   if (debris) {
-    return getReentryRisk(entry);
+    return getReentryRisk(entry, undefined, solarFluxMultiplier);
   }
 
   return stableReentryRisk(entry);

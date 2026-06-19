@@ -13,6 +13,7 @@ import {
   formatDistance,
   getOrbitType,
 } from '@/lib/satelliteHelpers';
+import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from '@/lib/solarFlux';
 import { useSatellitePositions } from '@/hooks/useSatellitePositions';
 import { useInclinationBands } from '@/hooks/useInclinationBands';
 import { useCollisionDensity } from '@/hooks/useCollisionDensity';
@@ -54,13 +55,15 @@ export default function SatelliteGlobe({
   const mapRef = useRef<GlobeHandle>(null);
 
   const {
-    data: queriedEntries,
+    data: tleData,
     isLoading: tleLoading,
     isError: tleIsError,
     error: tleError,
     refetch: refetchTleEntries,
   } = useTleEntriesQuery();
-  const entries = queriedEntries ?? EMPTY_ENTRIES;
+  const entries = tleData?.entries ?? EMPTY_ENTRIES;
+  const solarFluxMultiplier =
+    tleData?.solarFluxMultiplier ?? DEFAULT_SOLAR_FLUX_MULTIPLIER;
 
   const {
     activeFilters,
@@ -235,12 +238,13 @@ export default function SatelliteGlobe({
     for (const entry of entries) {
       const risk = resolveReentryRisk(
         entry,
-        objectTrendsById?.get(entry.id)
+        objectTrendsById?.get(entry.id),
+        solarFluxMultiplier
       );
       if (risk.tier !== 'stable') map.set(entry.id, risk);
     }
     return map;
-  }, [entries, objectTrendsById, showReentry]);
+  }, [entries, objectTrendsById, showReentry, solarFluxMultiplier]);
 
   const selectedMetadata = focusedSelected
     ? (satelliteMetadata?.[String(focusedSelected.id)] ?? null)
@@ -253,7 +257,8 @@ export default function SatelliteGlobe({
         if (!entry) return null;
         return resolveReentryRisk(
           entry,
-          objectTrendsById?.get(entry.id)
+          objectTrendsById?.get(entry.id),
+          solarFluxMultiplier
         );
       })())
     : null;

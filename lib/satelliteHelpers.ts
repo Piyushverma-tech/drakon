@@ -1,6 +1,6 @@
 import * as satellite from 'satellite.js';
 import { ReentryRisk, TleEntry } from './types';
-import redis from './redis';
+import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from './solarFlux';
 
 const EARTH_RADIUS_KM = 6378.137;
 
@@ -274,27 +274,10 @@ export function applyConfidenceCeiling(
   return tier;
 }
 
-export async function getSolarFluxMultiplier(): Promise<number> {
-  try {
-    const f107 = await redis.get<number>('solar:f107');
-    if (f107 && f107 > 50) {
-      return Math.pow(f107 / 150, 1.5);
-    }
-  } catch {
-    /* ignore */
-  }
-  // Fallback: June 2026 solar maximum estimate
-  return Math.pow(200 / 150, 1.5); // ~1.54
-}
-
-export const SOLAR_FLUX_MULTIPLIER = Math.pow(
-  Number(process.env.NEXT_PUBLIC_F107 ?? '200') / 150,
-  1.5
-);
-
 export function getReentryRisk(
   entry: TleEntry,
-  currentAltKm?: number
+  currentAltKm?: number,
+  solarFluxMultiplier: number = DEFAULT_SOLAR_FLUX_MULTIPLIER
 ): ReentryRisk {
   const bstar = parseBSTAR(entry.l1);
   const decayAltKm =
@@ -345,7 +328,7 @@ export function getReentryRisk(
     BASE_FACTOR *
     densityFactor *
     (v_km_s / 7.905) *
-    SOLAR_FLUX_MULTIPLIER;
+    solarFluxMultiplier;
 
   // Altitude-aware anomaly guard rejects misfit BSTAR; cap scales with density.
   if (decayRateKmPerDay > maxPlausibleDecayRateKmPerDay(decayAltKm)) {
@@ -399,19 +382,25 @@ export function getReentryRisk(
 }
 
 // Uses exponential scale height model calibrated to NRLMSISE-00 midpoints.
-export function estimateDecayRateFromAltitude(altKm: number): number {
+export function estimateDecayRateFromAltitude(
+  altKm: number,
+  solarFluxMultiplier: number = DEFAULT_SOLAR_FLUX_MULTIPLIER
+): number {
   if (altKm > 300) return 0;
-  const BASE_RATE_200KM = 10 * SOLAR_FLUX_MULTIPLIER;
+  const BASE_RATE_200KM = 10 * solarFluxMultiplier;
   const SCALE_HEIGHT = 35; // tighter scale height in lower thermosphere
   return BASE_RATE_200KM * Math.exp((200 - altKm) / SCALE_HEIGHT);
 }
 
-export function altitudeBasedReentryEstimate(perigeeKm: number): {
+export function altitudeBasedReentryEstimate(
+  perigeeKm: number,
+  solarFluxMultiplier: number = DEFAULT_SOLAR_FLUX_MULTIPLIER
+): {
   decayRateKmPerDay: number;
   estimatedDaysRemaining: number;
   tier: ReentryRisk['tier'];
 } {
-  const decayRate = estimateDecayRateFromAltitude(perigeeKm);
+  const decayRate = estimateDecayRateFromAltitude(perigeeKm, solarFluxMultiplier);
   const altAboveReentry = Math.max(0, perigeeKm - 120);
   if (decayRate < 0.01) {
     return {

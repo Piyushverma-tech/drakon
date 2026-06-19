@@ -61,8 +61,8 @@ function RightPanel({
     showDensity,
     densityRadiusKm,
   } = useAppSelector((state) => state.visualization);
-  const { data: queriedEntries } = useTleEntriesQuery();
-  const entries = queriedEntries ?? [];
+  const { data: tleData } = useTleEntriesQuery();
+  const entries = tleData?.entries ?? [];
 
   const activeFiltersSet = new Set(activeFilters);
 
@@ -277,8 +277,9 @@ function RightPanel({
                   {/* Disclaimer */}
                   <div className="text-[9.5px] text-gray-500 leading-relaxed">
                     Debris: single-epoch BSTAR + N-dot. Active satellites:
-                    multi-epoch only when all signals agree. Solar flux is not
-                    modeled.
+                    multi-epoch only when all signals agree. Decay rates scale
+                    with NOAA F10.7 solar flux
+                    {tleData?.f107 != null ? ` (${tleData.f107} sfu)` : ''}.
                     {trendsFetching && (
                       <span className="ml-1 inline-flex items-center gap-0.5 text-cyan-400/80">
                         <Loader2 className="h-2.5 w-2.5 animate-spin" />
