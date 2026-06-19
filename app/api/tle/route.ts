@@ -169,6 +169,22 @@ export async function GET(request: Request) {
     }
   });
 
+  after(async () => {
+    try {
+      const res = await fetch(
+        'https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json'
+      );
+      const data = (await res.json()) as Array<{ 'f10.7': number }>;
+      const latest = data[data.length - 1];
+      const f107 = latest?.['f10.7'];
+      if (f107 && Number.isFinite(f107) && f107 > 50) {
+        await redis.set('solar:f107', f107, { ex: 86400 }); // 24h TTL
+      }
+    } catch {
+      // non-fatal
+    }
+  });
+
   return new NextResponse(combined, {
     headers: {
       'content-type': 'text/plain',

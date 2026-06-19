@@ -1,5 +1,6 @@
 import * as satellite from 'satellite.js';
 import { ReentryRisk, TleEntry } from './types';
+import redis from './redis';
 
 const EARTH_RADIUS_KM = 6378.137;
 
@@ -273,10 +274,21 @@ export function applyConfidenceCeiling(
   return tier;
 }
 
-const F10_7_CURRENT = 200; // this is a placeholder; in practice
-const F10_7_BASELINE = 150;
+export async function getSolarFluxMultiplier(): Promise<number> {
+  try {
+    const f107 = await redis.get<number>('solar:f107');
+    if (f107 && f107 > 50) {
+      return Math.pow(f107 / 150, 1.5);
+    }
+  } catch {
+    /* ignore */
+  }
+  // Fallback: June 2026 solar maximum estimate
+  return Math.pow(200 / 150, 1.5); // ~1.54
+}
+
 export const SOLAR_FLUX_MULTIPLIER = Math.pow(
-  F10_7_CURRENT / F10_7_BASELINE,
+  Number(process.env.NEXT_PUBLIC_F107 ?? '200') / 150,
   1.5
 );
 
@@ -306,13 +318,10 @@ export function getReentryRisk(
     source: 'single_epoch',
   };
 
-  // GEO / deep space — not re-entering
   const periodMin = 1440 / Math.max(entry.meanMotion, 0.001);
-  // if perigee is above 2000km, drag is negligible regardless of what mean motion says.
+
   if (periodMin > 600 || perigeeKm > 2000) return stable;
 
-  // Single-epoch BSTAR is only meaningful for debris. Active satellites with
-  // propulsion produce false drag coefficients at operational altitudes.
   const nameUpper = entry.name.toUpperCase();
   const isDebrisObject =
     entry.isDebris || nameUpper.includes('DEB') || nameUpper.includes('DEBRIS');
@@ -392,9 +401,7 @@ export function getReentryRisk(
 // Uses exponential scale height model calibrated to NRLMSISE-00 midpoints.
 export function estimateDecayRateFromAltitude(altKm: number): number {
   if (altKm > 300) return 0;
-  // Empirically calibrated km/day at key altitudes (solar moderate):
-  // 200km → ~8-15 km/day, 150km → ~50-100 km/day, 120km → terminal
-  const BASE_RATE_200KM = 10 * SOLAR_FLUX_MULTIPLIER; // conservative middle estimate
+  const BASE_RATE_200KM = 10 * SOLAR_FLUX_MULTIPLIER;
   const SCALE_HEIGHT = 35; // tighter scale height in lower thermosphere
   return BASE_RATE_200KM * Math.exp((200 - altKm) / SCALE_HEIGHT);
 }

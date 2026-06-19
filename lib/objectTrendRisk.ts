@@ -48,40 +48,64 @@ export function resolveReentryRisk(
 ): ReentryRisk {
   const debris = isDebrisEntry(entry);
   const perigeeKm = entry.perigeeKm;
+  const apogeeKm = entry.apogeeKm;
 
-  // Altitude emergency gate: below 240km, compute from altitude directly.
-  // at this altitude drag overwhelms maneuver authority for most platforms.
-  // Debris below 300km also benefits from the altitude estimate as a sanity check.
-  const altThreshold = debris ? 300 : 235;
+  // Gate 1: HEO objects.
+  const isHEO = apogeeKm > perigeeKm * 10 && apogeeKm > 2000;
+  if (isHEO) {
+    return stableReentryRisk(entry);
+  }
 
-  // Altitude emergency override: below 200km.
-  // At this altitude drag dominates even for maneuvering satellites.
+  // Gate 2: Altitude override.
+  const altThreshold = debris ? 300 : 230;
+
   if (perigeeKm < altThreshold) {
     const bstar = parseBSTAR(entry.l1);
     const nDot = entry.meanMotionDot;
-    const altEstimate = altitudeBasedReentryEstimate(perigeeKm);
 
     const isRaisingOrbit = nDot < -1e-6;
     const isBstarNegative = bstar < 0;
 
-    // If orbit is raising or BSTAR is negative, assume stable
+    // Orbital energy direction check
     if (isRaisingOrbit || (isBstarNegative && nDot < 0)) {
       return stableReentryRisk(entry);
     }
-    // If apogee >> perigee, scale the decay estimate down proportionally.
-    const apogeeKm = entry.apogeeKm;
-    const eccentricityFactor =
-      perigeeKm < 300 && apogeeKm > perigeeKm * 3
-        ? perigeeKm / apogeeKm // fraction of orbit near low altitude
-        : 1.0;
 
+    // For non-debris: consult trend data if available
+    if (!debris && trend) {
+      if (
+        trend.decaySignal === 'maneuvering' ||
+        (trend.decaySignal === 'stable' && trend.epochsAvailable >= 5)
+      ) {
+        return stableReentryRisk(entry);
+      }
+    }
+
+    // Mild eccentricity correction (for objects that are somewhat elliptical but not true HEO
+    const eccentricityFactor =
+      apogeeKm > perigeeKm * 3 && apogeeKm > 500 ? perigeeKm / apogeeKm : 1.0;
+
+    const altEstimate = altitudeBasedReentryEstimate(perigeeKm);
     const adjustedDays = Math.max(
       1,
       Math.ceil((altEstimate.estimatedDaysRemaining / eccentricityFactor) * 0.8)
     );
 
-    // For debris in this band, take the more pessimistic of BSTAR vs altitude estimate
-    // For active payloads, altitude estimate is the primary signal
+    const adjustedTier: ReentryRisk['tier'] =
+      adjustedDays > 3650
+        ? 'stable'
+        : adjustedDays < 5
+          ? 'critical'
+          : adjustedDays < 14
+            ? 'warning'
+            : adjustedDays < 90
+              ? 'nominal'
+              : 'stable';
+
+    if (adjustedTier === 'stable') {
+      return stableReentryRisk(entry);
+    }
+
     if (
       !debris ||
       altEstimate.tier === 'critical' ||
@@ -91,21 +115,21 @@ export function resolveReentryRisk(
         satId: entry.id,
         bstar,
         meanMotionDot: entry.meanMotionDot,
-        signalsAgree: true, // altitude agreement is physical, not statistical
-        confidence: perigeeKm < 180 ? 'high' : 'medium',
+        signalsAgree: true,
+        confidence: perigeeKm < 220 ? 'high' : 'medium',
         perigeeKm,
         decayAltKm: perigeeKm,
         decayRateKmPerDay: altEstimate.decayRateKmPerDay,
         estimatedDaysRemaining: adjustedDays,
-        tier: altEstimate.tier,
+        tier: adjustedTier,
         source: 'single_epoch',
         decaySignal: 'decaying',
       };
     }
   }
 
+  // Multi-epoch trend path
   if (trend && isActionableTrend(trend)) {
-    // Active payloads: multi-epoch only when BSTAR + N-dot + altitude all agree.
     if (!debris) {
       if (trend.decaySignal !== 'decaying' || !allTrendSignalsAgree(trend)) {
         return stableReentryRisk(entry);
