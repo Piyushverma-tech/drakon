@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import Globe, { GlobeHandle } from './Globe3D';
 import Map2D from './Map2d';
 import { ReentryRisk, SatellitePoint, TleEntry } from '@/lib/types';
@@ -38,7 +38,10 @@ import {
 } from './globe-model';
 import { useGlobeLayers } from './useGlobeLayers';
 import { useGlobeSelectionController } from './useGlobeSelectionController';
-import { resolveReentryRisk } from '@/lib/objectTrendRisk';
+import {
+  buildReentryRiskMap,
+  resolveReentryRisk,
+} from '@/lib/objectTrendRisk';
 
 const EMPTY_ENTRIES: TleEntry[] = [];
 
@@ -101,6 +104,27 @@ export default function SatelliteGlobe({
     () => new Map(activeSatellites.map((sat) => [sat.id, sat])),
     [activeSatellites]
   );
+
+  const lastFlownFocusIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!focusedSatelliteId) {
+      lastFlownFocusIdRef.current = null;
+      return;
+    }
+    if (lastFlownFocusIdRef.current === focusedSatelliteId) return;
+
+    const position = activeSatelliteById.get(focusedSatelliteId);
+    if (!position) return;
+
+    lastFlownFocusIdRef.current = focusedSatelliteId;
+    mapRef.current?.flyTo({
+      longitude: position.lon,
+      latitude: position.lat,
+      durationMs: 900,
+      pitch: viewMode === '3D' ? 30 : 0,
+      bearing: 0,
+    });
+  }, [activeSatelliteById, focusedSatelliteId, viewMode]);
 
   const selectedPositionsById = useMemo(() => {
     const selectedMap = new Map<number, SatellitePoint>();
@@ -234,16 +258,11 @@ export default function SatelliteGlobe({
 
   const reentryRisks = useMemo(() => {
     if (!showReentry) return new Map<number, ReentryRisk>();
-    const map = new Map<number, ReentryRisk>();
-    for (const entry of entries) {
-      const risk = resolveReentryRisk(
-        entry,
-        objectTrendsById?.get(entry.id),
-        solarFluxMultiplier
-      );
-      if (risk.tier !== 'stable') map.set(entry.id, risk);
-    }
-    return map;
+    return buildReentryRiskMap(
+      entries,
+      objectTrendsById,
+      solarFluxMultiplier
+    );
   }, [entries, objectTrendsById, showReentry, solarFluxMultiplier]);
 
   const selectedMetadata = focusedSelected

@@ -11,6 +11,7 @@ import {
   toggleFilter,
 } from '@/lib/visualization-slice';
 import { ArrowBigDown, ArrowBigUp, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { memo } from 'react';
 import DensityLegend from '../DensityLegend';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
@@ -291,8 +292,16 @@ function RightPanel({
                   {/* Top at-risk list */}
                   {reentryRisks.size > 0 && (
                     <div className="mt-2 space-y-1">
-                      <div className="uppercase tracking-wider text-gray-400 text-[10px]">
-                        Top 50 Soonest re-entry
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="uppercase tracking-wider text-gray-400 text-[10px]">
+                          Top 50 Soonest re-entry
+                        </div>
+                        <Link
+                          href="/dashboard/reentry"
+                          className="text-[9.5px] mr-2 uppercase tracking-wide text-cyan-400/80 hover:text-cyan-300 shrink-0"
+                        >
+                          View all
+                        </Link>
                       </div>
                       <div className="max-h-52 overflow-auto space-y-1 pr-1">
                         {[...reentryRisks.values()]

@@ -101,6 +101,21 @@ const visualizationSlice = createSlice({
       }
       state.focusedSatelliteId = satId;
     },
+    /** Replaces selection with one satellite — for module tables and individual satellite pages */
+    selectSingleSatellite(state, action: PayloadAction<number | null>) {
+      const satId = action.payload;
+      if (satId === null) {
+        state.selectedSatelliteIds = [];
+        state.focusedSatelliteId = null;
+        state.followingSatelliteId = null;
+        return;
+      }
+      state.selectedSatelliteIds = [satId];
+      state.focusedSatelliteId = satId;
+      if (state.followingSatelliteId !== satId) {
+        state.followingSatelliteId = null;
+      }
+    },
     focusSelectedSatellite(state, action: PayloadAction<number>) {
       const satId = action.payload;
       if (!state.selectedSatelliteIds.includes(satId)) return;
@@ -166,6 +181,7 @@ export const {
   setShowDensity,
   setDensityRadiusKm,
   selectSatellite,
+  selectSingleSatellite,
   focusSelectedSatellite,
   removeSelectedSatellite,
   toggleFollowingFocusedSatellite,

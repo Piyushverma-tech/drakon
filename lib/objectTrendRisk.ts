@@ -59,7 +59,7 @@ export function resolveReentryRisk(
   }
 
   // Gate 2: Altitude override.
-  const altThreshold = debris ? 300 : 230;
+  const altThreshold = debris ? 300 : 240;
 
   if (perigeeKm < altThreshold) {
     const bstar = parseBSTAR(entry.l1);
@@ -187,4 +187,21 @@ export function objectTrendToReentryRisk(
     historyDaysAvailable: trend.historyDaysAvailable,
     estimatedReentryAt: trend.estimatedReentryAt,
   };
+}
+
+export function buildReentryRiskMap(
+  entries: TleEntry[],
+  objectTrendsById: Map<number, ObjectTrend> | undefined,
+  solarFluxMultiplier: number = DEFAULT_SOLAR_FLUX_MULTIPLIER
+): Map<number, ReentryRisk> {
+  const map = new Map<number, ReentryRisk>();
+  for (const entry of entries) {
+    const risk = resolveReentryRisk(
+      entry,
+      objectTrendsById?.get(entry.id),
+      solarFluxMultiplier
+    );
+    if (risk.tier !== 'stable') map.set(entry.id, risk);
+  }
+  return map;
 }

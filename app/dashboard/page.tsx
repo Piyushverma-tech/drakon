@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import React from 'react';
 import UnderDevelopment from '@/app/dashboard/components/UnderDevelopment';
+import { DashboardModuleSearch } from '@/app/dashboard/components/DashboardModuleSearch';
 import { Globe2Icon } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -9,7 +10,9 @@ export default function DashboardPage() {
     return <UnderDevelopment />;
   }
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-[1fr_1.5fr_1fr] auto-rows-min">
+    <>
+      <DashboardModuleSearch placeholder="Search fleet..." />
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-[1fr_1.5fr_1fr] auto-rows-min">
       {/* Fleet Health */}
       <div className="border rounded-xl p-4 bg-card">
         <h2 className="text-lg font-semibold mb-4">Fleet Health</h2>
@@ -83,5 +86,6 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }
