@@ -26,22 +26,36 @@ export function MiniGlobe({
   satelliteColor = DEFAULT_SATELLITE_COLOR,
   showOrbit = true,
   orbitSamples = 180,
+  positionUpdateIntervalMs = 5000,
   flyToZoom = 2.5,
+  focusKey,
   emptyMessage = 'Select an object to view orbit',
   className,
 }: MiniGlobeProps) {
   const globeRef = useRef<GlobeHandle>(null);
   const [orbitSegments, setOrbitSegments] = useState<[number, number][][]>([]);
+  const [positionTimeMs, setPositionTimeMs] = useState(() => Date.now());
 
   const primaryPosition = useMemo(() => {
     if (!entry) return null;
-    const pos = positionFromTLE(entry.l1, entry.l2);
+    const pos = positionFromTLE(entry.l1, entry.l2, new Date(positionTimeMs));
     return {
       lat: pos.lat,
       lon: pos.lon,
       altKm: pos.altKm,
     };
-  }, [entry]);
+  }, [entry, positionTimeMs]);
+
+  useEffect(() => {
+    if (!entry) return;
+
+    setPositionTimeMs(Date.now());
+    const timer = window.setInterval(() => {
+      setPositionTimeMs(Date.now());
+    }, positionUpdateIntervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [entry, positionUpdateIntervalMs]);
 
   useEffect(() => {
     if (!entry || !showOrbit) {
@@ -79,16 +93,22 @@ export function MiniGlobe({
   }, [markers, primaryPosition]);
 
   const markersId = markers[0]?.id;
+  const flyTargetRef = useRef(flyTarget);
 
   useEffect(() => {
-    if (!flyTarget || !globeRef.current) return;
+    flyTargetRef.current = flyTarget;
+  }, [flyTarget]);
+
+  useEffect(() => {
+    const target = flyTargetRef.current;
+    if (!target || !globeRef.current) return;
     globeRef.current.flyTo({
-      longitude: flyTarget.lon,
-      latitude: flyTarget.lat,
+      longitude: target.lon,
+      latitude: target.lat,
       zoom: flyToZoom,
       durationMs: 1000,
     });
-  }, [flyTarget, flyToZoom, entry?.id, markersId]);
+  }, [flyToZoom, entry?.id, markersId, focusKey]);
 
   const scatterData = useMemo(() => {
     const points: MiniGlobeMarker[] = [];

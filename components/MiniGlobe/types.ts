@@ -18,7 +18,9 @@ export type MiniGlobeProps = {
   satelliteColor?: RgbaColor;
   showOrbit?: boolean;
   orbitSamples?: number;
+  positionUpdateIntervalMs?: number;
   flyToZoom?: number;
+  focusKey?: string | number;
   emptyMessage?: string;
   className?: string;
 };

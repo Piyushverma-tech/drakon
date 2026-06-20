@@ -113,13 +113,9 @@ export function useReentryScreening() {
 
   const selectSatellite = useCallback(
     (satId: number) => {
-      if (focusedSatelliteId === satId) {
-        dispatch(selectSingleSatellite(null));
-        return;
-      }
       dispatch(selectSingleSatellite(satId));
     },
-    [dispatch, focusedSatelliteId]
+    [dispatch]
   );
 
   const openOnGlobe = useCallback(() => {

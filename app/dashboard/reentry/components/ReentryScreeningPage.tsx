@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { MiniGlobe, type RgbaColor } from '@/components/MiniGlobe';
 import { useReentryScreening } from '../hooks/useReentryScreening';
@@ -35,6 +35,7 @@ export function ReentryScreeningPage() {
 
   const [tierFilter, setTierFilter] = useState<ReentryTierFilter>('all');
   const [sourceFilter, setSourceFilter] = useState<ReentrySourceFilter>('all');
+  const [miniGlobeFocusKey, setMiniGlobeFocusKey] = useState(0);
 
   const tableRows = useMemo(
     () =>
@@ -75,6 +76,14 @@ export function ReentryScreeningPage() {
     ? [satelliteColor[0], satelliteColor[1], satelliteColor[2], 160]
     : undefined;
 
+  const handleSelectSatellite = useCallback(
+    (satId: number) => {
+      selectSatellite(satId);
+      setMiniGlobeFocusKey((key) => key + 1);
+    },
+    [selectSatellite]
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
@@ -113,6 +122,7 @@ export function ReentryScreeningPage() {
           entry={selectedEntry}
           satelliteColor={satelliteColor}
           orbitColor={orbitColor}
+          focusKey={miniGlobeFocusKey}
           emptyMessage="Select a table row to view position"
           className="h-64 xl:h-80 bg-black/50 border border-white/10"
         />
@@ -151,7 +161,7 @@ export function ReentryScreeningPage() {
           sortKey={sortKey}
           sortDir={sortDir}
           onSort={handleSort}
-          onSelect={selectSatellite}
+          onSelect={handleSelectSatellite}
         />
       )}
 
