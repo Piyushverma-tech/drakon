@@ -90,7 +90,7 @@ export function ReentryTableNavigation({
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition',
                 active
-                  ? 'bg-cyan-600 text-white'
+                  ? 'bg-cyan-500/30 text-white'
                   : 'text-gray-400 hover:bg-white/10 hover:text-gray-100'
               )}
             >
@@ -121,7 +121,7 @@ export function ReentryTableNavigation({
               className={cn(
                 'rounded-md px-2.5 py-1.5 text-[11px] font-medium transition',
                 active
-                  ? 'bg-cyan-600 text-white'
+                  ? 'bg-cyan-500/30 text-white'
                   : 'text-gray-500 hover:bg-white/10 hover:text-gray-200'
               )}
             >

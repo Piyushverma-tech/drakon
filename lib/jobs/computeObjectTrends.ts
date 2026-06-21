@@ -217,8 +217,10 @@ function estimateReentry(
   objectType: ObjectType,
   perigeeLatest: number | null,
   decayAltKm: number,
-  perigeeReg: RegressionResult,
-  smaReg: RegressionResult,
+  perigeeReg: RegressionResult, // 14d
+  perigeeReg7d: RegressionResult, // 7d
+  smaReg: RegressionResult, // 14d
+  smaReg7d: RegressionResult, // 7d
   bstarReg: RegressionResult,
   ndotReg: RegressionResult,
   ndotLatest: number | null,
@@ -262,6 +264,10 @@ function estimateReentry(
   }
 
   const decayRateKmPerDay = Math.max(
+    perigeeReg7d?.slope && perigeeReg7d.slope < 0
+      ? Math.abs(perigeeReg7d.slope)
+      : 0,
+    smaReg7d?.slope && smaReg7d.slope < 0 ? Math.abs(smaReg7d.slope) : 0,
     perigeeReg?.slope && perigeeReg.slope < 0 ? Math.abs(perigeeReg.slope) : 0,
     smaReg?.slope && smaReg.slope < 0 ? Math.abs(smaReg.slope) : 0
   );
@@ -504,6 +510,7 @@ async function recomputeTrends(
   const perigee30d = slopeOverWindow(toSeries('perigeeKm'), 30, now);
   const apogee14d = slopeOverWindow(toSeries('apogeeKm'), 14, now);
   const sma14d = slopeOverWindow(toSeries('semiMajorAxisKm'), 14, now);
+  const sma7d = slopeOverWindow(toSeries('semiMajorAxisKm'), 7, now);
   const ndot14d = slopeOverWindow(toSeries('meanMotionDot'), 14, now);
 
   const ndotWindow = rows.filter((row) => row.epochMs >= now - 14 * MS_PER_DAY);
@@ -528,7 +535,9 @@ async function recomputeTrends(
     latest.perigeeKm,
     decayAltKm,
     perigee14d,
+    perigee7d,
     sma14d,
+    sma7d,
     bstar14d,
     ndot14d,
     latest.meanMotionDot,
@@ -556,6 +565,7 @@ async function recomputeTrends(
     apogeeLatest: latest.apogeeKm,
     apogeeSlope14d: apogee14d?.slope ?? null,
     smaLatest: latest.semiMajorAxisKm,
+    smaSlope7d: sma7d?.slope ?? null,
     smaSlope14d: sma14d?.slope ?? null,
     meanMotionDotLatest: latest.meanMotionDot,
     meanMotionDotMean14d: ndotMean14d,

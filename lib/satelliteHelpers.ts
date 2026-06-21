@@ -400,7 +400,10 @@ export function altitudeBasedReentryEstimate(
   estimatedDaysRemaining: number;
   tier: ReentryRisk['tier'];
 } {
-  const decayRate = estimateDecayRateFromAltitude(perigeeKm, solarFluxMultiplier);
+  const decayRate = estimateDecayRateFromAltitude(
+    perigeeKm,
+    solarFluxMultiplier
+  );
   const altAboveReentry = Math.max(0, perigeeKm - 120);
   if (decayRate < 0.01) {
     return {
@@ -409,8 +412,11 @@ export function altitudeBasedReentryEstimate(
       tier: 'stable',
     };
   }
-  const days = Math.max(1, Math.ceil((altAboveReentry / decayRate) * (2 / 3)));
-  const tier: ReentryRisk['tier'] =
-    days < 5 ? 'critical' : days < 14 ? 'warning' : 'nominal';
+  const accelerationFactor = perigeeKm <= 220 ? 0.5 : 2 / 3;
+  const days = Math.max(
+    1,
+    Math.ceil((altAboveReentry / decayRate) * accelerationFactor)
+  );
+  const tier = assignReentryTier(days, perigeeKm);
   return { decayRateKmPerDay: decayRate, estimatedDaysRemaining: days, tier };
 }

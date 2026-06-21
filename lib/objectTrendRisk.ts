@@ -52,28 +52,22 @@ export function resolveReentryRisk(
   const perigeeKm = entry.perigeeKm;
   const apogeeKm = entry.apogeeKm;
 
-  // Gate 1: HEO objects.
   const isHEO = apogeeKm > perigeeKm * 10 && apogeeKm > 2000;
-  if (isHEO) {
-    return stableReentryRisk(entry);
-  }
+  if (isHEO) return stableReentryRisk(entry);
 
-  // Gate 2: Altitude override.
   const altThreshold = debris ? 300 : 240;
 
   if (perigeeKm < altThreshold) {
     const bstar = parseBSTAR(entry.l1);
     const nDot = entry.meanMotionDot;
-
     const isRaisingOrbit = nDot < -1e-6;
     const isBstarNegative = bstar < 0;
 
-    // Orbital energy direction check
     if (isRaisingOrbit || (isBstarNegative && nDot < 0)) {
       return stableReentryRisk(entry);
     }
 
-    // For non-debris: consult trend data if available
+    // Check trend data for maneuvering signal
     if (!debris && trend) {
       if (
         trend.decaySignal === 'maneuvering' ||
@@ -83,7 +77,6 @@ export function resolveReentryRisk(
       }
     }
 
-    // Mild eccentricity correction (for objects that are somewhat elliptical but not true HEO
     const eccentricityFactor =
       apogeeKm > perigeeKm * 3 && apogeeKm > 500 ? perigeeKm / apogeeKm : 1.0;
 
@@ -107,33 +100,50 @@ export function resolveReentryRisk(
               ? 'nominal'
               : 'stable';
 
-    if (adjustedTier === 'stable') {
-      return stableReentryRisk(entry);
+    if (adjustedTier === 'stable') return stableReentryRisk(entry);
+
+    const altRisk: ReentryRisk = {
+      satId: entry.id,
+      bstar,
+      meanMotionDot: entry.meanMotionDot,
+      signalsAgree: true,
+      confidence: perigeeKm < 220 ? 'high' : 'medium',
+      perigeeKm,
+      decayAltKm: perigeeKm,
+      decayRateKmPerDay: altEstimate.decayRateKmPerDay,
+      estimatedDaysRemaining: adjustedDays,
+      tier: adjustedTier,
+      source: 'single_epoch',
+      decaySignal: 'decaying',
+    };
+
+    // if trend is actionable, pick the more pessimistic estimate
+    if (
+      trend &&
+      isActionableTrend(trend) &&
+      trend.estimatedDaysRemaining !== null
+    ) {
+      const trendRisk = objectTrendToReentryRisk(trend, entry, debris);
+      if (
+        trendRisk.tier !== 'stable' &&
+        trendRisk.estimatedDaysRemaining !== null &&
+        trendRisk.estimatedDaysRemaining < adjustedDays
+      ) {
+        return trendRisk;
+      }
     }
 
+    // Altitude-based is more pessimistic (or no actionable trend)
     if (
       !debris ||
       altEstimate.tier === 'critical' ||
       altEstimate.tier === 'warning'
     ) {
-      return {
-        satId: entry.id,
-        bstar,
-        meanMotionDot: entry.meanMotionDot,
-        signalsAgree: true,
-        confidence: perigeeKm < 220 ? 'high' : 'medium',
-        perigeeKm,
-        decayAltKm: perigeeKm,
-        decayRateKmPerDay: altEstimate.decayRateKmPerDay,
-        estimatedDaysRemaining: adjustedDays,
-        tier: adjustedTier,
-        source: 'single_epoch',
-        decaySignal: 'decaying',
-      };
+      return altRisk;
     }
   }
 
-  // Multi-epoch trend path
+  // Standard multi-epoch path for perigee >= threshold
   if (trend && isActionableTrend(trend)) {
     if (!debris) {
       if (trend.decaySignal !== 'decaying' || !allTrendSignalsAgree(trend)) {

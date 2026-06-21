@@ -1,0 +1,1 @@
+ALTER TABLE "object_trends" ADD COLUMN "sma_slope_7d" double precision;

@@ -115,6 +115,7 @@ export const objectTrends = pgTable(
     apogeeSlope14d: doublePrecision('apogee_slope_14d'),
 
     smaLatest: doublePrecision('sma_latest'),
+    smaSlope7d: doublePrecision('sma_slope_7d'),
     smaSlope14d: doublePrecision('sma_slope_14d'),
 
     // ── N-dot signals ───────────────────────────────────────────────────────

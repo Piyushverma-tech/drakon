@@ -41,7 +41,7 @@ export const ReentryTableRow = memo(function ReentryTableRow({
         'border-b border-white/5 transition-colors cursor-pointer outline-none',
         TIER_ROW_BG[tier],
         selected
-          ? 'bg-cyan-500/10 ring-1 ring-inset ring-cyan-400/60'
+          ? 'bg-cyan-500/10 ring-1 ring-inset ring-cyan-400/40'
           : 'hover:bg-cyan-500/5'
       )}
     >

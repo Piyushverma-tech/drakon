@@ -22,7 +22,7 @@ function DetailRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-3 py-1.5 border-b border-white/5 last:border-0">
-      <span className="text-[10px] uppercase tracking-widest text-gray-500 shrink-0">
+      <span className="text-[10px] uppercase tracking-widest text-gray-400 shrink-0">
         {label}
       </span>
       <span
@@ -68,7 +68,7 @@ export function ReentryDetailPanel({
   }
 
   const tier = risk.tier as ReentryTier;
-  const displayName = metadata?.name ?? metadata?.objectName ?? entry.name;
+  const displayName = entry.name ?? metadata?.name ?? metadata?.objectName;
   const objectType =
     metadata?.objectType ??
     (entry.isDebris
@@ -88,7 +88,7 @@ export function ReentryDetailPanel({
       <div className="px-4 pt-4 pb-2 border-b border-white/10 shrink-0 ">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-sm font-medium text-gray-100 truncate">
+            <h2 className="text-sm font-medium text-gray-100 truncate tracking-widest">
               {displayName}
             </h2>
             <div className="text-[11px] text-gray-500 font-mono tracking-wider mt-0.5">

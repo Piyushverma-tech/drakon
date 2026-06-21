@@ -89,7 +89,7 @@ export function ReentryScreeningPage() {
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
+            <h1 className="text-sm font-semibold font-mono uppercase tracking-[0.25em] text-cyan-300">
               Re-entry Screening
             </h1>
             {trendsFetching && (
@@ -124,7 +124,7 @@ export function ReentryScreeningPage() {
           orbitColor={orbitColor}
           focusKey={miniGlobeFocusKey}
           emptyMessage="Select a table row to view position"
-          className="h-64 xl:h-80 bg-black/50 border border-white/10"
+          className="h-64 xl:h-80 bg-black/50 border border-cyan-400/20"
         />
 
         <div className="flex flex-col gap-4 h-64 xl:h-80">

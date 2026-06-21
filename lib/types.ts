@@ -174,6 +174,7 @@ export type ObjectTrend = {
   apogeeLatest: number | null;
   apogeeSlope14d: number | null;
   smaLatest: number | null;
+  smaSlope7d: number | null;
   smaSlope14d: number | null;
   meanMotionDotLatest: number | null;
   meanMotionDotMean14d: number | null;
