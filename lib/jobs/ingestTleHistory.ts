@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { tleHistory, tleArchive, trendJobs } from '@/lib/db/schema';
 import { parseBSTAR } from '@/lib/satelliteHelpers';
 import type { TleEntry } from '@/lib/types';
+import { and, eq, inArray } from 'drizzle-orm';
 
 const CHUNK_SIZE = 500;
 
@@ -75,6 +76,26 @@ export async function ingestTleHistory(
     if (insertedIds.length > 0) {
       const jobRows = insertedIds.map((id) => ({ noradId: id }));
       await db.insert(trendJobs).values(jobRows).onConflictDoNothing();
+    }
+
+    // Priority requeue: force re-trend any object currently below 250km
+    // regardless of whether this epoch was new, so DB stays fresh for terminal objects
+    const terminalChunk = validChunk.filter((e) => e.perigeeKm < 250);
+    if (terminalChunk.length > 0) {
+      // Delete existing pending jobs for these objects first
+      const terminalNoradIds = terminalChunk.map((e) => e.id);
+      await db
+        .delete(trendJobs)
+        .where(
+          and(
+            inArray(trendJobs.noradId, terminalNoradIds),
+            eq(trendJobs.status, 'pending')
+          )
+        );
+      await db
+        .insert(trendJobs)
+        .values(terminalChunk.map((e) => ({ noradId: e.id })))
+        .onConflictDoNothing();
     }
 
     inserted += insertedIds.length;

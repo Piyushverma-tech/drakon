@@ -38,7 +38,7 @@ const MIN_HISTORY_DAYS_PAYLOAD = 7;
 const MIN_HISTORY_DAYS_DEBRIS = 1;
 
 // Bump this when the regression algorithm or confidence formula changes.
-export const CURRENT_TREND_VERSION = 3;
+export const CURRENT_TREND_VERSION = 4;
 
 export function regression(rows: { x: number; y: number }[]): RegressionResult {
   const n = rows.length;
@@ -73,16 +73,77 @@ export function regression(rows: { x: number; y: number }[]): RegressionResult {
   return { slope, rSquared, mean: meanY, stddev, n };
 }
 
-function slopeOverWindow(
+function weightedRegression(
+  rows: { x: number; y: number; weight: number }[]
+): RegressionResult {
+  const n = rows.length;
+  if (n < MIN_EPOCHS_FOR_TREND) return null;
+
+  const totalWeight = rows.reduce((sum, r) => sum + r.weight, 0);
+  if (totalWeight === 0) return null;
+
+  const meanX = rows.reduce((sum, r) => sum + r.x * r.weight, 0) / totalWeight;
+  const meanY = rows.reduce((sum, r) => sum + r.y * r.weight, 0) / totalWeight;
+
+  let ssXX = 0,
+    ssXY = 0,
+    ssTot = 0;
+  for (const r of rows) {
+    ssXX += r.weight * (r.x - meanX) ** 2;
+    ssXY += r.weight * (r.x - meanX) * (r.y - meanY);
+    ssTot += r.weight * (r.y - meanY) ** 2;
+  }
+
+  if (ssXX === 0) return null;
+
+  const slope = ssXY / ssXX;
+  let ssRes = 0;
+  for (const r of rows) {
+    const predicted = meanY + slope * (r.x - meanX);
+    ssRes += r.weight * (r.y - predicted) ** 2;
+  }
+
+  const rSquared = ssTot === 0 ? 0 : Math.max(0, 1 - ssRes / ssTot);
+  const variance =
+    rows.reduce((sum, r) => sum + r.weight * (r.y - meanY) ** 2, 0) /
+    totalWeight;
+  const stddev = Math.sqrt(variance);
+
+  return { slope, rSquared, mean: meanY, stddev, n };
+}
+
+// function slopeOverWindow(
+//   rows: { epochMs: number; value: number }[],
+//   windowDays: number,
+//   nowMs: number
+// ): RegressionResult {
+//   const cutoff = nowMs - windowDays * MS_PER_DAY;
+//   return regression(
+//     rows
+//       .filter((row) => row.epochMs >= cutoff)
+//       .map((row) => ({ x: (row.epochMs - cutoff) / MS_PER_DAY, y: row.value }))
+//   );
+// }
+
+function slopeOverWindowWeighted(
   rows: { epochMs: number; value: number }[],
   windowDays: number,
-  nowMs: number
+  nowMs: number,
+  halfLifeDays = 2 // recent epochs weighted ~4x more than week-old ones
 ): RegressionResult {
   const cutoff = nowMs - windowDays * MS_PER_DAY;
-  return regression(
-    rows
-      .filter((row) => row.epochMs >= cutoff)
-      .map((row) => ({ x: (row.epochMs - cutoff) / MS_PER_DAY, y: row.value }))
+  const windowRows = rows.filter((r) => r.epochMs >= cutoff);
+  if (!windowRows.length) return null;
+
+  const halfLifeMs = halfLifeDays * MS_PER_DAY;
+  return weightedRegression(
+    windowRows.map((r) => ({
+      x: (r.epochMs - cutoff) / MS_PER_DAY,
+      y: r.value,
+      // Exponential decay weighting: most recent epoch has weight 1,
+      // an epoch halfLifeDays ago has weight 0.5
+      weight: Math.exp((r.epochMs - nowMs) / halfLifeMs),
+    }))
   );
 }
 
@@ -225,7 +286,8 @@ function estimateReentry(
   ndotReg: RegressionResult,
   ndotLatest: number | null,
   ndotMean14d: number | null,
-  nowMs: number
+  nowMs: number,
+  maneuverLikelihood: number
 ) {
   const fullConsensusRequired = payloadConsensusRequired(
     objectType,
@@ -291,7 +353,10 @@ function estimateReentry(
   );
 
   const rawTier = assignReentryTier(estimatedDaysRemaining, decayAltKm);
-  const tier = applyConfidenceCeiling(rawTier, decayConfidence);
+  const tier =
+    perigeeLatest !== null && perigeeLatest < 220 && maneuverLikelihood === 0
+      ? rawTier
+      : applyConfidenceCeiling(rawTier, decayConfidence);
 
   return {
     estimatedDaysRemaining,
@@ -502,16 +567,65 @@ async function recomputeTrends(
       value: row[value] as number,
     }));
 
-  const bstar7d = slopeOverWindow(toSeries('bstar'), 7, now);
-  const bstar14d = slopeOverWindow(toSeries('bstar'), 14, now);
-  const bstar30d = slopeOverWindow(toSeries('bstar'), 30, now);
-  const perigee7d = slopeOverWindow(toSeries('perigeeKm'), 7, now);
-  const perigee14d = slopeOverWindow(toSeries('perigeeKm'), 14, now);
-  const perigee30d = slopeOverWindow(toSeries('perigeeKm'), 30, now);
-  const apogee14d = slopeOverWindow(toSeries('apogeeKm'), 14, now);
-  const sma14d = slopeOverWindow(toSeries('semiMajorAxisKm'), 14, now);
-  const sma7d = slopeOverWindow(toSeries('semiMajorAxisKm'), 7, now);
-  const ndot14d = slopeOverWindow(toSeries('meanMotionDot'), 14, now);
+  // Detect terminal decay: latest perigee below 250km
+  const isTerminal = (latest?.perigeeKm ?? 999) < 250;
+  const halfLife = isTerminal ? 1 : 3; // 1-day half-life for terminal, 3-day otherwise
+
+  const bstar7d = slopeOverWindowWeighted(toSeries('bstar'), 7, now, halfLife);
+  const bstar14d = slopeOverWindowWeighted(
+    toSeries('bstar'),
+    14,
+    now,
+    halfLife
+  );
+  const bstar30d = slopeOverWindowWeighted(
+    toSeries('bstar'),
+    30,
+    now,
+    halfLife
+  );
+  const perigee7d = slopeOverWindowWeighted(
+    toSeries('perigeeKm'),
+    7,
+    now,
+    halfLife
+  );
+  const perigee14d = slopeOverWindowWeighted(
+    toSeries('perigeeKm'),
+    14,
+    now,
+    halfLife
+  );
+  const perigee30d = slopeOverWindowWeighted(
+    toSeries('perigeeKm'),
+    30,
+    now,
+    halfLife
+  );
+  const apogee14d = slopeOverWindowWeighted(
+    toSeries('apogeeKm'),
+    14,
+    now,
+    halfLife
+  );
+  const sma14d = slopeOverWindowWeighted(
+    toSeries('semiMajorAxisKm'),
+    14,
+    now,
+    halfLife
+  );
+  const sma7d = slopeOverWindowWeighted(
+    toSeries('semiMajorAxisKm'),
+    7,
+    now,
+    halfLife
+  );
+  const ndot14d = slopeOverWindowWeighted(
+    toSeries('meanMotionDot'),
+    14,
+    now,
+    halfLife
+  );
 
   const ndotWindow = rows.filter((row) => row.epochMs >= now - 14 * MS_PER_DAY);
   const ndotMean14d = ndotWindow.length
@@ -542,7 +656,8 @@ async function recomputeTrends(
     ndot14d,
     latest.meanMotionDot,
     ndotMean14d,
-    now
+    now,
+    maneuverLikelihood
   );
 
   await upsertTrend({
