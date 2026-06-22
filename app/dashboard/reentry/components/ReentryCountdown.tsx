@@ -41,7 +41,7 @@ export function ReentryCountdown({ targetIso, className }: Props) {
   return (
     <div className={className}>
       <div className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">
-        Re-entry in
+        Predicted Re-entry in
       </div>
       <div className="font-mono text-[14px] tabular-nums text-cyan-300">
         {label}

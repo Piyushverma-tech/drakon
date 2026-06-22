@@ -128,11 +128,7 @@ export function ReentryScreeningPage() {
         />
 
         <div className="flex flex-col gap-4 h-64 xl:h-80">
-          <ReentryStatsBar
-            counts={counts}
-            total={tableRows.length}
-            f107={f107}
-          />
+          <ReentryStatsBar counts={counts} total={rows.length} f107={f107} />
           <ReentryDetailPanel
             entry={selectedEntry}
             risk={selectedRisk}

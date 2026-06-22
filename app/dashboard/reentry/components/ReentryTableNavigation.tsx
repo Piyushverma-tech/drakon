@@ -122,7 +122,7 @@ export function ReentryTableNavigation({
                 'rounded-md px-2.5 py-1.5 text-[11px] font-medium transition',
                 active
                   ? 'bg-cyan-500/30 text-white'
-                  : 'text-gray-500 hover:bg-white/10 hover:text-gray-200'
+                  : 'text-gray-400 hover:bg-white/10 hover:text-gray-200'
               )}
             >
               {filter.label}

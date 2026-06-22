@@ -320,8 +320,7 @@ export function getReentryRisk(
     (DECAY_CAP_REF_ALT_KM - decayAltKm) / DECAY_SCALE_HEIGHT_KM
   );
 
-  // Calibrated so |B*| ≈ 1e-4 yields ~0.72 km/day at 400 km (order-of-magnitude
-  // screening). The prior 7.4e5 factor was ~100× too large for TLE B* values.
+  // Calibrated so |B*| ≈ 1e-4 yields ~0.72 km/day at 400 km (order-of-magnitude screening)
   const BASE_FACTOR = 7.4e3;
   const decayRateKmPerDay =
     Math.abs(bstar) *

@@ -46,7 +46,7 @@ export function Sidebar() {
                 'group relative flex items-center gap-3 px-3 py-2 rounded-md text-sm transition',
                 isActive
                   ? 'bg-cyan-400/20 text-sidebar-accent-foreground'
-                  : 'hover:bg-sidebar-accent/60'
+                  : 'hover:bg-sidebar-accent/60 text-accent-foreground/70 hover:text-accent-foreground'
               )}
             >
               {isActive && (
