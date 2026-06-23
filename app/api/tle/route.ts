@@ -6,6 +6,8 @@ import { parseTleText } from '@/lib/tle';
 import { solarFluxResponseHeaders } from '@/lib/solarFlux';
 import { after } from 'next/server';
 
+export const maxDuration = 60;
+
 const GROUPS = [
   'active',
   'iridium-33-debris',

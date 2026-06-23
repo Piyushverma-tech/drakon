@@ -26,13 +26,13 @@ export function Sidebar() {
   const pathname = usePathname();
   return (
     <div className="flex h-dvh flex-col overflow-y-auto">
-      <div className="h-14 px-4 flex items-center border-b/50">
+      <div className="h-14 mt-1 px-4 flex items-center border-b/50">
         <Link href="/dashboard" className="font-semibold tracking-tight">
           <Image alt="logo" src="/drakon.png" width={150} height={150} />
         </Link>
       </div>
 
-      <nav className="px-2 mt-8 space-y-1">
+      <nav className="px-2 mt-6 space-y-1">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = item.exact

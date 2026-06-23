@@ -89,7 +89,7 @@ export function ReentryScreeningPage() {
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-sm font-semibold font-mono uppercase tracking-[0.25em] text-cyan-300">
+            <h1 className="text-sm font-bold font-mono uppercase tracking-[0.25em] text-cyan-300/90">
               Re-entry Screening
             </h1>
             {trendsFetching && (
