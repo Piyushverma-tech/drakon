@@ -98,7 +98,7 @@ export function ReentryTable({
           <thead className="sticky top-0 z-10">
             <tr>
               <th colSpan={11} className="p-0">
-                <div className="h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
+                <div className="h-px bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
               </th>
             </tr>
             <tr className="bg-black backdrop-blur-sm text-[9.5px] uppercase tracking-[0.18em] text-gray-500">

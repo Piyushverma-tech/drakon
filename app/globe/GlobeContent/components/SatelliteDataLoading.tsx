@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { LoaderCircle, Satellite } from 'lucide-react';
 
 const LOADING_STEPS = [
-  'Setting up globe environment',
+  'Setting up 3D environment',
   'Loading satellite data',
   'Parsing orbital elements',
   'Computing live positions',
@@ -29,7 +29,7 @@ export function SatelliteDataLoading() {
           <div className="absolute inset-0 rounded-full border border-cyan-400/20" />
           <div className="absolute inset-2 rounded-full border border-cyan-400/30 animate-ping" />
           <LoaderCircle
-            className="absolute h-20 w-20 animate-spin text-cyan-400/70"
+            className="absolute h-16 w-16 animate-spin text-cyan-400/70"
             strokeWidth={1.4}
           />
           <Satellite className="h-8 w-8 text-cyan-200" strokeWidth={1.7} />

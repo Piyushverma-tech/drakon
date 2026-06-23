@@ -9,12 +9,13 @@ import {
   ChartPie,
   Settings,
   Flame,
+  Earth,
 } from 'lucide-react';
 import Image from 'next/image';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutGrid, exact: true },
-  { href: '/globe', label: 'Globe', icon: Radar },
+  { href: '/globe', label: 'Globe', icon: Earth },
   { href: '/dashboard/reentry', label: 'Re-entry Screening', icon: Flame },
   { href: '/collision', label: 'Collision Screening', icon: Radar },
   { href: '/maneuvers', label: 'Maneuver Design', icon: Move3D },
