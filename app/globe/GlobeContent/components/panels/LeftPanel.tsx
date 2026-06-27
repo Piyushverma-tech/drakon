@@ -146,7 +146,7 @@ const LeftPanel = memo(function LeftPanel({
   const hasReentry = reentryRisk && reentryRisk.tier !== 'stable';
 
   return (
-    <div className="absolute left-3 top-3 w-[280px] z-10 select-none">
+    <div className="absolute left-3 top-3 w-[300px] z-10 select-none">
       {/* Outer shell */}
       <div className="relative bg-black/60 backdrop-blur-md border border-white/10 flex flex-col max-h-[calc(97vh-4rem)]">
         {/* Corner accents */}

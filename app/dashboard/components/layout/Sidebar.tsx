@@ -17,10 +17,14 @@ const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutGrid, exact: true },
   { href: '/globe', label: 'Globe', icon: Earth },
   { href: '/dashboard/reentry', label: 'Re-entry Screening', icon: Flame },
-  { href: '/collision', label: 'Collision Screening', icon: Radar },
-  { href: '/maneuvers', label: 'Maneuver Design', icon: Move3D },
-  { href: '/reports', label: 'Reports', icon: ChartPie },
-  { href: '/settings', label: 'Profile & Settings', icon: Settings },
+  {
+    href: '/dashboard/collisions',
+    label: 'Collision Screening',
+    icon: Radar,
+  },
+  { href: '/dashboard/maneuvers', label: 'Maneuver Design', icon: Move3D },
+  { href: '/dashboard/reports', label: 'Reports', icon: ChartPie },
+  { href: '/dashboard/profile', label: 'Profile & Settings', icon: Settings },
 ];
 
 export function Sidebar() {
@@ -51,7 +55,7 @@ export function Sidebar() {
               )}
             >
               {isActive && (
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-sidebar-primary" />
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-cyan-400" />
               )}
               <Icon className="size-4" />
               <span>{item.label}</span>

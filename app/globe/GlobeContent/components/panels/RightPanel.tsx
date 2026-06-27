@@ -10,7 +10,7 @@ import {
   setShowReentry,
   toggleFilter,
 } from '@/lib/visualization-slice';
-import { ArrowBigDown, ArrowBigUp, Loader2 } from 'lucide-react';
+import { ArrowBigDown, ArrowBigLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { memo } from 'react';
 import DensityLegend from '../DensityLegend';
@@ -68,7 +68,7 @@ function RightPanel({
   const activeFiltersSet = new Set(activeFilters);
 
   return (
-    <div className="absolute right-3 top-3 w-[280px] bg-black/60 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto max-h-[calc(100vh-4rem)] z-10">
+    <div className="absolute right-3 top-3 w-[300px] bg-black/60 backdrop-blur-md border border-gray-400/30 p-3 text-sm overflow-y-auto max-h-[calc(100vh-4rem)] z-10">
       {/* Corner accents */}
       <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400" />
       <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400" />
@@ -87,7 +87,7 @@ function RightPanel({
             {overviewExpanded ? (
               <ArrowBigDown className="w-4 h-4" />
             ) : (
-              <ArrowBigUp className="w-4 h-4" />
+              <ArrowBigLeft className="w-4 h-4" />
             )}
           </span>
         </div>
