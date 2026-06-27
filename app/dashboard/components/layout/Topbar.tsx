@@ -17,13 +17,13 @@ export function Topbar() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={placeholder}
-            className="w-full h-[30px] pl-9 pr-3 rounded-md bg-secondary/60 text-sm border"
+            className="w-full h-[30px] pl-9 pr-3 rounded-md bg-secondary/60 text-sm border focus:outline-none focus:ring-1 focus:ring-cyan-700"
           />
         </div>
-        <div className=" flex items-center justify-end gap-3 px-2">
-          <Bell className="size-5" />
-          <Share className="size-5" />
-          <RefreshCcw className="size-5" />
+        <div className=" flex items-center justify-end gap-4 px-2">
+          <RefreshCcw className="size-4" />
+          <Bell className="size-4" />
+          <Share className="size-4" />
         </div>
       </div>
     </header>

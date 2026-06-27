@@ -45,7 +45,7 @@ export const ReentryTableRow = memo(function ReentryTableRow({
           : 'hover:bg-cyan-500/5'
       )}
     >
-      <td className="px-3 py-2.5 text-gray-600 tabular-nums text-[11px] font-mono">
+      <td className="px-3 py-2.5 text-gray-500 tabular-nums text-[11px] font-mono">
         {rank}
       </td>
       <td className="px-3 py-2.5 max-w-[200px]">
@@ -77,11 +77,11 @@ export const ReentryTableRow = memo(function ReentryTableRow({
       </td>
       <td className="px-3 py-2.5 font-mono tabular-nums text-[12px] text-gray-300">
         {risk.decayRateKmPerDay.toFixed(2)}
-        <span className="text-gray-600 text-[10px] ml-0.5">km/d</span>
+        <span className="text-gray-500 text-[10px] ml-0.5">km/d</span>
       </td>
       <td className="px-3 py-2.5 font-mono tabular-nums text-[12px] text-cyan-300">
         {Math.round(risk.perigeeKm)}
-        <span className="text-gray-600 text-[10px] ml-0.5">km</span>
+        <span className="text-gray-500 text-[10px] ml-0.5">km</span>
       </td>
       <td className="px-3 py-2.5">
         <span
@@ -111,13 +111,13 @@ export const ReentryTableRow = memo(function ReentryTableRow({
         <span
           className={cn(
             'text-[11px]',
-            risk.signalsAgree ? 'text-emerald-400' : 'text-gray-600'
+            risk.signalsAgree ? 'text-emerald-400' : 'text-gray-500'
           )}
         >
           {risk.signalsAgree ? 'agrees' : '—'}
         </span>
       </td>
-      <td className="px-3 py-2.5 font-mono text-[11px] text-gray-600 tabular-nums">
+      <td className="px-3 py-2.5 font-mono text-[11px] text-gray-500 tabular-nums">
         {risk.bstar.toExponential(1)}
       </td>
     </tr>

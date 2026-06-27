@@ -88,7 +88,7 @@ export function ReentryTableNavigation({
               type="button"
               onClick={() => onTierFilterChange(filter.value)}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition',
+                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
                 active
                   ? 'bg-cyan-500/30 text-white'
                   : 'text-gray-400 hover:bg-white/10 hover:text-gray-100'
@@ -119,7 +119,7 @@ export function ReentryTableNavigation({
               type="button"
               onClick={() => onSourceFilterChange(filter.value)}
               className={cn(
-                'rounded-md px-2.5 py-1.5 text-[11px] font-medium transition',
+                'rounded-md px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
                 active
                   ? 'bg-cyan-500/30 text-white'
                   : 'text-gray-400 hover:bg-white/10 hover:text-gray-200'

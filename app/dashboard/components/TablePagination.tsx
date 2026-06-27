@@ -45,7 +45,7 @@ export function TablePagination({
             <select
               value={pageSize}
               onChange={(event) => onPageSizeChange(Number(event.target.value))}
-              className="h-7 rounded-md border border-white/10 bg-black px-2 text-gray-300 outline-none transition hover:border-white/20 focus:border-cyan-400/60"
+              className="h-7 rounded-md border border-white/10 bg-black px-2 text-gray-300 outline-none transition hover:border-white/20 hover:bg-white/5 cursor-pointer"
             >
               {pageSizeOptions.map((option) => (
                 <option key={option} value={option}>
@@ -61,7 +61,7 @@ export function TablePagination({
             type="button"
             onClick={() => onPageChange(safePage - 1)}
             disabled={safePage <= 1}
-            className="inline-flex size-7 items-center justify-center rounded-md border border-white/10 text-gray-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+            className="inline-flex size-7 items-center justify-center rounded-md border border-white/10 text-gray-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35 cursor-pointer"
             aria-label="Previous page"
           >
             <ChevronLeft className="size-4" />
@@ -73,7 +73,7 @@ export function TablePagination({
             type="button"
             onClick={() => onPageChange(safePage + 1)}
             disabled={safePage >= totalPages}
-            className="inline-flex size-7 items-center justify-center rounded-md border border-white/10 text-gray-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+            className="inline-flex size-7 items-center justify-center rounded-md border border-white/10 text-gray-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35 cursor-pointer"
             aria-label="Next page"
           >
             <ChevronRight className="size-4" />

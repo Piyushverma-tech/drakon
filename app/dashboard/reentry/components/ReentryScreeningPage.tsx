@@ -89,7 +89,7 @@ export function ReentryScreeningPage() {
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-sm font-bold font-mono uppercase tracking-[0.25em] text-cyan-300/90">
+            <h1 className="text-[13px] font-bold uppercase tracking-[0.25rem] text-cyan-300/90">
               Re-entry Screening
             </h1>
             {trendsFetching && (
@@ -99,7 +99,7 @@ export function ReentryScreeningPage() {
               </span>
             )}
           </div>
-          <p className="text-[11px] text-gray-500 mt-1">
+          <p className="text-[11px] text-gray-400 mt-1">
             Flagged decaying objects sorted by estimated lifetime
           </p>
         </div>
@@ -124,7 +124,7 @@ export function ReentryScreeningPage() {
           orbitColor={orbitColor}
           focusKey={miniGlobeFocusKey}
           emptyMessage="Select a table row to view position"
-          className="h-64 xl:h-80 bg-black/50 border border-cyan-400/20"
+          className="h-64 xl:h-80 bg-black/50 border border-gray-400/10"
         />
 
         <div className="flex flex-col gap-4 h-64 xl:h-80">

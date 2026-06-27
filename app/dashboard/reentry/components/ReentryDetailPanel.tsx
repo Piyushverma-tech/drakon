@@ -80,7 +80,7 @@ export function ReentryDetailPanel({
   return (
     <div
       className={cn(
-        'relative  bg-black/60 border border-white/10 overflow-hidden flex flex-col',
+        'relative  bg-black/60 border border-gray-400/10 overflow-hidden flex flex-col',
         className
       )}
     >
@@ -175,7 +175,7 @@ export function ReentryDetailPanel({
         <Link
           href="/globe"
           onClick={onOpenGlobe}
-          className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-cyan-400 hover:text-cyan-300 shrink-0"
+          className="inline-flex items-center gap-1 text-[11px] uppercase tracking-wider text-cyan-400 hover:text-cyan-300 shrink-0"
         >
           Open globe
           <ExternalLink className="h-3 w-3" />

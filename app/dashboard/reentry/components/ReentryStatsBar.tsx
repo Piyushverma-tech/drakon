@@ -9,7 +9,7 @@ function StatCard({
 }) {
   return (
     <div className="relative bg-black/60 backdrop-blur-md px-2  min-w-[100px] flex items-center justify-center gap-2">
-      <div className="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1 font-medium">
+      <div className="text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-1 font-medium">
         {label}:
       </div>
       <div

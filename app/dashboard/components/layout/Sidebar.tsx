@@ -37,7 +37,7 @@ export function Sidebar() {
         </Link>
       </div>
 
-      <nav className="px-2 mt-6 space-y-1">
+      <nav className="px-2 mt-6 space-y-2">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = item.exact
@@ -51,7 +51,7 @@ export function Sidebar() {
                 'group relative flex items-center gap-3 px-3 py-2 rounded-md text-sm transition',
                 isActive
                   ? 'bg-cyan-400/20 text-sidebar-accent-foreground'
-                  : 'hover:bg-sidebar-accent/60 text-accent-foreground/70 hover:text-accent-foreground'
+                  : 'hover:bg-sidebar-accent/60 text-accent-foreground/80 hover:text-accent-foreground'
               )}
             >
               {isActive && (
@@ -64,9 +64,6 @@ export function Sidebar() {
         })}
       </nav>
       <div className="mt-auto border-t/50 p-3 text-xs text-muted-foreground">
-        <div>
-          Live Status: <span className="text-emerald-400">Online</span>
-        </div>
         <div className="opacity-70">v0.1.0</div>
       </div>
     </div>
