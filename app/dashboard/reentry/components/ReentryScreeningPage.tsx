@@ -21,6 +21,7 @@ export function ReentryScreeningPage() {
     trendsFetching,
     f107,
     rows,
+    filteredRows,
     entryById,
     selectedSatId,
     selectedEntry,
@@ -39,7 +40,7 @@ export function ReentryScreeningPage() {
 
   const tableRows = useMemo(
     () =>
-      rows.filter((risk) => {
+      filteredRows.filter((risk) => {
         const matchesTier = tierFilter === 'all' || risk.tier === tierFilter;
         const matchesSource =
           sourceFilter === 'all' ||
@@ -49,13 +50,13 @@ export function ReentryScreeningPage() {
 
         return matchesTier && matchesSource;
       }),
-    [rows, sourceFilter, tierFilter]
+    [filteredRows, sourceFilter, tierFilter]
   );
 
   const counts = useMemo(() => {
     const result = { critical: 0, warning: 0, nominal: 0 };
 
-    for (const risk of tableRows) {
+    for (const risk of rows) {
       if (
         risk.tier === 'critical' ||
         risk.tier === 'warning' ||
@@ -66,7 +67,7 @@ export function ReentryScreeningPage() {
     }
 
     return result;
-  }, [tableRows]);
+  }, [rows]);
 
   const tier = selectedRisk?.tier as ReentryTier | undefined;
   const satelliteColor: RgbaColor | undefined = tier
