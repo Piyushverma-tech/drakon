@@ -151,6 +151,7 @@ function buildTrendSet(values: TrendValues) {
     apogeeLatest: values.apogeeLatest,
     apogeeSlope14d: values.apogeeSlope14d,
     smaLatest: values.smaLatest,
+    smaSlope7d: values.smaSlope7d,
     smaSlope14d: values.smaSlope14d,
     meanMotionDotLatest: values.meanMotionDotLatest,
     meanMotionDotMean14d: values.meanMotionDotMean14d,
