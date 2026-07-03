@@ -43,14 +43,14 @@ function GlobeContent() {
         {/* CENTER (Search + Toggle together) */}
         <div className="flex items-center gap-4 ml-[8rem]">
           {/* Search */}
-          <div className="relative w-[560px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <div className="relative w-[560px] text-muted-foreground">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4" />
             <input
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name or NORAD ID..."
-              className="w-full h-[30px] pl-9 pr-3 rounded-md bg-secondary text-sm focus:outline-none focus:ring-1 focus:ring-cyan-700"
+              className="w-full h-[30px] pl-9 pr-3 rounded-md bg-secondary/60 text-sm border focus:outline-none focus:ring-1 focus:ring-cyan-700"
             />
           </div>
 

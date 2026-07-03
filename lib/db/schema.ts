@@ -127,6 +127,11 @@ export const objectTrends = pgTable(
     decaySignal: text('decay_signal').notNull().default('insufficient_data'),
     maneuverLikelihood: doublePrecision('maneuver_likelihood'),
     decayConfidence: doublePrecision('decay_confidence'),
+    bstarSignalStrength: doublePrecision('bstar_signal_strength'),
+    ndotSignalStrength: doublePrecision('ndot_signal_strength'),
+    altitudeSignalStrength: doublePrecision('altitude_signal_strength'),
+    consensusRequired: text('consensus_required'),
+    consensusMet: boolean('consensus_met'),
 
     // ── Re-entry estimate ───────────────────────────────────────────────────
     estimatedDaysRemaining: integer('estimated_days_remaining'),

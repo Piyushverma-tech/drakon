@@ -6,25 +6,11 @@ import {
   trendJobs,
 } from '@/lib/db/schema';
 import {
-  applyConfidenceCeiling,
-  assignReentryTier,
-  ndotIndicatesDecay,
-} from '@/lib/satelliteHelpers';
-import { allSignalsAgreeFromSlopes } from '@/lib/reentrySignals';
+  explainReentryTrend,
+  type RegressionResult,
+} from '@/lib/explainReentryTrend';
 import { classifyObjectType } from '@/lib/tle';
 import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm';
-
-type DecaySignal = 'decaying' | 'stable' | 'maneuvering' | 'insufficient_data';
-type ReentryTier = 'critical' | 'warning' | 'nominal' | 'stable';
-type ObjectType = 'debris' | 'rocket_body' | 'payload' | 'unknown';
-
-type RegressionResult = {
-  slope: number;
-  rSquared: number;
-  mean: number;
-  stddev: number;
-  n: number;
-} | null;
 
 type TrendValues = typeof objectTrends.$inferInsert;
 
@@ -32,8 +18,6 @@ const MS_PER_DAY = 86_400_000;
 const MIN_EPOCHS_FOR_TREND = 3;
 // const MIN_HISTORY_DAYS_FOR_TREND = 1;
 const MAX_RETRIES = 3;
-const REENTRY_ALTITUDE_KM = 120;
-
 const MIN_HISTORY_DAYS_PAYLOAD = 7;
 const MIN_HISTORY_DAYS_DEBRIS = 1;
 
@@ -147,224 +131,6 @@ function slopeOverWindowWeighted(
   );
 }
 
-function bstarSignalStrength(bstarReg: RegressionResult): number {
-  if (!bstarReg || bstarReg.slope <= 0) return 0;
-  return Math.min(1, bstarReg.rSquared * Math.min(1, bstarReg.slope / 1e-7));
-}
-
-function ndotSignalStrength(
-  ndotReg: RegressionResult,
-  ndotLatest: number | null,
-  decayAltKm: number
-): number {
-  const fromTrend =
-    ndotReg && ndotReg.slope > 0
-      ? Math.min(1, ndotReg.rSquared * Math.min(1, ndotReg.slope / 1e-5))
-      : 0;
-  const fromInstant =
-    ndotLatest !== null && ndotIndicatesDecay(ndotLatest, decayAltKm)
-      ? 0.65
-      : 0;
-  return Math.max(fromTrend, fromInstant);
-}
-
-function altitudeSignalStrength(
-  perigeeReg: RegressionResult,
-  smaReg: RegressionResult
-): number {
-  const regs = [perigeeReg, smaReg].filter(
-    (reg): reg is NonNullable<RegressionResult> =>
-      Boolean(reg && reg.slope < -0.01)
-  );
-  if (!regs.length) return 0;
-
-  return Math.max(
-    ...regs.map(
-      (reg) =>
-        Math.min(1, Math.abs(reg.slope) / 0.5) * Math.max(reg.rSquared, 0.35)
-    )
-  );
-}
-
-function computeManeuverLikelihood(
-  bstarReg: RegressionResult,
-  altitudeSignal: number
-): number {
-  if (!bstarReg || Math.abs(bstarReg.mean) <= 0) return 0;
-  const cv = bstarReg.stddev / Math.abs(bstarReg.mean);
-  if (cv > 1.5 && altitudeSignal < 0.15) {
-    return Math.min(1, cv / 3);
-  }
-  return 0;
-}
-
-export function classifyDecaySignal(
-  bstarReg: RegressionResult,
-  ndotReg: RegressionResult,
-  perigeeReg: RegressionResult,
-  smaReg: RegressionResult,
-  ndotLatest: number | null,
-  decayAltKm: number
-): {
-  signal: DecaySignal;
-  maneuverLikelihood: number;
-  decayConfidence: number;
-} {
-  const bstarSig = bstarSignalStrength(bstarReg);
-  const ndotSig = ndotSignalStrength(ndotReg, ndotLatest, decayAltKm);
-  const altSig = altitudeSignalStrength(perigeeReg, smaReg);
-  const maneuverLikelihood = computeManeuverLikelihood(bstarReg, altSig);
-
-  const rawConfidence = 0.35 * bstarSig + 0.25 * ndotSig + 0.4 * altSig;
-  const decayConfidence = Math.max(
-    0,
-    Math.min(1, rawConfidence * (1 - maneuverLikelihood * 0.75))
-  );
-
-  if (maneuverLikelihood > 0.5) {
-    return {
-      signal: 'maneuvering',
-      maneuverLikelihood,
-      decayConfidence: decayConfidence * 0.2,
-    };
-  }
-
-  const decaying =
-    decayConfidence >= 0.35 &&
-    (altSig >= 0.2 || (bstarSig >= 0.3 && ndotSig >= 0.3));
-
-  if (decaying) {
-    return { signal: 'decaying', maneuverLikelihood: 0, decayConfidence };
-  }
-
-  if (decayConfidence < 0.15 && (bstarReg?.n ?? 0) >= 5) {
-    return {
-      signal: 'stable',
-      maneuverLikelihood: 0,
-      decayConfidence: Math.max(decayConfidence, 0.8),
-    };
-  }
-
-  return {
-    signal: 'insufficient_data',
-    maneuverLikelihood,
-    decayConfidence,
-  };
-}
-
-function payloadConsensusRequired(
-  objectType: ObjectType,
-  perigeeLatest: number | null
-): boolean {
-  // Below 220km, altitude drop alone is sufficient evidence.
-  // Drag overwhelms maneuver authority at this altitude — even if
-  // BSTAR is contaminated by prior burns, the satellite is coming down.
-  if (perigeeLatest !== null && perigeeLatest < 220) return false;
-
-  if (perigeeLatest !== null && perigeeLatest < 300) {
-    return false;
-  }
-
-  return objectType === 'payload' || objectType === 'unknown';
-}
-
-function partialConsensusRequired(perigeeLatest: number | null): boolean {
-  return perigeeLatest !== null && perigeeLatest >= 220 && perigeeLatest < 300;
-}
-
-function estimateReentry(
-  signal: DecaySignal,
-  decayConfidence: number,
-  objectType: ObjectType,
-  perigeeLatest: number | null,
-  decayAltKm: number,
-  perigeeReg: RegressionResult, // 14d
-  perigeeReg7d: RegressionResult, // 7d
-  smaReg: RegressionResult, // 14d
-  smaReg7d: RegressionResult, // 7d
-  bstarReg: RegressionResult,
-  ndotReg: RegressionResult,
-  ndotLatest: number | null,
-  ndotMean14d: number | null,
-  nowMs: number,
-  maneuverLikelihood: number
-) {
-  const fullConsensusRequired = payloadConsensusRequired(
-    objectType,
-    perigeeLatest
-  );
-  const allAgree = allSignalsAgreeFromSlopes({
-    bstarSlope14d: bstarReg?.slope ?? null,
-    ndotSlope14d: ndotReg?.slope ?? null,
-    ndotLatest,
-    ndotMean14d,
-    perigeeSlope14d: perigeeReg?.slope ?? null,
-    smaSlope14d: smaReg?.slope ?? null,
-    decayAltKm,
-  });
-
-  const partialConsensus = partialConsensusRequired(perigeeLatest);
-  const altAgrees =
-    (perigeeReg?.slope ?? 0) < -0.01 || (smaReg?.slope ?? 0) < -0.01;
-
-  const consensusBlocks =
-    (fullConsensusRequired && !allAgree) || (partialConsensus && !altAgrees); // at 220-300km, only altitude must agree
-
-  if (
-    signal === 'maneuvering' ||
-    signal === 'insufficient_data' ||
-    (signal !== 'decaying' && decayConfidence < 0.35) ||
-    consensusBlocks ||
-    perigeeLatest === null ||
-    perigeeLatest <= REENTRY_ALTITUDE_KM
-  ) {
-    return {
-      estimatedDaysRemaining: null,
-      estimatedReentryAt: null,
-      reentryTier: 'stable' as ReentryTier,
-    };
-  }
-
-  const decayRateKmPerDay = Math.max(
-    perigeeReg7d?.slope && perigeeReg7d.slope < 0
-      ? Math.abs(perigeeReg7d.slope)
-      : 0,
-    smaReg7d?.slope && smaReg7d.slope < 0 ? Math.abs(smaReg7d.slope) : 0,
-    perigeeReg?.slope && perigeeReg.slope < 0 ? Math.abs(perigeeReg.slope) : 0,
-    smaReg?.slope && smaReg.slope < 0 ? Math.abs(smaReg.slope) : 0
-  );
-
-  if (decayRateKmPerDay < 0.001) {
-    return {
-      estimatedDaysRemaining: null,
-      estimatedReentryAt: null,
-      reentryTier: 'stable' as ReentryTier,
-    };
-  }
-
-  const estimatedDaysRemaining = Math.max(
-    1,
-    Math.ceil(
-      ((perigeeLatest - REENTRY_ALTITUDE_KM) / decayRateKmPerDay) * (2 / 3)
-    )
-  );
-  const estimatedReentryAt = new Date(
-    nowMs + estimatedDaysRemaining * MS_PER_DAY
-  );
-
-  const rawTier = assignReentryTier(estimatedDaysRemaining, decayAltKm);
-  const tier =
-    perigeeLatest !== null && perigeeLatest < 220 && maneuverLikelihood === 0
-      ? rawTier
-      : applyConfidenceCeiling(rawTier, decayConfidence);
-
-  return {
-    estimatedDaysRemaining,
-    estimatedReentryAt,
-    reentryTier: tier,
-  };
-}
-
 function buildTrendSet(values: TrendValues) {
   return {
     updatedAt: values.updatedAt,
@@ -391,6 +157,11 @@ function buildTrendSet(values: TrendValues) {
     decaySignal: values.decaySignal,
     maneuverLikelihood: values.maneuverLikelihood,
     decayConfidence: values.decayConfidence,
+    bstarSignalStrength: values.bstarSignalStrength,
+    ndotSignalStrength: values.ndotSignalStrength,
+    altitudeSignalStrength: values.altitudeSignalStrength,
+    consensusRequired: values.consensusRequired,
+    consensusMet: values.consensusMet,
     estimatedDaysRemaining: values.estimatedDaysRemaining,
     estimatedReentryAt: values.estimatedReentryAt,
     reentryTier: values.reentryTier,
@@ -552,6 +323,11 @@ async function recomputeTrends(
       decaySignal: 'insufficient_data',
       maneuverLikelihood: 0,
       decayConfidence: 0,
+      bstarSignalStrength: null,
+      ndotSignalStrength: null,
+      altitudeSignalStrength: null,
+      consensusRequired: 'none',
+      consensusMet: false,
       estimatedDaysRemaining: null,
       estimatedReentryAt: null,
       reentryTier: 'stable',
@@ -633,31 +409,28 @@ async function recomputeTrends(
       ndotWindow.length
     : null;
 
-  const { signal, maneuverLikelihood, decayConfidence } = classifyDecaySignal(
-    bstar14d,
-    ndot14d,
-    perigee14d,
-    sma14d,
-    latest.meanMotionDot,
-    decayAltKm
-  );
-
-  const reentry = estimateReentry(
-    signal,
-    decayConfidence,
-    objectType,
-    latest.perigeeKm,
-    decayAltKm,
-    perigee14d,
-    perigee7d,
-    sma14d,
-    sma7d,
-    bstar14d,
-    ndot14d,
-    latest.meanMotionDot,
+  const explanation = explainReentryTrend({
+    bstarReg: bstar14d,
+    ndotReg: ndot14d,
+    perigeeReg: perigee14d,
+    perigeeReg7d: perigee7d,
+    smaReg: sma14d,
+    smaReg7d: sma7d,
+    ndotLatest: latest.meanMotionDot,
     ndotMean14d,
-    now,
-    maneuverLikelihood
+    decayAltKm,
+    objectType,
+    perigeeLatest: latest.perigeeKm,
+    nowMs: now,
+  });
+  const bstarSignal = explanation.signals.find(
+    (signal) => signal.name === 'bstar'
+  );
+  const ndotSignal = explanation.signals.find(
+    (signal) => signal.name === 'ndot'
+  );
+  const altitudeSignal = explanation.signals.find(
+    (signal) => signal.name === 'altitude'
   );
 
   await upsertTrend({
@@ -684,12 +457,17 @@ async function recomputeTrends(
     smaSlope14d: sma14d?.slope ?? null,
     meanMotionDotLatest: latest.meanMotionDot,
     meanMotionDotMean14d: ndotMean14d,
-    decaySignal: signal,
-    maneuverLikelihood,
-    decayConfidence,
-    estimatedDaysRemaining: reentry.estimatedDaysRemaining,
-    estimatedReentryAt: reentry.estimatedReentryAt,
-    reentryTier: reentry.reentryTier,
+    decaySignal: explanation.signal,
+    maneuverLikelihood: explanation.maneuverLikelihood,
+    decayConfidence: explanation.decayConfidence,
+    bstarSignalStrength: bstarSignal?.strength ?? null,
+    ndotSignalStrength: ndotSignal?.strength ?? null,
+    altitudeSignalStrength: altitudeSignal?.strength ?? null,
+    consensusRequired: explanation.consensus.required,
+    consensusMet: explanation.consensus.met,
+    estimatedDaysRemaining: explanation.reentry.estimatedDaysRemaining,
+    estimatedReentryAt: explanation.reentry.estimatedReentryAt,
+    reentryTier: explanation.reentry.reentryTier,
     objectType,
     isDebris,
   });

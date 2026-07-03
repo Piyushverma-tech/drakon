@@ -37,7 +37,7 @@ export function Sidebar() {
         </Link>
       </div>
 
-      <nav className="px-2 mt-6 space-y-2">
+      <nav className="px-2 mt-6 space-y-1">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = item.exact

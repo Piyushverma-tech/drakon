@@ -181,6 +181,11 @@ export type ObjectTrend = {
   decaySignal: 'decaying' | 'stable' | 'maneuvering' | 'insufficient_data';
   maneuverLikelihood: number | null;
   decayConfidence: number | null;
+  bstarSignalStrength: number | null;
+  ndotSignalStrength: number | null;
+  altitudeSignalStrength: number | null;
+  consensusRequired: 'full' | 'partial' | 'none' | null;
+  consensusMet: boolean | null;
   estimatedDaysRemaining: number | null;
   estimatedReentryAt: string | null;
   reentryTier: 'critical' | 'warning' | 'nominal' | 'stable';
