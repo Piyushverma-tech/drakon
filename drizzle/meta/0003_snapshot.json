@@ -1,6 +1,6 @@
 {
-  "id": "29006c60-0fdf-4da1-9509-c8590be5ac6d",
-  "prevId": "43087f62-b002-4d6b-a576-5e729dec1056",
+  "id": "0dcf56e0-250c-467d-a470-2851d7c8a86f",
+  "prevId": "29006c60-0fdf-4da1-9509-c8590be5ac6d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -548,6 +548,84 @@
           "columns": [
             {
               "expression": "norad_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.trend_snapshots": {
+      "name": "trend_snapshots",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "norad_id": {
+          "name": "norad_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "captured_at": {
+          "name": "captured_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "reentry_tier": {
+          "name": "reentry_tier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decay_signal": {
+          "name": "decay_signal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decay_confidence": {
+          "name": "decay_confidence",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estimated_days_remaining": {
+          "name": "estimated_days_remaining",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "idx_trend_snapshots_norad_captured": {
+          "name": "idx_trend_snapshots_norad_captured",
+          "columns": [
+            {
+              "expression": "norad_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "captured_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

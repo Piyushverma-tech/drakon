@@ -4,6 +4,7 @@ import {
   tleArchive,
   tleHistory,
   trendJobs,
+  trendSnapshots,
 } from '@/lib/db/schema';
 import {
   explainReentryTrend,
@@ -172,6 +173,14 @@ function buildTrendSet(values: TrendValues) {
 }
 
 async function upsertTrend(values: TrendValues): Promise<void> {
+  const [previous] = await db
+    .select({
+      reentryTier: objectTrends.reentryTier,
+      decaySignal: objectTrends.decaySignal,
+    })
+    .from(objectTrends)
+    .where(eq(objectTrends.noradId, values.noradId));
+
   await db
     .insert(objectTrends)
     .values(values)
@@ -179,6 +188,21 @@ async function upsertTrend(values: TrendValues): Promise<void> {
       target: objectTrends.noradId,
       set: buildTrendSet(values),
     });
+
+  const outcomeChanged =
+    !previous ||
+    previous.reentryTier !== values.reentryTier ||
+    previous.decaySignal !== values.decaySignal;
+
+  if (outcomeChanged) {
+    await db.insert(trendSnapshots).values({
+      noradId: values.noradId,
+      reentryTier: values.reentryTier ?? 'stable',
+      decaySignal: values.decaySignal ?? 'insufficient_data',
+      decayConfidence: values.decayConfidence ?? null,
+      estimatedDaysRemaining: values.estimatedDaysRemaining ?? null,
+    });
+  }
 }
 
 export async function processTrendJobs(batchSize = 100): Promise<number> {

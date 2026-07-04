@@ -185,3 +185,25 @@ export const trendJobs = pgTable(
     index('idx_trend_jobs_norad_id').on(table.noradId),
   ]
 );
+
+export const trendSnapshots = pgTable(
+  'trend_snapshots',
+  {
+    id: serial('id').primaryKey(),
+    noradId: integer('norad_id').notNull(),
+    capturedAt: timestamp('captured_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    reentryTier: text('reentry_tier').notNull(),
+    decaySignal: text('decay_signal').notNull(),
+    decayConfidence: doublePrecision('decay_confidence'),
+    estimatedDaysRemaining: integer('estimated_days_remaining'),
+  },
+  (table) => [
+    // Track record query: latest-first snapshots for one object
+    index('idx_trend_snapshots_norad_captured').on(
+      table.noradId,
+      table.capturedAt
+    ),
+  ]
+);
