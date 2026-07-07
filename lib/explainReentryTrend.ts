@@ -46,6 +46,9 @@ export interface ReentryExplanation {
 const MS_PER_DAY = 86_400_000;
 const REENTRY_ALTITUDE_KM = 120;
 
+export const SIGNAL_WEIGHTS = { bstar: 0.35, ndot: 0.25, altitude: 0.4 };
+export const SIGNAL_AGREE_THRESHOLDS = { bstar: 0.3, ndot: 0.3, altitude: 0.2 };
+
 export function bstarSignalStrength(bstarReg: RegressionResult): number {
   if (!bstarReg || bstarReg.slope <= 0) return 0;
   return Math.min(1, bstarReg.rSquared * Math.min(1, bstarReg.slope / 1e-7));
@@ -119,27 +122,31 @@ export function classifyDecaySignal(
     {
       name: 'bstar',
       strength: bstarSig,
-      weight: 0.35,
-      contribution: bstarSig * 0.35,
-      agrees: bstarSig >= 0.3,
+      weight: SIGNAL_WEIGHTS.bstar,
+      contribution: bstarSig * SIGNAL_WEIGHTS.bstar,
+      agrees: bstarSig >= SIGNAL_AGREE_THRESHOLDS.bstar,
     },
     {
       name: 'ndot',
       strength: ndotSig,
-      weight: 0.25,
-      contribution: ndotSig * 0.25,
-      agrees: ndotSig >= 0.3,
+      weight: SIGNAL_WEIGHTS.ndot,
+      contribution: ndotSig * SIGNAL_WEIGHTS.ndot,
+      agrees: ndotSig >= SIGNAL_AGREE_THRESHOLDS.ndot,
     },
     {
       name: 'altitude',
       strength: altSig,
-      weight: 0.4,
-      contribution: altSig * 0.4,
-      agrees: altSig >= 0.2,
+      weight: SIGNAL_WEIGHTS.altitude,
+      contribution: altSig * SIGNAL_WEIGHTS.altitude,
+      agrees: altSig >= SIGNAL_AGREE_THRESHOLDS.altitude,
     },
   ];
 
-  const rawConfidence = 0.35 * bstarSig + 0.25 * ndotSig + 0.4 * altSig;
+  const rawConfidence =
+    SIGNAL_WEIGHTS.bstar * bstarSig +
+    SIGNAL_WEIGHTS.ndot * ndotSig +
+    SIGNAL_WEIGHTS.altitude * altSig;
+
   const decayConfidence = Math.max(
     0,
     Math.min(1, rawConfidence * (1 - maneuverLikelihood * 0.75))
@@ -200,7 +207,9 @@ export function payloadConsensusRequired(
   return objectType === 'payload' || objectType === 'unknown';
 }
 
-export function partialConsensusRequired(perigeeLatest: number | null): boolean {
+export function partialConsensusRequired(
+  perigeeLatest: number | null
+): boolean {
   return perigeeLatest !== null && perigeeLatest >= 220 && perigeeLatest < 300;
 }
 
