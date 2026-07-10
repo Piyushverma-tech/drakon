@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useMemo } from 'react';
-import { AlertTriangle, ExternalLink } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Dot } from 'lucide-react';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 import { useObjectTrendsQuery } from '@/hooks/useObjectTrendsQuery';
 import { useObjectHistoryQuery } from '@/hooks/useObjectHistoryQuery';
@@ -165,6 +165,10 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
     { label: 'Perigee', value: formatKm(entry.perigeeKm) },
     { label: 'Period', value: `${formatNumber(periodMinutes, 1)} min` },
     { label: 'Epoch', value: formatOptionalDate(entry.tleEpoch) },
+    {
+      label: 'Decay rate',
+      value: risk.decayRateKmPerDay.toFixed(2) + ' km/day',
+    },
   ].filter((row) => row.value && row.value !== '—');
 
   return (
@@ -186,22 +190,30 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
               className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-cyan-300 hover:text-cyan-200 border border-cyan-400/30 px-2.5 py-1"
             >
               Track object
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
             </Link>
           </div>
         }
         headline={displayName}
         subline={
-          <div className="flex flex-col gap-2">
-            <span>
-              {trace.verdict.headline}
-              {' · '}
-              {trace.verdict.confidenceLine}
+          <div className="flex flex-col">
+            <div className="text-[14px] text-gray-400 gap-2 flex flex-wrap items-center">
+              <div>{trace.verdict.headline}</div>
+              <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
+              <div>{trace.verdict.confidenceLine}</div>
+              <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
               {trace.computedAt && (
-                <>
-                  {' · trend computed '}
+                <div>
+                  {'Trend computed '}
                   {formatRelativeTime(trace.computedAt)}
-                </>
+                </div>
+              )}
+              <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
+              {trace.computedAt && (
+                <div>
+                  {'Version '}
+                  {objectTrendsById?.get(noradId)?.trendVersion}
+                </div>
               )}
               {!trace.isCurrentModelVersion && (
                 <span className="text-amber-400">
@@ -209,7 +221,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                   · recomputing under a newer model
                 </span>
               )}
-            </span>
+            </div>
             <span className="flex flex-wrap gap-6 py-6 text-[11px] text-gray-500">
               {ObjectMetaData.map((field) => (
                 <span key={field.label} className="whitespace-nowrap space-x-1">
@@ -239,8 +251,8 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
         }
         evidence={
           <>
-            <div className="flex justify-center gap-6">
-              <div>
+            <div className="flex flex-wrap my-6 gap-6">
+              <div className="flex-1 min-w-[280px]">
                 <p className="text-xs text-gray-500 mb-2">Altitude decay</p>
                 <EChart
                   option={altitudeOption}
@@ -249,7 +261,8 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                   loading={historyQuery.isLoading}
                 />
               </div>
-              <div>
+
+              <div className="flex-1 min-w-[280px]">
                 <p className="text-xs text-gray-500 mb-2">Bstar trend</p>
                 <EChart
                   option={bstarOption}

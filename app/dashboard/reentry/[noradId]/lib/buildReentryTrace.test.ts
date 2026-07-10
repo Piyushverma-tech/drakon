@@ -120,7 +120,7 @@ describe('buildReentryTrace', () => {
     // confidence label, never a fabricated percentage.
     expect(trace.verdict.confidenceLine).toBe('High confidence');
     expect(trace.verdict.callout).toBe(
-      'Driven by live altitude data, not the trend model'
+      'Perigee 172km — driven by live altitude data, not the trend model'
     );
 
     // The disagreement is explicit and specific, not silently swapped.

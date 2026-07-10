@@ -192,7 +192,7 @@ function buildCallout(
   if (risk.tier !== 'critical' && risk.tier !== 'warning') return null;
 
   if (risk.source === 'single_epoch' && risk.decaySignal === 'decaying') {
-    return 'Object below 220km driven by live altitude data, not the trend model';
+    return `Perigee ${Math.round(risk.perigeeKm)}km — driven by live altitude data, not the trend model`;
   }
 
   if (signals.length === 0) return null;

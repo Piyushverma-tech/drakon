@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ExternalLink } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { useMetadataForSatellite } from '@/hooks/useSatelliteMetadata';
 import { CornerAccents } from '@/components/MiniGlobe';
 import { cn } from '@/lib/utils';
@@ -172,7 +172,7 @@ export function ReentryDetailPanel({ entry, risk, className }: Props) {
           className="inline-flex items-center gap-1 text-[11px] uppercase tracking-wider text-cyan-400 hover:text-cyan-300 shrink-0"
         >
           Full analysis
-          <ExternalLink className="h-3 w-3" />
+          <ArrowRight className="h-3 w-3" />
         </Link>
       </div>
     </div>
