@@ -31,7 +31,6 @@ export function ReentryScreeningPage() {
     sortDir,
     handleSort,
     selectSatellite,
-    openOnGlobe,
   } = useReentryScreening();
 
   const [tierFilter, setTierFilter] = useState<ReentryTierFilter>('all');
@@ -133,7 +132,6 @@ export function ReentryScreeningPage() {
           <ReentryDetailPanel
             entry={selectedEntry}
             risk={selectedRisk}
-            onOpenGlobe={openOnGlobe}
             className="flex-1 h-full bg-black/50 border border-white/10"
           />
         </div>

@@ -49,6 +49,41 @@ const REENTRY_ALTITUDE_KM = 120;
 export const SIGNAL_WEIGHTS = { bstar: 0.35, ndot: 0.25, altitude: 0.4 };
 export const SIGNAL_AGREE_THRESHOLDS = { bstar: 0.3, ndot: 0.3, altitude: 0.2 };
 
+export function reconstructSignalContributions(scores: {
+  bstarSignalStrength: number | null;
+  ndotSignalStrength: number | null;
+  altitudeSignalStrength: number | null;
+}): SignalContribution[] {
+  const { bstarSignalStrength, ndotSignalStrength, altitudeSignalStrength } =
+    scores;
+
+  if (
+    bstarSignalStrength === null ||
+    ndotSignalStrength === null ||
+    altitudeSignalStrength === null
+  ) {
+    return [];
+  }
+
+  const strengths = {
+    bstar: bstarSignalStrength,
+    ndot: ndotSignalStrength,
+    altitude: altitudeSignalStrength,
+  };
+
+  return (['bstar', 'ndot', 'altitude'] as const).map((name) => {
+    const strength = strengths[name];
+    const weight = SIGNAL_WEIGHTS[name];
+    return {
+      name,
+      strength,
+      weight,
+      contribution: strength * weight,
+      agrees: strength >= SIGNAL_AGREE_THRESHOLDS[name],
+    };
+  });
+}
+
 export function bstarSignalStrength(bstarReg: RegressionResult): number {
   if (!bstarReg || bstarReg.slope <= 0) return 0;
   return Math.min(1, bstarReg.rSquared * Math.min(1, bstarReg.slope / 1e-7));

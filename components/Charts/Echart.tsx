@@ -46,6 +46,7 @@ export interface EChartProps {
     | LegendComponentOption
   >;
   height?: number | string;
+  width?: number | string;
   className?: string;
   /** Shows ECharts' built-in loading spinner, themed to match the palette. */
   loading?: boolean;
@@ -54,6 +55,7 @@ export interface EChartProps {
 export function EChart({
   option,
   height = 320,
+  width = '100%',
   className,
   loading = false,
 }: EChartProps) {
@@ -100,10 +102,6 @@ export function EChart({
   }, [loading]);
 
   return (
-    <div
-      ref={containerRef}
-      className={className}
-      style={{ height, width: '100%' }}
-    />
+    <div ref={containerRef} className={className} style={{ height, width }} />
   );
 }

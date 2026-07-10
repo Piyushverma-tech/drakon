@@ -7,10 +7,7 @@ import { useObjectTrendsQuery } from '@/hooks/useObjectTrendsQuery';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { buildReentryRiskMap } from '@/lib/objectTrendRisk';
 import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from '@/lib/solarFlux';
-import {
-  selectSingleSatellite,
-  setShowReentry,
-} from '@/lib/visualization-slice';
+import { selectSingleSatellite } from '@/lib/visualization-slice';
 import type { TleEntry } from '@/lib/types';
 import { type SortDir, type SortKey, TIER_ORDER } from '../lib/constants';
 
@@ -118,13 +115,6 @@ export function useReentryScreening() {
     [dispatch]
   );
 
-  const openOnGlobe = useCallback(() => {
-    if (focusedSatelliteId) {
-      dispatch(selectSingleSatellite(focusedSatelliteId));
-    }
-    dispatch(setShowReentry(true));
-  }, [dispatch, focusedSatelliteId]);
-
   return {
     tleLoading,
     tleError,
@@ -141,6 +131,5 @@ export function useReentryScreening() {
     sortDir,
     handleSort,
     selectSatellite,
-    openOnGlobe,
   };
 }

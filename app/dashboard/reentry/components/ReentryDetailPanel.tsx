@@ -39,16 +39,10 @@ function DetailRow({
 type Props = {
   entry: TleEntry | null;
   risk: ReentryRisk | null;
-  onOpenGlobe: () => void;
   className?: string;
 };
 
-export function ReentryDetailPanel({
-  entry,
-  risk,
-  onOpenGlobe,
-  className,
-}: Props) {
+export function ReentryDetailPanel({ entry, risk, className }: Props) {
   const metadata = useMetadataForSatellite(entry?.id ?? null);
 
   if (!entry || !risk) {
@@ -172,12 +166,12 @@ export function ReentryDetailPanel({
             Single-epoch estimate
           </span>
         )}
+
         <Link
-          href="/globe"
-          onClick={onOpenGlobe}
+          href={`/dashboard/reentry/${entry.id}`}
           className="inline-flex items-center gap-1 text-[11px] uppercase tracking-wider text-cyan-400 hover:text-cyan-300 shrink-0"
         >
-          Open globe
+          Full analysis
           <ExternalLink className="h-3 w-3" />
         </Link>
       </div>
