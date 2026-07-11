@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import redis from '@/lib/redis';
 import { ingestTleHistory } from '@/lib/jobs/ingestTleHistory';
-import { processTrendJobs } from '@/lib/jobs/computeObjectTrends';
 import { parseTleText } from '@/lib/tle';
 import { solarFluxResponseHeaders } from '@/lib/solarFlux';
 import { after } from 'next/server';
@@ -170,7 +169,6 @@ export async function GET(request: Request) {
         effectiveGroups.join(',')
       );
       console.log('[TLE] Historical ingest:', ingestResult);
-      await processTrendJobs(100);
     } catch (err) {
       console.warn('[TLE] Post-response pipeline failed:', err);
     }

@@ -1,6 +1,6 @@
-# DRAKON (in development)
+# DRAKON (In development)
 
-### Space Object Tracking & Collision Avoidance Platform
+### Orbital Decision Intelligence Platform
 
 **DRAKON** is an interactive satellite operations dashboard that visualizes real-time orbital objects, predicts potential conjunctions, and monitors fleet health.  
 The platform combines satellite telemetry, orbit propagation, and predictive analytics to enhance situational awareness and operational safety.

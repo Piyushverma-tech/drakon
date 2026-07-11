@@ -29,10 +29,10 @@ export function DecisionTrace({
     <div className="">
       <div className="flex items-center gap-2.5">{badge}</div>
       <p className="text-lg font-medium text-gray-100 mt-2">{headline}</p>
-      {subline && <div className="text-sm text-gray-400 ">{subline}</div>}
+      {subline && <div className="text-sm text-gray-400">{subline}</div>}
 
       {callout && (
-        <div className="flex items-start gap-2 px-3 py-2.5 bg-white/5 rounded-lg mb-6">
+        <div className="flex items-start gap-2 px-3 py-2.5 bg-white/5 rounded-lg mb-8">
           {callout}
         </div>
       )}

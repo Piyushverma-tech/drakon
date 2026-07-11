@@ -157,11 +157,6 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
     { label: 'Type', value: objectType },
     { label: 'Operator', value: metadata?.operator || entry.operator },
     { label: 'Country', value: metadata?.country ?? metadata?.countryCode },
-    {
-      label: 'Orbit',
-      value:
-        metadata?.orbitClass ?? getOrbitType(entry.meanMotion, entry.isDebris),
-    },
     { label: 'Perigee', value: formatKm(entry.perigeeKm) },
     { label: 'Period', value: `${formatNumber(periodMinutes, 1)} min` },
     { label: 'Epoch', value: formatOptionalDate(entry.tleEpoch) },
@@ -182,7 +177,9 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
               >
                 {trace.verdict.tier}
               </span>
-              <span className="text-[12px] text-gray-400">Norad {noradId}</span>
+              <span className="text-[12px] font-semibold text-gray-300">
+                Norad {noradId}
+              </span>
             </div>
             <Link
               href="/globe"
@@ -196,7 +193,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
         }
         headline={displayName}
         subline={
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-4">
             <div className="text-[14px] text-gray-400 gap-2 flex flex-wrap items-center">
               <div>{trace.verdict.headline}</div>
               <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
@@ -222,13 +219,13 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                 </span>
               )}
             </div>
-            <span className="flex flex-wrap gap-6 py-6 text-[11px] text-gray-500">
+            <span className="flex flex-wrap gap-6 py-4 text-[12px] text-gray-400 border-t border-white/15">
               {ObjectMetaData.map((field) => (
                 <span key={field.label} className="whitespace-nowrap space-x-1">
-                  <span className="uppercase tracking-wider text-gray-500">
+                  <span className="uppercase tracking-wider text-gray-400">
                     {field.label}
                   </span>{' '}
-                  <span className="text-gray-300 tabular-nums">
+                  <span className="text-gray-300 font-bold tabular-nums">
                     {field.value}
                   </span>
                 </span>
