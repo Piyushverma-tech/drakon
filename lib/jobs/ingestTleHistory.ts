@@ -70,25 +70,32 @@ export async function ingestTleHistory(
 
     if (archiveRows.length > 0) {
       await db.insert(tleArchive).values(archiveRows).onConflictDoNothing();
-
-      const touchedNoradIds = archiveRows.map((r) => r.noradId);
-      await db.execute(sql`
-    WITH rows_to_delete AS (
-      SELECT norad_id, epoch
-      FROM (
-        SELECT norad_id, epoch, ROW_NUMBER() OVER (
-          PARTITION BY norad_id ORDER BY epoch DESC
-        ) AS rn
-        FROM tle_archive
-        WHERE norad_id = ANY(${touchedNoradIds})
-      ) ranked
-      WHERE rn > 3
-    )
-    DELETE FROM tle_archive t
-    USING rows_to_delete r
-    WHERE t.norad_id = r.norad_id 
-      AND t.epoch = r.epoch;
-  `);
+      try {
+        const touchedNoradIds = archiveRows.map((r) => r.noradId);
+        const idList = sql.join(
+          touchedNoradIds.map((id) => sql`${id}`),
+          sql`, `
+        );
+        await db.execute(sql`
+          WITH rows_to_delete AS (
+            SELECT norad_id, epoch
+            FROM (
+              SELECT norad_id, epoch, ROW_NUMBER() OVER (
+                PARTITION BY norad_id ORDER BY epoch DESC
+              ) AS rn
+              FROM tle_archive
+              WHERE norad_id IN (${idList})
+            ) ranked
+            WHERE rn > 3
+          )
+          DELETE FROM tle_archive t
+          USING rows_to_delete r
+          WHERE t.norad_id = r.norad_id
+            AND t.epoch = r.epoch;
+        `);
+      } catch (err) {
+        console.error('tle_archive prune failed (non-fatal):', err);
+      }
     }
 
     // ── Enqueue trend jobs for this chunk only ──────────────────────────────
