@@ -177,7 +177,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
               >
                 {trace.verdict.tier}
               </span>
-              <span className="text-[12px] font-semibold text-gray-300">
+              <span className="text-[13px] font-semibold text-gray-300">
                 Norad {noradId}
               </span>
             </div>
