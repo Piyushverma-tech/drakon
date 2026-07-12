@@ -13,6 +13,36 @@ import {
   type ReentrySourceFilter,
   type ReentryTierFilter,
 } from './ReentryTableNavigation';
+import {
+  buildTriageBuckets,
+  type TriageBucket,
+} from '../lib/buildTriageBuckets';
+
+const TRIAGE_TABS: Array<{
+  value: TriageBucket;
+  label: string;
+  description: string;
+  accentClassName: string;
+}> = [
+  {
+    value: 'active',
+    label: 'Active',
+    description: 'Sustained critical or warning, nothing new',
+    accentClassName: 'text-cyan-300/90',
+  },
+  {
+    value: 'new_escalated',
+    label: 'New Escalated',
+    description: 'Appeared or got worse in the last 72 hours',
+    accentClassName: 'text-red-400',
+  },
+  {
+    value: 'watching',
+    label: 'Watching',
+    description: 'Nominal tier, stable',
+    accentClassName: 'text-gray-400',
+  },
+];
 
 export function ReentryScreeningPage() {
   const {
@@ -26,6 +56,7 @@ export function ReentryScreeningPage() {
     selectedSatId,
     selectedEntry,
     selectedRisk,
+    changesByNoradId,
 
     sortKey,
     sortDir,
@@ -35,6 +66,7 @@ export function ReentryScreeningPage() {
 
   const [tierFilter, setTierFilter] = useState<ReentryTierFilter>('all');
   const [sourceFilter, setSourceFilter] = useState<ReentrySourceFilter>('all');
+  const [triageFilter, setTriageFilter] = useState<TriageBucket>('active');
   const [miniGlobeFocusKey, setMiniGlobeFocusKey] = useState(0);
 
   const tableRows = useMemo(
@@ -84,23 +116,66 @@ export function ReentryScreeningPage() {
     [selectSatellite]
   );
 
+  const triageBuckets = useMemo(
+    () => buildTriageBuckets(tableRows, changesByNoradId),
+    [tableRows, changesByNoradId]
+  );
+
+  const triageRows = useMemo(() => {
+    if (triageFilter === 'new_escalated') return triageBuckets.newEscalated;
+    if (triageFilter === 'active') return triageBuckets.active;
+    return triageBuckets.watching;
+  }, [triageBuckets, triageFilter]);
+
+  const selectedTriageTab = TRIAGE_TABS.find(
+    (tab) => tab.value === triageFilter
+  );
+
+  const triageCounts: Record<TriageBucket, number> = {
+    active: triageBuckets.active.length,
+    new_escalated: triageBuckets.newEscalated.length,
+    watching: triageBuckets.watching.length,
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-[13px] font-bold uppercase tracking-[0.25rem] text-cyan-300/90">
+            {/* <h1 className="text-[13px] font-bold uppercase tracking-[0.25rem] text-cyan-300/90">
               Re-entry Screening
-            </h1>
+            </h1> */}
+            {/* {trendsFetching && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-cyan-400/70 uppercase tracking-wider">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                trends
+              </span>
+            )} */}
+          </div>
+          {/* <p className="text-[11px] text-gray-400 mt-1">
+            Flagged decaying objects sorted by estimated lifetime. Grouped by
+            what needs attention first
+          </p> */}
+        </div>
+        <div className="min-w-0 flex flex-col lg:mr-auto text-[11px]">
+          <div className="flex flex-wrap items-start gap-2">
+            <h2
+              className={`font-bold uppercase tracking-[0.25rem]  ${selectedTriageTab?.accentClassName ?? 'text-cyan-300'}`}
+            >
+              {selectedTriageTab?.label ?? 'Active'}
+            </h2>
             {trendsFetching && (
               <span className="inline-flex items-center gap-1 text-[10px] text-cyan-400/70 uppercase tracking-wider">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 trends
               </span>
             )}
+            <span className="tabular-nums text-[12px] text-gray-400 ">
+              {triageRows.length}/{tableRows.length}
+            </span>
           </div>
-          <p className="text-[11px] text-gray-400 mt-1">
-            Flagged decaying objects sorted by estimated lifetime
+          <p className="mt-0.5 text-[12px] text-gray-400 ">
+            {selectedTriageTab?.description}
           </p>
         </div>
 
@@ -112,6 +187,10 @@ export function ReentryScreeningPage() {
             sourceFilter={sourceFilter}
             onTierFilterChange={setTierFilter}
             onSourceFilterChange={setSourceFilter}
+            TriageTabs={TRIAGE_TABS}
+            triageFilter={triageFilter}
+            triageCounts={triageCounts}
+            setTriageFilter={setTriageFilter}
             className="lg:ml-auto"
           />
         )}
@@ -148,16 +227,22 @@ export function ReentryScreeningPage() {
         <p className="py-16 text-sm text-gray-500">
           No objects currently flagged for re-entry.
         </p>
+      ) : tableRows.length === 0 ? (
+        <p className="py-16 text-sm text-gray-500">
+          No objects match the current filters.
+        </p>
       ) : (
-        <ReentryTable
-          rows={tableRows}
-          entryById={entryById}
-          selectedSatId={selectedSatId}
-          sortKey={sortKey}
-          sortDir={sortDir}
-          onSort={handleSort}
-          onSelect={handleSelectSatellite}
-        />
+        <div>
+          <ReentryTable
+            rows={triageRows}
+            entryById={entryById}
+            selectedSatId={selectedSatId}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={handleSort}
+            onSelect={handleSelectSatellite}
+          />
+        </div>
       )}
 
       <p className=" text-[9.5px] text-gray-500 leading-relaxed text-center max-w-[800px] mx-auto mt-4">

@@ -10,6 +10,7 @@ import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from '@/lib/solarFlux';
 import { selectSingleSatellite } from '@/lib/visualization-slice';
 import type { TleEntry } from '@/lib/types';
 import { type SortDir, type SortKey, TIER_ORDER } from '../lib/constants';
+import { useRecentTrendChangesQuery } from '@/hooks/useRecentTrendChangesQuery';
 
 const EMPTY_ENTRIES: TleEntry[] = [];
 
@@ -26,6 +27,7 @@ export function useReentryScreening() {
   } = useTleEntriesQuery();
   const { data: objectTrendsById, isFetching: trendsFetching } =
     useObjectTrendsQuery(true);
+  const { changesByNoradId } = useRecentTrendChangesQuery(true);
 
   const { query: searchQuery } = useModuleSearch(
     'Search by name or NORAD ID...'
@@ -126,7 +128,7 @@ export function useReentryScreening() {
     selectedSatId,
     selectedEntry,
     selectedRisk,
-
+    changesByNoradId,
     sortKey,
     sortDir,
     handleSort,

@@ -1,10 +1,10 @@
 'use client';
 
-import { useMemo } from 'react';
 import { CircleDot } from 'lucide-react';
 import type { ReentryRisk } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import type { ReentryTier } from '../lib/constants';
+import { TriageBucket } from '../lib/buildTriageBuckets';
 
 export type ReentryTierFilter = 'all' | ReentryTier;
 export type ReentrySourceFilter = 'all' | 'trend' | 'single';
@@ -29,39 +29,24 @@ type Props = {
   sourceFilter: ReentrySourceFilter;
   onTierFilterChange: (filter: ReentryTierFilter) => void;
   onSourceFilterChange: (filter: ReentrySourceFilter) => void;
+  TriageTabs: Array<{ value: TriageBucket; label: string }>;
+  triageFilter: TriageBucket;
+  setTriageFilter: (filter: TriageBucket) => void;
+  triageCounts: Record<TriageBucket, number>;
   className?: string;
 };
 
 export function ReentryTableNavigation({
-  rows,
-  visibleCount,
   tierFilter,
   sourceFilter,
   onTierFilterChange,
   onSourceFilterChange,
+  TriageTabs,
+  triageFilter,
+  setTriageFilter,
+  triageCounts,
   className,
 }: Props) {
-  const tierCounts = useMemo(() => {
-    const counts: Record<ReentryTierFilter, number> = {
-      all: rows.length,
-      critical: 0,
-      warning: 0,
-      nominal: 0,
-    };
-
-    for (const risk of rows) {
-      if (
-        risk.tier === 'critical' ||
-        risk.tier === 'warning' ||
-        risk.tier === 'nominal'
-      ) {
-        counts[risk.tier] += 1;
-      }
-    }
-
-    return counts;
-  }, [rows]);
-
   return (
     <div
       className={cn(
@@ -69,15 +54,6 @@ export function ReentryTableNavigation({
         className
       )}
     >
-      <div className="flex items-center justify-between gap-3 px-1 xl:flex-col xl:items-start xl:justify-center xl:gap-0">
-        <span className="text-[10px] uppercase tracking-[0.2em] text-gray-500 ">
-          Showing
-        </span>
-        <span className="font-mono text-[12px] tabular-nums text-cyan-300">
-          {visibleCount}/{rows.length}
-        </span>
-      </div>
-
       <div className="flex flex-wrap gap-1 rounded-md border border-white/10 bg-slate-600/5 p-1">
         {TIER_FILTERS.map((filter) => {
           const active = tierFilter === filter.value;
@@ -96,13 +72,33 @@ export function ReentryTableNavigation({
             >
               <CircleDot className="size-3" />
               {filter.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className=" flex flex-wrap gap-1 rounded-md border border-white/10 bg-slate-600/5 p-1">
+        {TriageTabs.map((tab) => {
+          const active = triageFilter === tab.value;
+
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setTriageFilter(tab.value)}
+              className={cn(
+                'rounded-md px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
+                active
+                  ? 'bg-cyan-500/30 text-white'
+                  : 'text-gray-400 hover:bg-white/10 hover:text-gray-200'
+              )}
+            >
+              {tab.label}
               <span
-                className={cn(
-                  'rounded-full px-1.5 py-0.5 text-[10px]',
+                className={`rounded-full px-1.5 py-0.5 text-[10px] ${
                   active ? 'bg-black/15' : 'bg-white/10 text-gray-500'
-                )}
+                }`}
               >
-                {tierCounts[filter.value]}
+                {triageCounts[tab.value]}
               </span>
             </button>
           );

@@ -113,7 +113,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
 
   if (tleLoading || trendsFetching) {
     return (
-      <div className="max-w-3xl mx-auto p-6 text-sm text-gray-400">
+      <div className="max-w-6xl mx-auto p-6 text-sm text-center text-gray-400">
         Loading decision trace…
       </div>
     );
@@ -121,7 +121,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
 
   if (tleError) {
     return (
-      <div className="max-w-3xl mx-auto p-6 text-sm text-red-400">
+      <div className="max-w-6xl mx-auto p-6 text-sm text-red-400">
         {tleErrorObj instanceof Error
           ? tleErrorObj.message
           : 'Unable to load satellite data right now.'}
