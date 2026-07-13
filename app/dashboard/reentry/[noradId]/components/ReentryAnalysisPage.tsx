@@ -2,7 +2,16 @@
 
 import Link from 'next/link';
 import { useCallback, useMemo } from 'react';
-import { AlertTriangle, ArrowRight, Dot } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Dot,
+  Flag,
+  History,
+  RefreshCw,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 import { useObjectTrendsQuery } from '@/hooks/useObjectTrendsQuery';
 import { useObjectHistoryQuery } from '@/hooks/useObjectHistoryQuery';
@@ -25,6 +34,12 @@ import {
   buildBstarChartOption,
 } from '../lib/buildReentryChartOptions';
 
+import { useObjectSnapshotsQuery } from '@/hooks/useObjectSnapshotsQuery';
+import {
+  buildChangeTimeline,
+  ChangeDirection,
+} from '../lib/buildChangeTimeline';
+
 const TIER_BADGE: Record<string, string> = {
   critical: 'border-red-500/40 bg-red-500/10 text-red-400',
   warning: 'border-amber-500/40 bg-amber-500/10 text-amber-400',
@@ -35,6 +50,20 @@ const TIER_BADGE: Record<string, string> = {
 const TIER_EMPHASIS: Record<string, TraceStepEmphasis> = {
   critical: 'critical',
   warning: 'warning',
+};
+
+const DIRECTION_ICON: Record<ChangeDirection, typeof TrendingUp> = {
+  escalated: TrendingUp,
+  improved: TrendingDown,
+  lateral: RefreshCw,
+  first: Flag,
+};
+
+const DIRECTION_COLOR: Record<ChangeDirection, string> = {
+  escalated: 'text-red-400',
+  improved: 'text-emerald-400',
+  lateral: 'text-gray-500',
+  first: 'text-cyan-400',
 };
 
 type MetadataRow = {
@@ -72,6 +101,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
   const { data: objectTrendsById, isFetching: trendsFetching } =
     useObjectTrendsQuery(true);
   const historyQuery = useObjectHistoryQuery(noradId, 30);
+  const snapshotsQuery = useObjectSnapshotsQuery(noradId);
   const metadata = useMetadataForSatellite(noradId);
 
   const entry = useMemo(
@@ -104,6 +134,11 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
   const bstarOption = useMemo(
     () => buildBstarChartOption(historyQuery.data?.entries ?? []),
     [historyQuery.data]
+  );
+
+  const timeline = useMemo(
+    () => buildChangeTimeline(snapshotsQuery.data?.snapshots ?? []),
+    [snapshotsQuery.data]
   );
 
   const handleTrackObject = useCallback(() => {
@@ -254,7 +289,6 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                 <EChart
                   option={altitudeOption}
                   height={240}
-                  width={560}
                   loading={historyQuery.isLoading}
                 />
               </div>
@@ -264,15 +298,58 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                 <EChart
                   option={bstarOption}
                   height={240}
-                  width={560}
                   loading={historyQuery.isLoading}
                 />
               </div>
             </div>
-            <p className="text-xs text-gray-500 mt-10">
+
+            <div className="mt-8 border-t border-white/10 pt-6">
+              <p className="text-sm text-gray-500 mb-3 flex items-center gap-1.5">
+                <History className="h-3.5 w-3.5" aria-hidden="true" />
+                Change history
+              </p>
+              {snapshotsQuery.isLoading ? (
+                <p className="text-[12px] text-gray-500">Loading…</p>
+              ) : timeline.length === 0 ? (
+                <p className="text-[12px] text-gray-500">
+                  No classification changes recorded yet — this object&apos;s
+                  tier and signal have held steady since tracking began.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {timeline.map((event) => {
+                    const Icon = DIRECTION_ICON[event.direction];
+                    return (
+                      <li key={event.id} className="flex items-start gap-2.5">
+                        <Icon
+                          className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${DIRECTION_COLOR[event.direction]}`}
+                          aria-hidden="true"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-[13px] text-gray-300">
+                            {event.headline}
+                            <span className="text-gray-500">
+                              {' — '}
+                              {event.detail}
+                            </span>
+                          </p>
+                          <p className="text-[11px] text-gray-600">
+                            {formatRelativeTime(event.capturedAt)}
+                            {' · '}
+                            {formatAbsoluteUtc(event.capturedAt)}
+                          </p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <p className="text-xs text-center text-gray-500 border-t border-white/10 mt-10 pt-4">
               {trend?.epochsAvailable ?? '—'} epochs
               {' · '}
-              {trend?.historyDaysAvailable ?? '—'} days history
+              {trend?.historyDaysAvailable.toFixed(1) ?? '—'} days history
               {trace.computedAt && (
                 <> · trend computed at {formatAbsoluteUtc(trace.computedAt)}</>
               )}

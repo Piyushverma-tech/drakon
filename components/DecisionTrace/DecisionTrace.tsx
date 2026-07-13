@@ -21,7 +21,7 @@ export function DecisionTrace({
   callout,
   children,
   evidence,
-  defaultExpanded = true,
+  defaultExpanded = false,
 }: DecisionTraceProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
