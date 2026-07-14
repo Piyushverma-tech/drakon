@@ -7,8 +7,9 @@ export interface DecisionTraceProps {
   badge: ReactNode;
   headline: string;
   subline?: ReactNode;
-  callout?: ReactNode;
-  /** Reasoning steps, in order -- TraceStep elements. */
+  // One-line synthesized summary.
+  summary?: ReactNode;
+  // Reasoning steps, in order -- TraceStep elements.
   children: ReactNode;
   evidence?: ReactNode;
   defaultExpanded?: boolean;
@@ -18,7 +19,7 @@ export function DecisionTrace({
   badge,
   headline,
   subline,
-  callout,
+  summary,
   children,
   evidence,
   defaultExpanded = false,
@@ -31,10 +32,13 @@ export function DecisionTrace({
       <p className="text-lg font-medium text-gray-100 mt-2">{headline}</p>
       {subline && <div className="text-sm text-gray-400">{subline}</div>}
 
-      {callout && (
-        <div className="flex items-start gap-2 px-3 py-2.5 bg-white/5 rounded-lg mb-8">
-          {callout}
-        </div>
+      {summary && (
+        <>
+          <h4 className="text-[13px] text-cyan-300 mt-2">Summary</h4>
+          <p className="text-[13px] text-gray-300 leading-relaxed bg-white/5 px-4 py-2.5 rounded-lg mt-2 mb-4">
+            {summary}
+          </p>
+        </>
       )}
 
       <button
@@ -52,9 +56,7 @@ export function DecisionTrace({
       </button>
 
       {expanded && (
-        <div className=" bg-white/5 px-3 py-2.5 rounded-lg pt-4 flex flex-col gap-3.5">
-          {children}
-        </div>
+        <div className="bg-white/5 px-4 py-4 rounded-lg">{children}</div>
       )}
 
       {evidence && (

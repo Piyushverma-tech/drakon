@@ -6,9 +6,11 @@ import {
   EyeClosed,
   TrainTrack,
   Orbit,
+  TrendingDown,
 } from 'lucide-react';
 import { ReentryRisk, SatelliteMetadata } from '@/lib/types';
 import { SelectedMeta } from '../../globe-model';
+import Link from 'next/link';
 
 type Props = {
   selected: SelectedMeta | null;
@@ -119,7 +121,7 @@ const DEFAULT_OPEN: Record<string, boolean> = {
   position: true,
   dynamics: true,
   orbit: true,
-  reentry: true,
+  reentry: false,
   tle: false,
 };
 
@@ -211,6 +213,17 @@ const LeftPanel = memo(function LeftPanel({
           >
             <TrainTrack size={16} />
           </button>
+          {hasReentry && (
+            <Link
+              href={`/dashboard/reentry/${selected.id}`}
+              type="button"
+              title="View Re-entry Analysis"
+              className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer border-red-400/50 bg-red-500/20 text-red-200 hover:bg-red-500/30'
+                `}
+            >
+              <TrendingDown size={16} />
+            </Link>
+          )}
         </div>
         {/* NORAD badge — always visible */}
         <div className="px-3 shrink-0">
@@ -226,16 +239,16 @@ const LeftPanel = memo(function LeftPanel({
 
         {/* Re-entry risk badge — always visible if present */}
         {hasReentry && (
-          <div className="px-3 py-1.5 shrink-0">
-            <div
-              className={`flex items-center justify-between px-2 py-1 border ${
-                reentryRisk.tier === 'critical'
-                  ? 'border-red-500/40 bg-red-500/10'
-                  : reentryRisk.tier === 'warning'
-                    ? 'border-amber-500/40 bg-amber-500/10'
-                    : 'border-yellow-500/40 bg-yellow-500/10'
-              }`}
-            >
+          <div
+            className={`shrink-0 px-2 py-2 border ${
+              reentryRisk.tier === 'critical'
+                ? 'border-red-500/40 bg-red-500/10'
+                : reentryRisk.tier === 'warning'
+                  ? 'border-amber-500/40 bg-amber-500/10'
+                  : 'border-yellow-500/40 bg-yellow-500/10'
+            }`}
+          >
+            <div className={`flex items-center justify-between  `}>
               <span className="text-[9px] uppercase tracking-widest text-gray-400">
                 Re-entry Risk
               </span>
@@ -251,6 +264,76 @@ const LeftPanel = memo(function LeftPanel({
                 {reentryRisk.tier}
               </span>
             </div>
+            <SectionLabel
+              collapsible
+              open={openSections.reentry}
+              onToggle={() => toggle('reentry')}
+            >
+              Re-entry Detail
+            </SectionLabel>
+            {openSections.reentry && (
+              <>
+                {reentryRisk.estimatedDaysRemaining !== null && (
+                  <StatRow
+                    label="Est. lifetime"
+                    value={`~${reentryRisk.estimatedDaysRemaining}d`}
+                    accent={reentryRisk.tier === 'critical'}
+                  />
+                )}
+                <StatRow
+                  label="Probability"
+                  value={formatConfidence(reentryRisk.confidence)}
+                  accent={reentryRisk.confidence === 'high'}
+                />
+                <StatRow
+                  label="Signal"
+                  value={formatSignal(reentryRisk.decaySignal)}
+                  accent={reentryRisk.source === 'multi_epoch'}
+                />
+                {reentryRisk.decayConfidence !== undefined && (
+                  <StatRow
+                    label="Trend conf."
+                    value={`${Math.round((reentryRisk.decayConfidence ?? 0) * 100)}%`}
+                  />
+                )}
+                {reentryRisk.epochsAvailable !== undefined && (
+                  <StatRow
+                    label="Epochs"
+                    value={`${reentryRisk.epochsAvailable}`}
+                  />
+                )}
+                {reentryRisk.historyDaysAvailable !== undefined && (
+                  <StatRow
+                    label="History"
+                    value={`${reentryRisk.historyDaysAvailable.toFixed(1)}d`}
+                  />
+                )}
+                {reentryRisk.estimatedReentryAt && (
+                  <StatRow
+                    label="Est. date"
+                    value={new Date(reentryRisk.estimatedReentryAt)
+                      .toISOString()
+                      .slice(0, 10)}
+                  />
+                )}
+                <StatRow
+                  label="N-dot"
+                  value={reentryRisk.signalsAgree ? 'Agrees' : 'Disagrees'}
+                />
+                <StatRow
+                  label="BSTAR"
+                  value={reentryRisk.bstar.toExponential(2)}
+                />
+                <StatRow
+                  label="N-dot value"
+                  value={reentryRisk.meanMotionDot.toExponential(2)}
+                />
+                <StatRow
+                  label="Decay rate"
+                  value={`${reentryRisk.decayRateKmPerDay.toFixed(2)} km/day`}
+                />
+              </>
+            )}
           </div>
         )}
 
@@ -331,80 +414,12 @@ const LeftPanel = memo(function LeftPanel({
           )}
 
           {/* RE-ENTRY detail — open by default if present */}
-          {hasReentry && (
+          {/* {hasReentry && (
             <>
-              <SectionLabel
-                collapsible
-                open={openSections.reentry}
-                onToggle={() => toggle('reentry')}
-              >
-                Re-entry Detail
-              </SectionLabel>
-              {openSections.reentry && (
-                <>
-                  {reentryRisk.estimatedDaysRemaining !== null && (
-                    <StatRow
-                      label="Est. lifetime"
-                      value={`~${reentryRisk.estimatedDaysRemaining}d`}
-                      accent={reentryRisk.tier === 'critical'}
-                    />
-                  )}
-                  <StatRow
-                    label="Probability"
-                    value={formatConfidence(reentryRisk.confidence)}
-                    accent={reentryRisk.confidence === 'high'}
-                  />
-                  <StatRow
-                    label="Signal"
-                    value={formatSignal(reentryRisk.decaySignal)}
-                    accent={reentryRisk.source === 'multi_epoch'}
-                  />
-                  {reentryRisk.decayConfidence !== undefined && (
-                    <StatRow
-                      label="Trend conf."
-                      value={`${Math.round((reentryRisk.decayConfidence ?? 0) * 100)}%`}
-                    />
-                  )}
-                  {reentryRisk.epochsAvailable !== undefined && (
-                    <StatRow
-                      label="Epochs"
-                      value={`${reentryRisk.epochsAvailable}`}
-                    />
-                  )}
-                  {reentryRisk.historyDaysAvailable !== undefined && (
-                    <StatRow
-                      label="History"
-                      value={`${reentryRisk.historyDaysAvailable.toFixed(1)}d`}
-                    />
-                  )}
-                  {reentryRisk.estimatedReentryAt && (
-                    <StatRow
-                      label="Est. date"
-                      value={new Date(reentryRisk.estimatedReentryAt)
-                        .toISOString()
-                        .slice(0, 10)}
-                    />
-                  )}
-                  <StatRow
-                    label="N-dot"
-                    value={reentryRisk.signalsAgree ? 'Agrees' : 'Disagrees'}
-                  />
-                  <StatRow
-                    label="BSTAR"
-                    value={reentryRisk.bstar.toExponential(2)}
-                  />
-                  <StatRow
-                    label="N-dot value"
-                    value={reentryRisk.meanMotionDot.toExponential(2)}
-                  />
-                  <StatRow
-                    label="Decay rate"
-                    value={`${reentryRisk.decayRateKmPerDay.toFixed(2)} km/day`}
-                  />
-                </>
+              
               )}
             </>
-          )}
+          )} */}
 
           {/* MISSION — collapsed by default */}
           {metadata && (

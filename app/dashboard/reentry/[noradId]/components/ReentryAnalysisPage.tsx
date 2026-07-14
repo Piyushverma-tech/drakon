@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useCallback, useMemo } from 'react';
 import {
-  AlertTriangle,
   ArrowRight,
   Dot,
   Flag,
@@ -15,6 +14,7 @@ import {
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 import { useObjectTrendsQuery } from '@/hooks/useObjectTrendsQuery';
 import { useObjectHistoryQuery } from '@/hooks/useObjectHistoryQuery';
+import { useObjectSnapshotsQuery } from '@/hooks/useObjectSnapshotsQuery';
 import { useMetadataForSatellite } from '@/hooks/useSatelliteMetadata';
 import { resolveReentryRisk } from '@/lib/objectTrendRisk';
 import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from '@/lib/solarFlux';
@@ -33,11 +33,9 @@ import {
   buildAltitudeChartOption,
   buildBstarChartOption,
 } from '../lib/buildReentryChartOptions';
-
-import { useObjectSnapshotsQuery } from '@/hooks/useObjectSnapshotsQuery';
 import {
   buildChangeTimeline,
-  ChangeDirection,
+  type ChangeDirection,
 } from '../lib/buildChangeTimeline';
 
 const TIER_BADGE: Record<string, string> = {
@@ -112,10 +110,6 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
   const solarFluxMultiplier =
     tleData?.solarFluxMultiplier ?? DEFAULT_SOLAR_FLUX_MULTIPLIER;
 
-  // Same resolveReentryRisk() the dashboard and detail panel already
-  // render -- not buildReentryRiskMap(), which deliberately drops
-  // tier === 'stable' objects for the list view. This page needs to be
-  // able to show any object, including stable ones.
   const risk = useMemo(
     () =>
       entry ? resolveReentryRisk(entry, trend, solarFluxMultiplier) : null,
@@ -233,19 +227,25 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
               <div>{trace.verdict.headline}</div>
               <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
               <div>{trace.verdict.confidenceLine}</div>
-              <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
+
               {trace.computedAt && (
-                <div>
-                  {'Trend computed '}
-                  {formatRelativeTime(trace.computedAt)}
-                </div>
+                <>
+                  <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
+                  <div>
+                    {'Trend computed '}
+                    {formatRelativeTime(trace.computedAt)}
+                  </div>
+                </>
               )}
-              <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
+
               {trace.computedAt && (
-                <div>
-                  {'Version '}
-                  {objectTrendsById?.get(noradId)?.trendVersion}
-                </div>
+                <>
+                  <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
+                  <div>
+                    {'Version '}
+                    {objectTrendsById?.get(noradId)?.trendVersion}
+                  </div>
+                </>
               )}
               {!trace.isCurrentModelVersion && (
                 <span className="text-amber-400">
@@ -268,19 +268,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
             </span>
           </div>
         }
-        callout={
-          trace.verdict.callout ? (
-            <>
-              <AlertTriangle
-                className="h-4 w-4 text-gray-400 mt-0.5 shrink-0"
-                aria-hidden="true"
-              />
-              <p className="text-[13px] text-gray-300">
-                {trace.verdict.callout}
-              </p>
-            </>
-          ) : undefined
-        }
+        summary={trace.verdict.summary}
         evidence={
           <>
             <div className="flex flex-wrap my-6 gap-6">
@@ -326,7 +314,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                           aria-hidden="true"
                         />
                         <div className="min-w-0">
-                          <p className="text-[13px] text-gray-300">
+                          <p className="text-[12px] text-gray-300">
                             {event.headline}
                             <span className="text-gray-500">
                               {' — '}
@@ -357,14 +345,16 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
           </>
         }
       >
-        {trace.steps.map((step) => (
+        {trace.steps.map((step, index) => (
           <TraceStep
             key={step.id}
+            stage={step.stage}
             icon={step.icon}
             status={step.status}
             claim={step.claim}
             detail={step.detail}
             emphasis={step.id === 'tier' ? tierEmphasis : null}
+            isLast={index === trace.steps.length - 1}
           />
         ))}
       </DecisionTrace>

@@ -5,6 +5,7 @@ import {
 import { ObjectTrend, ReentryRisk } from '@/lib/types';
 
 export type TraceStepIcon =
+  | 'database'
   | 'check'
   | 'x'
   | 'shield-check'
@@ -17,6 +18,7 @@ export type TraceStepStatus = 'agree' | 'disagree' | 'neutral';
 
 export interface ReentryTraceStep {
   id: string;
+  stage: string;
   icon: TraceStepIcon;
   status: TraceStepStatus;
   claim: string;
@@ -27,15 +29,12 @@ export interface ReentryVerdict {
   tier: ReentryRisk['tier'];
   headline: string;
   confidenceLine: string;
-  /** Only set for critical/warning tiers -- the one-line "why" between the
-   * verdict and the trace toggle. Null for stable/nominal. */
-  callout: string | null;
+  summary: string;
 }
 
 export interface ReentryTrace {
   verdict: ReentryVerdict;
   steps: ReentryTraceStep[];
-  /** Verbatim from the persisted object_trends.updatedAt column. */
   computedAt: string | null;
   isCurrentModelVersion: boolean;
 }
@@ -68,8 +67,39 @@ const SIGNAL_LABEL: Record<SignalContribution['name'], string> = {
   altitude: 'Altitude',
 };
 
+const CONFIDENCE_WORD: Record<ReentryRisk['confidence'], string> = {
+  high: 'high',
+  medium: 'moderate',
+  low: 'low',
+};
+
+function loadHistoryStep(trend: ObjectTrend): ReentryTraceStep {
+  const epochs = trend.epochsAvailable;
+  const days = trend.historyDaysAvailable;
+  return {
+    id: 'load-history',
+    stage: 'Load history',
+    icon: 'database',
+    status: 'neutral',
+    claim:
+      epochs === null
+        ? 'Historical epochs unavailable'
+        : `Loaded ${epochs} historical epoch${epochs === 1 ? '' : 's'}`,
+    detail:
+      days === null
+        ? 'basis for regression'
+        : `spanning ${days.toFixed(1)} days — basis for regression`,
+  };
+}
+
 function signalStep(signal: SignalContribution): ReentryTraceStep {
   const label = SIGNAL_LABEL[signal.name];
+  const stage =
+    signal.name === 'bstar'
+      ? 'Bstar analysis'
+      : signal.name === 'ndot'
+        ? 'N-dot analysis'
+        : 'Altitude analysis';
   const claim = signal.agrees
     ? signal.name === 'bstar'
       ? `${label} is increasing`
@@ -80,6 +110,7 @@ function signalStep(signal: SignalContribution): ReentryTraceStep {
 
   return {
     id: `signal-${signal.name}`,
+    stage,
     icon: signal.agrees ? 'check' : 'x',
     status: signal.agrees ? 'agree' : 'disagree',
     claim,
@@ -94,6 +125,7 @@ function consensusStep(trend: ObjectTrend): ReentryTraceStep | null {
   if (consensusRequired === 'none') {
     return {
       id: 'consensus',
+      stage: 'Consensus',
       icon: 'shield-check',
       status: 'neutral',
       claim: 'No cross-signal consensus required',
@@ -108,6 +140,7 @@ function consensusStep(trend: ObjectTrend): ReentryTraceStep | null {
 
   return {
     id: 'consensus',
+    stage: 'Consensus',
     icon: consensusMet ? 'shield-check' : 'shield-x',
     status: consensusMet ? 'agree' : 'disagree',
     claim: consensusMet
@@ -121,6 +154,7 @@ function tierStep(risk: ReentryRisk): ReentryTraceStep {
   if (risk.decaySignal === 'maneuvering') {
     return {
       id: 'tier',
+      stage: 'Verdict',
       icon: 'alert-triangle',
       status: 'neutral',
       claim: 'Maneuver signature detected',
@@ -131,6 +165,7 @@ function tierStep(risk: ReentryRisk): ReentryTraceStep {
   if (risk.estimatedDaysRemaining === null) {
     return {
       id: 'tier',
+      stage: 'Verdict',
       icon: 'help-circle',
       status: 'neutral',
       claim: 'No re-entry estimate',
@@ -140,6 +175,7 @@ function tierStep(risk: ReentryRisk): ReentryTraceStep {
 
   return {
     id: 'tier',
+    stage: 'Verdict',
     icon: 'target-arrow',
     status: 'agree',
     claim: `Re-entry estimated in ~${risk.estimatedDaysRemaining} days`,
@@ -164,6 +200,7 @@ function overrideStep(
 
   return {
     id: 'override',
+    stage: 'Live override',
     icon: 'alert-triangle',
     status: 'neutral',
     claim: 'Live altitude data overrides the trend model',
@@ -185,25 +222,69 @@ function buildConfidenceLine(risk: ReentryRisk): string {
   return `${capitalize(risk.confidence)} confidence`;
 }
 
-function buildCallout(
+function characterize(
   risk: ReentryRisk,
   signals: SignalContribution[]
-): string | null {
-  if (risk.tier !== 'critical' && risk.tier !== 'warning') return null;
-
-  if (risk.source === 'single_epoch' && risk.decaySignal === 'decaying') {
-    return `Perigee ${Math.round(risk.perigeeKm)}km — driven by live altitude data, not the trend model`;
+): string {
+  if (risk.decaySignal === 'maneuvering') {
+    return 'This object shows a probable maneuver signature, with drag behavior inconsistent with passive decay';
   }
 
-  if (signals.length === 0) return null;
+  if (risk.estimatedDaysRemaining === null) {
+    return 'This object shows no significant orbital decay at this time';
+  }
+
+  if (risk.source === 'single_epoch' && risk.decaySignal === 'decaying') {
+    return `This object's live perigee of ${Math.round(risk.perigeeKm)}km places it in an active decay regime, ahead of what the trend model has captured`;
+  }
+
+  if (signals.length === 0) {
+    return 'This object is showing orbital decay';
+  }
+
   const agreeing = signals.filter((s) => s.agrees);
-  if (agreeing.length === signals.length) return 'All signals agree';
-  if (agreeing.length === 0) return null;
+  if (agreeing.length === signals.length) {
+    return 'This object is showing sustained orbital decay, with bstar, n-dot, and altitude signals all in agreement';
+  }
+  if (agreeing.length === 0) {
+    return 'This object shows a borderline decay signal, with no individual indicator clearly crossing its threshold';
+  }
 
   const dominant = [...signals].sort(
     (a, b) => b.contribution - a.contribution
   )[0];
-  return `Driven primarily by ${SIGNAL_LABEL[dominant.name].toLowerCase()}`;
+  return `This object is showing orbital decay driven primarily by ${SIGNAL_LABEL[dominant.name].toLowerCase()}, with mixed secondary signals`;
+}
+
+function evidenceClause(
+  risk: ReentryRisk,
+  trend: ObjectTrend | undefined
+): string {
+  const basis =
+    trend?.epochsAvailable != null
+      ? `Based on ${trend.epochsAvailable} historical epoch${trend.epochsAvailable === 1 ? '' : 's'}`
+      : risk.source === 'single_epoch'
+        ? 'Based on live altitude data alone'
+        : 'Based on limited historical data';
+
+  if (risk.decaySignal === 'maneuvering') {
+    return `${basis}, the re-entry estimate is suppressed until the signature clears.`;
+  }
+
+  if (risk.estimatedDaysRemaining === null) {
+    return `${basis}, there is no re-entry estimate to report.`;
+  }
+
+  const confidenceWord = CONFIDENCE_WORD[risk.confidence];
+  return `${basis}, estimated re-entry in approximately ${risk.estimatedDaysRemaining} days with ${confidenceWord} confidence.`;
+}
+
+function buildSummary(
+  risk: ReentryRisk,
+  trend: ObjectTrend | undefined,
+  signals: SignalContribution[]
+): string {
+  return `${characterize(risk, signals)}. ${evidenceClause(risk, trend)}`;
 }
 
 export function buildReentryTrace({
@@ -214,6 +295,10 @@ export function buildReentryTrace({
   const steps: ReentryTraceStep[] = [];
   const signals = trend ? reconstructSignalContributions(trend) : [];
 
+  if (trend) {
+    steps.push(loadHistoryStep(trend));
+  }
+
   for (const signal of signals) {
     steps.push(signalStep(signal));
   }
@@ -223,18 +308,18 @@ export function buildReentryTrace({
     if (consensus) steps.push(consensus);
   }
 
-  steps.push(tierStep(risk));
-
   if (trend) {
     const override = overrideStep(risk, trend);
     if (override) steps.push(override);
   }
 
+  steps.push(tierStep(risk));
+
   const verdict: ReentryVerdict = {
     tier: risk.tier,
     headline: buildHeadline(risk),
     confidenceLine: buildConfidenceLine(risk),
-    callout: buildCallout(risk, signals),
+    summary: buildSummary(risk, trend, signals),
   };
 
   return {

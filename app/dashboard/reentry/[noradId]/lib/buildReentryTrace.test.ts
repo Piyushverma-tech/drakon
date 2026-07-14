@@ -73,21 +73,35 @@ describe('buildReentryTrace', () => {
     expect(trace.verdict.tier).toBe('warning');
     expect(trace.computedAt).toBe('2026-07-08T10:45:00.000Z');
 
+    // all three signals agree here -- summary should say so, with the
+    // real epoch count and estimate, not a generic sentence
+    expect(trace.verdict.summary).toBe(
+      'This object is showing sustained orbital decay, with bstar, n-dot, and altitude signals all in agreement. Based on 31 historical epochs, estimated re-entry in approximately 9 days with high confidence.'
+    );
+
     expect(trace.steps.map((s) => s.id)).toEqual([
+      'load-history',
       'signal-bstar',
       'signal-ndot',
       'signal-altitude',
       'consensus',
       'tier',
     ]);
+    expect(trace.steps.map((s) => s.stage)).toEqual([
+      'Load history',
+      'Bstar analysis',
+      'N-dot analysis',
+      'Altitude analysis',
+      'Consensus',
+      'Verdict',
+    ]);
     // no override step -- risk and trend agree
     expect(trace.steps.find((s) => s.id === 'override')).toBeUndefined();
+    // isLast is a rendering concern (TraceStep prop), not part of the
+    // data -- nothing to assert on it here.
   });
 
   it('reproduces the reported STARLINK-1547 case: live altitude overrides a stale, less pessimistic trend', () => {
-    // Trend last computed ~3 days ago, before the object had decayed this
-    // far: warning / ~9 days / 76% confidence (matches the reported
-    // Analysis page screenshot).
     const trend = makeTrend({
       reentryTier: 'warning',
       estimatedDaysRemaining: 9,
@@ -95,10 +109,6 @@ describe('buildReentryTrace', () => {
       perigeeLatest: 231,
     });
 
-    // resolveReentryRisk(), given the live TLE (perigee 172km): altitude
-    // override wins -- critical / ~1 day (matches the reported Detail
-    // Panel screenshot). decayConfidence is intentionally absent here --
-    // the altitude path doesn't compute one.
     const risk = makeRisk({
       tier: 'critical',
       estimatedDaysRemaining: 1,
@@ -113,19 +123,16 @@ describe('buildReentryTrace', () => {
 
     const trace = buildReentryTrace({ risk, trend });
 
-    // Verdict reflects the live/authoritative risk, not the stale trend.
     expect(trace.verdict.tier).toBe('critical');
     expect(trace.verdict.headline).toBe('Re-entry expected in ~1 days');
-    // No decayConfidence on the altitude path -- falls back to the
-    // confidence label, never a fabricated percentage.
     expect(trace.verdict.confidenceLine).toBe('High confidence');
-    expect(trace.verdict.callout).toBe(
-      'Perigee 172km — driven by live altitude data, not the trend model'
+    expect(trace.verdict.summary).toBe(
+      "This object's live perigee of 172km places it in an active decay regime, ahead of what the trend model has captured. Based on 31 historical epochs, estimated re-entry in approximately 1 days with high confidence."
     );
 
-    // The disagreement is explicit and specific, not silently swapped.
     const override = trace.steps.find((s) => s.id === 'override');
     expect(override).toBeDefined();
+    expect(override?.stage).toBe('Live override');
     expect(override?.claim).toBe(
       'Live altitude data overrides the trend model'
     );
@@ -133,9 +140,8 @@ describe('buildReentryTrace', () => {
       'trend model: ~9 days (tier warning) — current perigee is more pessimistic'
     );
 
-    // Signal/consensus steps from the trend are still shown -- they're
-    // still real, useful context, just not the final verdict.
     expect(trace.steps.map((s) => s.id)).toEqual([
+      'load-history',
       'signal-bstar',
       'signal-ndot',
       'signal-altitude',
@@ -156,7 +162,7 @@ describe('buildReentryTrace', () => {
     expect(trace.steps.find((s) => s.id === 'override')).toBeUndefined();
   });
 
-  it('handles a brand new object with no trend row yet', () => {
+  it('handles a brand new object with no trend row yet -- no load-history step either', () => {
     const risk = makeRisk({
       tier: 'critical',
       estimatedDaysRemaining: 2,
@@ -170,7 +176,11 @@ describe('buildReentryTrace', () => {
 
     expect(trace.computedAt).toBeNull();
     expect(trace.verdict.confidenceLine).toBe('High confidence');
-    // no signal/consensus breakdown without a trend row -- just the tier step
+    expect(trace.verdict.summary).toContain(
+      'Based on live altitude data alone'
+    );
+    // no trend row at all -- no load-history step (nothing was "loaded"),
+    // no signal/consensus breakdown, just the tier step
     expect(trace.steps.map((s) => s.id)).toEqual(['tier']);
   });
 
@@ -188,12 +198,14 @@ describe('buildReentryTrace', () => {
 
     const trace = buildReentryTrace({ risk, trend });
     expect(trace.verdict.headline).toBe('Maneuver signature detected');
+    expect(trace.verdict.summary).toContain('probable maneuver signature');
     expect(trace.steps.find((s) => s.id === 'tier')?.detail).toBe(
       're-entry estimate suppressed'
     );
+    expect(trace.steps.find((s) => s.id === 'tier')?.stage).toBe('Verdict');
   });
 
-  it('omits signal/consensus steps when sub-scores have not been persisted yet, without fabricating them', () => {
+  it('omits signal/consensus steps when sub-scores have not been persisted yet, but still shows load-history', () => {
     const trend = makeTrend({
       bstarSignalStrength: null,
       ndotSignalStrength: null,
@@ -204,6 +216,9 @@ describe('buildReentryTrace', () => {
     const risk = makeRisk();
 
     const trace = buildReentryTrace({ risk, trend });
-    expect(trace.steps.map((s) => s.id)).toEqual(['tier']);
+    // a trend row exists (even if sub-scores aren't persisted yet), so
+    // load-history is real and shown -- only the per-signal breakdown is
+    // withheld, not fabricated as zeros
+    expect(trace.steps.map((s) => s.id)).toEqual(['load-history', 'tier']);
   });
 });
