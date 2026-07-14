@@ -169,7 +169,7 @@ export function ReentryDetailPanel({ entry, risk, className }: Props) {
 
         <Link
           href={`/dashboard/reentry/${entry.id}`}
-          className="inline-flex items-center gap-1 text-[11px] uppercase tracking-wider text-cyan-400 hover:text-cyan-300 shrink-0"
+          className="inline-flex items-center gap-1 text-[11px] uppercase tracking-wider text-cyan-300/90 hover:text-cyan-300 shrink-0"
         >
           Full analysis
           <ArrowRight className="h-3 w-3" />

@@ -22,25 +22,22 @@ const TRIAGE_TABS: Array<{
   value: TriageBucket;
   label: string;
   description: string;
-  accentClassName: string;
 }> = [
   {
     value: 'active',
     label: 'Active',
     description: 'Sustained critical or warning, nothing new',
-    accentClassName: 'text-cyan-300/90',
   },
   {
     value: 'new_escalated',
     label: 'New Escalated',
     description: 'Appeared or got worse in the last 72 hours',
-    accentClassName: 'text-red-400',
   },
+
   {
     value: 'watching',
     label: 'Watching',
-    description: 'Nominal tier, stable',
-    accentClassName: 'text-gray-400',
+    description: 'Nominal tier, stable or flagged for monitoring',
   },
 ];
 
@@ -140,39 +137,23 @@ export function ReentryScreeningPage() {
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            {/* <h1 className="text-[13px] font-bold uppercase tracking-[0.25rem] text-cyan-300/90">
-              Re-entry Screening
-            </h1> */}
-            {/* {trendsFetching && (
-              <span className="inline-flex items-center gap-1 text-[10px] text-cyan-400/70 uppercase tracking-wider">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                trends
-              </span>
-            )} */}
-          </div>
-          {/* <p className="text-[11px] text-gray-400 mt-1">
-            Flagged decaying objects sorted by estimated lifetime. Grouped by
-            what needs attention first
-          </p> */}
-        </div>
-        <div className="min-w-0 flex flex-col lg:mr-auto text-[11px]">
+        <div className="min-w-0 flex flex-col lg:mr-auto">
           <div className="flex flex-wrap items-start gap-2">
             <h2
-              className={`font-bold uppercase tracking-[0.25rem]  ${selectedTriageTab?.accentClassName ?? 'text-cyan-300'}`}
+              className={`font-bold uppercase text-[12px] tracking-[0.20rem] text-cyan-400/90`}
             >
               {selectedTriageTab?.label ?? 'Active'}
             </h2>
+
+            <span className="tabular-nums text-[12px] text-gray-400 ">
+              {triageRows.length}/{tableRows.length}
+            </span>
             {trendsFetching && (
               <span className="inline-flex items-center gap-1 text-[10px] text-cyan-400/70 uppercase tracking-wider">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 trends
               </span>
             )}
-            <span className="tabular-nums text-[12px] text-gray-400 ">
-              {triageRows.length}/{tableRows.length}
-            </span>
           </div>
           <p className="mt-0.5 text-[12px] text-gray-400 ">
             {selectedTriageTab?.description}

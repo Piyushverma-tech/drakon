@@ -48,7 +48,7 @@ export const ReentryTableRow = memo(function ReentryTableRow({
       <td className="px-3 py-2.5 text-gray-500 tabular-nums text-[11px] font-mono">
         {rank}
       </td>
-      <td className="px-3 py-2.5 max-w-[200px]">
+      <td className="px-3 py-2 max-w-[200px]">
         <span className="text-gray-200 text-[12px] truncate block">
           {entry?.name ?? `#${risk.satId}`}
         </span>

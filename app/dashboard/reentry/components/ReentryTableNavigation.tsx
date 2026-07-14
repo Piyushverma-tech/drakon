@@ -50,32 +50,10 @@ export function ReentryTableNavigation({
   return (
     <div
       className={cn(
-        'flex flex-col gap-4  p-2 backdrop-blur-md xl:flex-row xl:items-center',
+        'flex flex-col gap-4 p-1.5 backdrop-blur-md xl:flex-row xl:items-center',
         className
       )}
     >
-      <div className="flex flex-wrap gap-1 rounded-md border border-white/10 bg-slate-600/5 p-1">
-        {TIER_FILTERS.map((filter) => {
-          const active = tierFilter === filter.value;
-
-          return (
-            <button
-              key={filter.value}
-              type="button"
-              onClick={() => onTierFilterChange(filter.value)}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
-                active
-                  ? 'bg-cyan-500/30 text-white'
-                  : 'text-gray-400 hover:bg-white/10 hover:text-gray-100'
-              )}
-            >
-              <CircleDot className="size-3" />
-              {filter.label}
-            </button>
-          );
-        })}
-      </div>
       <div className=" flex flex-wrap gap-1 rounded-md border border-white/10 bg-slate-600/5 p-1">
         {TriageTabs.map((tab) => {
           const active = triageFilter === tab.value;
@@ -100,6 +78,29 @@ export function ReentryTableNavigation({
               >
                 {triageCounts[tab.value]}
               </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap gap-1 rounded-md border border-white/10 bg-slate-600/5 p-1">
+        {TIER_FILTERS.map((filter) => {
+          const active = tierFilter === filter.value;
+
+          return (
+            <button
+              key={filter.value}
+              type="button"
+              onClick={() => onTierFilterChange(filter.value)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer',
+                active
+                  ? 'bg-cyan-500/30 text-white'
+                  : 'text-gray-400 hover:bg-white/10 hover:text-gray-100'
+              )}
+            >
+              <CircleDot className="size-3" />
+              {filter.label}
             </button>
           );
         })}
