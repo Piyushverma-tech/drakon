@@ -1,9 +1,11 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { useDispatch, useSelector, TypedUseSelectorHook } from 'react-redux';
+import reentryScreeningReducer from './reentry-screening-slice';
 import visualizationReducer from './visualization-slice';
 
 export const store = configureStore({
   reducer: {
+    reentryScreening: reentryScreeningReducer,
     visualization: visualizationReducer,
   },
 });
@@ -13,5 +15,4 @@ export type AppDispatch = typeof store.dispatch;
 
 export const useAppDispatch = () => useDispatch<AppDispatch>();
 export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector;
-
 

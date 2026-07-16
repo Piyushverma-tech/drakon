@@ -7,6 +7,14 @@ import { useObjectTrendsQuery } from '@/hooks/useObjectTrendsQuery';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { buildReentryRiskMap } from '@/lib/objectTrendRisk';
 import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from '@/lib/solarFlux';
+import {
+  setReentrySourceFilter,
+  setReentryTierFilter,
+  setReentryTriageFilter,
+  type ReentrySourceFilter,
+  type ReentryTierFilter,
+  type ReentryTriageFilter,
+} from '@/lib/reentry-screening-slice';
 import { selectSingleSatellite } from '@/lib/visualization-slice';
 import type { TleEntry } from '@/lib/types';
 import { type SortDir, type SortKey, TIER_ORDER } from '../lib/constants';
@@ -18,6 +26,9 @@ export function useReentryScreening() {
   const dispatch = useAppDispatch();
   const focusedSatelliteId = useAppSelector(
     (state) => state.visualization.focusedSatelliteId
+  );
+  const { tierFilter, sourceFilter, triageFilter } = useAppSelector(
+    (state) => state.reentryScreening
   );
 
   const {
@@ -117,6 +128,27 @@ export function useReentryScreening() {
     [dispatch]
   );
 
+  const setTierFilter = useCallback(
+    (filter: ReentryTierFilter) => {
+      dispatch(setReentryTierFilter(filter));
+    },
+    [dispatch]
+  );
+
+  const setSourceFilter = useCallback(
+    (filter: ReentrySourceFilter) => {
+      dispatch(setReentrySourceFilter(filter));
+    },
+    [dispatch]
+  );
+
+  const setTriageFilter = useCallback(
+    (filter: ReentryTriageFilter) => {
+      dispatch(setReentryTriageFilter(filter));
+    },
+    [dispatch]
+  );
+
   return {
     tleLoading,
     tleError,
@@ -129,9 +161,15 @@ export function useReentryScreening() {
     selectedEntry,
     selectedRisk,
     changesByNoradId,
+    tierFilter,
+    sourceFilter,
+    triageFilter,
     sortKey,
     sortDir,
     handleSort,
     selectSatellite,
+    setTierFilter,
+    setSourceFilter,
+    setTriageFilter,
   };
 }

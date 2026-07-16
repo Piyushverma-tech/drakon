@@ -3,11 +3,13 @@
 import { CircleDot } from 'lucide-react';
 import type { ReentryRisk } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import type { ReentryTier } from '../lib/constants';
-import { TriageBucket } from '../lib/buildTriageBuckets';
+import type {
+  ReentrySourceFilter,
+  ReentryTierFilter,
+} from '@/lib/reentry-screening-slice';
+import type { TriageBucket } from '../lib/buildTriageBuckets';
 
-export type ReentryTierFilter = 'all' | ReentryTier;
-export type ReentrySourceFilter = 'all' | 'trend' | 'single';
+export type { ReentrySourceFilter, ReentryTierFilter };
 
 const TIER_FILTERS: Array<{ value: ReentryTierFilter; label: string }> = [
   { value: 'all', label: 'All' },

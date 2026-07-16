@@ -8,11 +8,7 @@ import { TIER_GLOBE_COLOR, type ReentryTier } from '../lib/constants';
 import { ReentryDetailPanel } from './ReentryDetailPanel';
 import { ReentryStatsBar } from './ReentryStatsBar';
 import { ReentryTable } from './ReentryTable';
-import {
-  ReentryTableNavigation,
-  type ReentrySourceFilter,
-  type ReentryTierFilter,
-} from './ReentryTableNavigation';
+import { ReentryTableNavigation } from './ReentryTableNavigation';
 import {
   buildTriageBuckets,
   type TriageBucket,
@@ -55,15 +51,18 @@ export function ReentryScreeningPage() {
     selectedRisk,
     changesByNoradId,
 
+    tierFilter,
+    sourceFilter,
+    triageFilter,
     sortKey,
     sortDir,
     handleSort,
     selectSatellite,
+    setTierFilter,
+    setSourceFilter,
+    setTriageFilter,
   } = useReentryScreening();
 
-  const [tierFilter, setTierFilter] = useState<ReentryTierFilter>('all');
-  const [sourceFilter, setSourceFilter] = useState<ReentrySourceFilter>('all');
-  const [triageFilter, setTriageFilter] = useState<TriageBucket>('active');
   const [miniGlobeFocusKey, setMiniGlobeFocusKey] = useState(0);
 
   const tableRows = useMemo(
