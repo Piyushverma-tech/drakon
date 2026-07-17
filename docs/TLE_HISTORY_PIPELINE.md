@@ -47,6 +47,7 @@ flowchart TB
     Process --> TH
     Process --> TA
     Process --> OT[(object_trends)]
+    Process -->|only on tier/signal change| TS[(trend_snapshots)]
     Process -->|delete on success| TJ
   end
 
@@ -56,10 +57,13 @@ flowchart TB
     GC[GlobeContainer]
     Resolve[resolveReentryRisk]
     UI[Globe · RightPanel · LeftPanel]
+    Analysis["/dashboard/reentry/[noradId]"]
     TLE_API --> TLE_HOOK --> GC
     OT_API["GET /api/object-trends"] --> OT
     OT_API --> TREND_HOOK --> GC
     GC --> Resolve --> UI
+    OT --> Analysis
+    TS --> Analysis
   end
 ```
 
@@ -106,15 +110,16 @@ Raw TLE name + line 1 + line 2. Write-once per `(norad_id, epoch)`. Used to reco
 
 Derived cache — **one row per NORAD ID**, owned entirely by the trend worker.
 
-| Column group   | Fields                                                             |
-| -------------- | ------------------------------------------------------------------ |
-| Coverage       | `epochs_available`, `history_days_available`, `trend_version`      |
-| BSTAR          | `bstar_latest`, slopes 7d/14d/30d, mean/stddev/r² over 14d         |
-| Altitude       | `perigee_*`, `apogee_*`, `sma_*` slopes                            |
-| N-dot          | `mean_motion_dot_latest`, `mean_motion_dot_mean_14d`               |
-| Classification | `decay_signal`, `maneuver_likelihood`, `decay_confidence`          |
-| Re-entry       | `estimated_days_remaining`, `estimated_reentry_at`, `reentry_tier` |
-| Metadata       | `object_type`, `is_debris`                                         |
+| Column group   | Fields                                                                                                                                                                                                                                                                                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Coverage       | `epochs_available`, `history_days_available`, `trend_version`                                                                                                                                                                                                                                                                                                      |
+| BSTAR          | `bstar_latest`, slopes 7d/14d/30d, mean/stddev/r2 over 14d                                                                                                                                                                                                                                                                                                         |
+| Altitude       | `perigee_*`, `apogee_*`, `sma_*` slopes                                                                                                                                                                                                                                                                                                                            |
+| N-dot          | `mean_motion_dot_latest`, `mean_motion_dot_mean_14d`                                                                                                                                                                                                                                                                                                               |
+| Classification | `decay_signal`, `maneuver_likelihood`, `decay_confidence`                                                                                                                                                                                                                                                                                                          |
+| Explainability | `bstar_signal_strength`, `ndot_signal_strength`, `altitude_signal_strength`, `consensus_required`, `consensus_met` -- persisted per-signal breakdown, nullable (null until a row's next recompute after this migration); reconstructed by `lib/explainReentryTrend.ts`'s `reconstructSignalContributions` for the Analysis page, never re-derived from raw history |
+| Re-entry       | `estimated_days_remaining`, `estimated_reentry_at`, `reentry_tier`                                                                                                                                                                                                                                                                                                 |
+| Metadata       | `object_type`, `is_debris`, `updated_at`                                                                                                                                                                                                                                                                                                                           |
 
 `trend_version` must match `CURRENT_TREND_VERSION` in `lib/jobs/computeObjectTrends.ts` for the public API to return a row. Bump the version when the regression or confidence formula changes; stale rows are requeued automatically.
 
@@ -139,9 +144,25 @@ Ephemeral work queue. Rows are **deleted on success**, not marked done.
 
 **Indexes:**
 
-- `idx_trend_jobs_norad_id` — BTREE on `norad_id`
-- `idx_trend_jobs_pending_norad` — UNIQUE on `(norad_id) WHERE status = 'pending'` — enforces one pending job per NORAD ID; makes `onConflictDoNothing` in `ingestTleHistory` correct
-- `idx_trend_jobs_status_created` — BTREE on `(status, created_at)` — supports stuck-job cleanup
+- `idx_trend_jobs_norad_id` -- BTREE on `norad_id`
+- `idx_trend_jobs_pending_norad` -- UNIQUE on `(norad_id) WHERE status = 'pending'` -- enforces one pending job per NORAD ID; makes `onConflictDoNothing` in `ingestTleHistory` correct
+- `idx_trend_jobs_status_created` -- BTREE on `(status, created_at)` -- supports stuck-job cleanup
+
+### `trend_snapshots`
+
+Append-only log of `object_trends` outcome changes. Written by `upsertTrend()` in `computeObjectTrends.ts` **only when `reentry_tier` or `decay_signal` differs** from the row it's about to overwrite -- not on every recompute pass. Never updated or deleted in normal operation.
+
+| Column                                         | Notes                                                           |
+| ---------------------------------------------- | --------------------------------------------------------------- |
+| `id`                                           | SERIAL PRIMARY KEY                                              |
+| `norad_id`                                     | INTEGER NOT NULL                                                |
+| `captured_at`                                  | TIMESTAMPTZ NOT NULL DEFAULT now()                              |
+| `reentry_tier`, `decay_signal`                 | The values as of this change (the _new_ state, not the old one) |
+| `decay_confidence`, `estimated_days_remaining` | Snapshot of the estimate at the moment of the change            |
+
+**Index:** `idx_trend_snapshots_norad_captured` -- BTREE on `(norad_id, captured_at)`, supports "latest N per object" queries via `ROW_NUMBER() OVER (PARTITION BY norad_id ORDER BY captured_at DESC)`.
+
+**Why the write is inside `upsertTrend`, not a separate step:** it reads the row's previous `reentry_tier`/`decay_signal` in the same function that's about to overwrite them, so there's no window where a second caller could see stale "previous state." See `app/api/object-trends/recent-changes/route.ts` (dashboard triage, latest 2 per object catalog-wide) and `app/api/object-trends/[noradId]/snapshots/route.ts` (full history for one object, Analysis page) for the two read paths.
 
 ---
 
@@ -153,7 +174,7 @@ Ephemeral work queue. Rows are **deleted on success**, not marked done.
 
 Ingest executes **only on Redis cache miss** for the default Celestrak groups (`active`, debris groups). Cache hits return TLE immediately with **no database writes**. At steady state this means at most one ingest cycle per 2 hours.
 
-After a successful ingest, `processTrendJobs(50)` is fired in an `after()` callback (non-blocking, wrapped in try/catch). The full drain is handled by the cron.
+`/api/tle`'s `after()` callback runs `ingestTleHistory()` only -- it no longer also calls `processTrendJobs()`. That call was removed: the dedicated `/api/internal/process-trends` cron was already sufficient on its own (it runs every 15 minutes, far more often than the 2-hour ingest cycle needs), and having both compete for the same 60s budget on this route caused `Vercel Runtime Timeout Error` failures once the catalog and per-object write cost grew (concurrent chunk processing, `trend_snapshots` writes). The trend queue drain is handled exclusively by the cron.
 
 ### Ingest algorithm
 
@@ -162,7 +183,8 @@ After a successful ingest, `processTrendJobs(50)` is fired in an `after()` callb
    a. Insert into `tle_history` with `onConflictDoNothing` on `(norad_id, epoch)`
    b. Archive raw TLE lines only for **newly inserted** epochs
    c. **Immediately enqueue `trend_jobs`** for NORAD IDs that received a new epoch in this chunk — `onConflictDoNothing` on the pending unique index prevents duplicates
-3. No accumulation across chunks — each chunk's jobs are flushed before the next chunk begins, keeping per-insert statement size bounded at `CHUNK_SIZE`
+   d. Prune `tle_archive` to the 3 most recent rows per touched NORAD ID, using individually-bound scalar `IN (...)` parameters rather than a raw array passed to `= ANY($1)` (array-parameter binding isn't guaranteed to work identically across every driver/transport). Wrapped in its own `try/catch` — a pruning failure is logged and never allowed to block ingestion or job enqueueing.
+3. Chunks are processed **concurrently in slices of `CHUNK_CONCURRENCY = 4`** via `Promise.allSettled`, not sequentially — each chunk operates on a disjoint slice of `entries`, so nothing shares mutable state across chunks. A failed chunk is logged and skipped rather than aborting the whole run, unlike the earlier sequential `for` loop where one uncaught error in any chunk silently stopped every chunk after it. (This was the root cause of a real multi-day trend-staleness incident: an unhandled error in the pruning query aborted ingestion partway through the first chunk, on every cycle, so `trend_jobs` never got enqueued for the rest of the catalog.)
 
 Returns `{ inserted, skipped, invalid }`:
 
@@ -185,7 +207,7 @@ Returns `{ inserted, skipped, invalid }`:
 | `POST /api/internal/process-trends` | `x-internal-secret: $INTERNAL_JOB_SECRET` | Drain pending jobs (primary — called by cron-job.org) |
 | `POST /api/internal/requeue-stale`  | `x-internal-secret: $INTERNAL_JOB_SECRET` | Re-enqueue rows where `trend_version < CURRENT`       |
 
-**Scheduling:** cron-job.org calls `POST /api/internal/process-trends?batchSize=300` every 15 minutes.
+**Scheduling:** cron-job.org calls `POST /api/internal/process-trends?batchSize=200` every 15 minutes. (Originally 300 — reduced after `cron-job.org`'s 30-second timeout started failing runs; cron-job.org's own timeout is configured independently of this route's `maxDuration` and must be kept comfortably above the batch's real completion time, not just below Vercel's ceiling.)
 
 **`export const maxDuration = 60`** in the route file sets the Vercel serverless function execution limit to 60 seconds at build time. This is a Next.js App Router route segment config consumed by Vercel's bundler, not a runtime variable.
 
@@ -224,7 +246,7 @@ Stuck `processing` rows are deleted rather than reset to `pending` because the p
    ```
 
 5. `estimateReentry()` → days remaining from perigee/SMA negative slopes; payloads require **all three signals** to agree before assigning a non-stable tier
-6. Upsert `object_trends`
+6. `upsertTrend()`: read the row's current `reentry_tier`/`decay_signal` (about to be overwritten), upsert `object_trends`, then write a `trend_snapshots` row **only if** the tier or signal actually changed from what was just read
 
 ### Decay signals
 
@@ -396,27 +418,36 @@ Partitions `tle_history_2026_06` through `tle_history_2026_08` plus `tle_history
 
 ## File index
 
-| Path                                        | Role                                                                              |
-| ------------------------------------------- | --------------------------------------------------------------------------------- |
-| `app/api/tle/route.ts`                      | Celestrak proxy, Redis cache, ingest trigger                                      |
-| `app/api/object-trends/route.ts`            | Public trends read API (read-only, no background work)                            |
-| `app/api/internal/process-trends/route.ts`  | Worker drain — cron-job.org + manual; stuck-job cleanup at top of each invocation |
-| `app/api/internal/requeue-stale/route.ts`   | Version invalidation requeue                                                      |
-| `lib/db.ts`                                 | Drizzle + Neon HTTP client                                                        |
-| `lib/db/schema.ts`                          | Table definitions                                                                 |
-| `lib/tle.ts`                                | `parseTleText`, object type classification                                        |
-| `lib/jobs/ingestTleHistory.ts`              | History + archive writes; per-chunk job enqueue                                   |
-| `lib/jobs/computeObjectTrends.ts`           | Regression, classification, concurrent worker                                     |
-| `lib/jobs/requeueStaleObjects.ts`           | Stale version sweep                                                               |
-| `lib/reentrySignals.ts`                     | Shared signal agreement helpers                                                   |
-| `lib/objectTrendRisk.ts`                    | `resolveReentryRisk`, trend → UI mapping                                          |
-| `lib/satelliteHelpers.ts`                   | Single-epoch `getReentryRisk`, BSTAR/N-dot parsers                                |
-| `hooks/useTleEntriesQuery.ts`               | Client TLE fetch                                                                  |
-| `hooks/useObjectTrendsQuery.ts`             | Client trends fetch                                                               |
-| `app/globe/GlobeContent/GlobeContainer.tsx` | Screening orchestration                                                           |
-| `drizzle/0000_clever_titania.sql`           | Migration (partitions, indexes)                                                   |
-| `vercel.json`                               | Daily fallback cron (`0 0 * * *`)                                                 |
-| `docs/REENTRY_RISK.md`                      | Screening physics and tier thresholds                                             |
+| Path                                                                 | Role                                                                                                                                                     |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/api/tle/route.ts`                                               | Celestrak proxy, Redis cache, ingest trigger (no longer also drains `trend_jobs` -- see "Ingest path")                                                   |
+| `app/api/object-trends/route.ts`                                     | Public bulk trends read API (read-only, no background work)                                                                                              |
+| `app/api/object-trends/[noradId]/history/route.ts`                   | Raw `tle_history` time series for one object                                                                                                             |
+| `app/api/object-trends/[noradId]/explain/route.ts`                   | Persisted trend-model reasoning, via `reconstructSignalContributions`                                                                                    |
+| `app/api/object-trends/[noradId]/snapshots/route.ts`                 | Up to 20 most recent `trend_snapshots` rows for one object                                                                                               |
+| `app/api/object-trends/recent-changes/route.ts`                      | Latest 1-2 `trend_snapshots` per object, catalog-wide                                                                                                    |
+| `app/api/internal/process-trends/route.ts`                           | Worker drain — cron-job.org + manual; stuck-job cleanup at top of each invocation                                                                        |
+| `app/api/internal/requeue-stale/route.ts`                            | Version invalidation requeue                                                                                                                             |
+| `lib/db.ts`                                                          | Drizzle + Neon HTTP client                                                                                                                               |
+| `lib/db/schema.ts`                                                   | Table definitions, including `trend_snapshots`                                                                                                           |
+| `lib/tle.ts`                                                         | `parseTleText`, object type classification                                                                                                               |
+| `lib/jobs/ingestTleHistory.ts`                                       | History + archive writes; concurrent chunk processing (`CHUNK_CONCURRENCY=4`); per-chunk job enqueue                                                     |
+| `lib/jobs/computeObjectTrends.ts`                                    | Regression, classification, concurrent worker, `upsertTrend` (writes `trend_snapshots` on change)                                                        |
+| `lib/jobs/requeueStaleObjects.ts`                                    | Stale version sweep                                                                                                                                      |
+| `lib/reentrySignals.ts`                                              | Shared signal agreement helpers                                                                                                                          |
+| `lib/objectTrendRisk.ts`                                             | `resolveReentryRisk`, trend → UI mapping                                                                                                                 |
+| `lib/explainReentryTrend.ts`                                         | `classifyDecaySignal`, `estimateReentry`, `reconstructSignalContributions` — single source of truth for both the worker and the read-side explain routes |
+| `lib/satelliteHelpers.ts`                                            | Single-epoch `getReentryRisk`, BSTAR/N-dot parsers                                                                                                       |
+| `hooks/useTleEntriesQuery.ts`                                        | Client TLE fetch                                                                                                                                         |
+| `hooks/useObjectTrendsQuery.ts`                                      | Client trends fetch                                                                                                                                      |
+| `hooks/useObjectSnapshotsQuery.ts` / `useRecentTrendChangesQuery.ts` | Change-history and triage fetches                                                                                                                        |
+| `app/dashboard/reentry/[noradId]/`                                   | Analysis / Decision Trace page and its `buildReentryTrace`/`buildChangeTimeline`                                                                         |
+| `components/DecisionTrace/`                                          | Generic Verdict → Trace → Evidence UI shell, consumed by the Analysis page                                                                               |
+| `app/globe/GlobeContent/GlobeContainer.tsx`                          | Screening orchestration                                                                                                                                  |
+| `drizzle/0000_clever_titania.sql`                                    | Initial migration (partitions, indexes)                                                                                                                  |
+| `drizzle/0004_trend_snapshots.sql`                                   | Adds the `trend_snapshots` table                                                                                                                         |
+| `vercel.json`                                                        | Daily fallback cron (`0 0 * * *`)                                                                                                                        |
+| `docs/REENTRY_RISK.md`                                               | Screening physics, tier thresholds, Decision Trace, and triage                                                                                           |
 
 ---
 

@@ -50,17 +50,19 @@ DRAKON integrates real-time orbit computation, conjunction analysis, and fleet v
 
 ## Tech Stack
 
-| Layer                 | Technologies                                                                                  |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| **Frontend**          | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, shadcn/ui                        |
-| **3D Visualization**  | deck.gl (GlobeView) + BitmapLayer day/night Earth texture                                     |
-| **Charts**            | Recharts                                                                                      |
-| **Orbit Propagation** | satellite.js (SGP4), Comlink Web Workers                                                      |
-| **State Management**  | Redux Toolkit (visualization state) + TanStack Query v5 (TLE data fetching)                   |
-| **Backend / API**     | Next.js API Routes (serverless)                                                               |
-| **Cache**             | Upstash Redis (HTTP-based, serverless-compatible) — 2h TTL + permanent stale fallback         |
-| **TLE Source**        | Celestrak NORAD GP catalog (active, iridium-33-debris, cosmos-2251-debris, fengyun-1c-debris) |
-| **CI/CD**             | GitHub Actions → Vercel                                                                       |
+| Layer                 | Technologies                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Frontend**          | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, shadcn/ui                                              |
+| **3D Visualization**  | deck.gl (GlobeView) + BitmapLayer day/night Earth texture                                                           |
+| **Charts**            | Apache ECharts (`echarts/core`, tree-shaken -- see `components/Charts/`)                                            |
+| **Orbit Propagation** | satellite.js (SGP4), Comlink Web Workers                                                                            |
+| **State Management**  | Redux Toolkit (visualization state) + TanStack Query v5 (all data fetching)                                         |
+| **Backend / API**     | Next.js API Routes (serverless)                                                                                     |
+| **Database**          | Neon PostgreSQL (serverless HTTP driver) via Drizzle ORM -- `tle_history`, `object_trends`, `trend_snapshots`, etc. |
+| **Cache**             | Upstash Redis (HTTP-based, serverless-compatible) -- 2h TTL + permanent stale fallback                              |
+| **TLE Source**        | Celestrak NORAD GP catalog (active, iridium-33-debris, cosmos-2251-debris, fengyun-1c-debris)                       |
+| **Scheduling**        | GitHub Actions (2h TLE ingest) + cron-job.org (15min trend worker, daily solar flux)                                |
+| **CI/CD**             | GitHub Actions -> Vercel                                                                                            |
 
 ---
 
@@ -68,68 +70,106 @@ DRAKON integrates real-time orbit computation, conjunction analysis, and fleet v
 
 ```bash
 drakon/
-├─ app/
-│  ├─ api/
-│  │  ├─ socket/                # Reserved for realtime socket route(s)
-│  │  └─ tle/
-│  │     └─ route.ts            # TLE proxy: Celestrak → Upstash Redis → client
-│  ├─ dashboard/
-│  │  ├─ components/
-│  │  │  ├─ layout/
-│  │  │  │  ├─ Sidebar.tsx      # Dashboard sidebar navigation
-│  │  │  │  └─ Topbar.tsx       # Dashboard header
-│  │  │  └─ UnderDevelopment.tsx
-│  │  ├─ layout.tsx             # Sidebar + Topbar layout
-│  │  └─ page.tsx               # Dashboard entry page
-│  ├─ globe/
-│  │  ├─ GlobeContent/
-│  │  │  ├─ components/
-│  │  │  │  ├─ panels/
-│  │  │  │  │  ├─ LeftPanel.tsx
-│  │  │  │  │  └─ RightPanel.tsx
-│  │  │  │  ├─ DensityLegend.tsx
-│  │  │  │  ├─ ForeCastOverlay.tsx
-│  │  │  │  └─ MobileViewNotice.tsx
-│  │  │  ├─ Globe3D.tsx         # deck.gl 3D globe renderer + layers
-│  │  │  ├─ GlobeContainer.tsx  # Main globe composition and state wiring
-│  │  │  └─ Map2d.tsx           # 2D map renderer
-│  │  └─ page.tsx
-│  ├─ [...slug]/
-│  │  └─ page.tsx
-│  ├─ globals.css
-│  ├─ layout.tsx                # Root layout with providers
-│  └─ page.tsx
-├─ hooks/
-│  ├─ useTleEntriesQuery.ts     # TanStack Query hook — fetches + parses TLE text
-│  ├─ useSatellitePositions.ts  # Live SGP4 positions, 5s interval
-│  ├─ useSimulatedPositions.ts  # Projected positions at T+offset (600ms debounce)
-│  ├─ useSelectedSatelliteTrack.ts  # Past + future ground track for selected sat
-│  ├─ useInclinationBands.ts    # Orbital plane band membership + ground track
-│  ├─ useCollisionDensity.ts    # Voxel-based 3D density computation
-│  └─ useSatelliteMetadata.ts   # Loads precomputed satellite metadata
-├─ lib/
-│  ├─ store.ts                  # Redux store (visualization slice only)
-│  ├─ visualization-slice.ts    # Filters, bands, density, simulation, re-entry flags
-│  ├─ satellite.ts              # Synchronous SGP4 helpers (positionFromTLE etc.)
-│  ├─ satelliteWorker.ts        # Comlink async wrappers + in-memory cache (CACHE_MAX=1000)
-│  ├─ satelliteHelpers.ts       # parseBSTAR, parseMeanMotionDot, getReentryRisk, parseTLEMeta
-│  ├─ satelliteHelpers.test.ts  # Unit tests for helper/parsing functions
-│  ├─ redis.ts                  # Upstash Redis client singleton
-│  ├─ providers.tsx             # Redux + TanStack QueryClient providers
-│  ├─ types.ts                  # TleEntry, SatellitePoint, ReentryRisk, metadata types
-│  ├─ utils.ts
-│  └─ workers/
-│     └─ satellite.worker.ts    # Comlink worker: SGP4, density, ground tracks
-├─ docs/
-│  ├─ ORBITAL_PLANE_VISUALIZATION.md
-│  ├─ COLLISION_DENSITY_MAP.md
-│  └─ REENTRY_RISK.md
-├─ scripts/
-│  └─ build-satellite-metadata.ts  # Metadata build/precompute script
-├─ public/
-├─ package.json
-├─ tsconfig.json
-└─ README.md
+|- app/
+|  |- api/
+|  |  |- socket/                # Reserved for realtime socket route(s)
+|  |  |- tle/
+|  |  |  `- route.ts            # TLE proxy: Celestrak -> Upstash Redis -> client; triggers ingest on cache miss
+|  |  |- solar-flux/route.ts    # GET (read) / POST (refresh from NOAA)
+|  |  |- object-trends/
+|  |  |  |- route.ts            # Bulk read of object_trends
+|  |  |  |- recent-changes/route.ts       # Latest snapshots per object, catalog-wide (dashboard triage)
+|  |  |  `- [noradId]/
+|  |  |     |- history/route.ts           # Raw tle_history time series (Analysis page charts)
+|  |  |     |- explain/route.ts           # Persisted trend-model reasoning (signal breakdown)
+|  |  |     `- snapshots/route.ts         # Full change history for one object
+|  |  `- internal/
+|  |     |- process-trends/route.ts       # Trend worker drain (cron-job.org, 15min)
+|  |     `- requeue-stale/route.ts        # Version-invalidation requeue
+|  |- dashboard/
+|  |  |- components/
+|  |  |  |- layout/
+|  |  |  |  |- Sidebar.tsx      # Dashboard sidebar navigation
+|  |  |  |  `- Topbar.tsx       # Dashboard header
+|  |  |  `- UnderDevelopment.tsx
+|  |  |- reentry/
+|  |  |  |- page.tsx            # Triage dashboard: New/Escalated / Active / Watching tabs
+|  |  |  |- [noradId]/
+|  |  |  |  |- page.tsx         # Analysis / Decision Trace page for one object
+|  |  |  |  |- components/ReentryAnalysisPage.tsx
+|  |  |  |  `- lib/             # buildReentryTrace, buildReentryChartOptions, buildChangeTimeline, formatTimestamp
+|  |  |  |- components/         # ReentryTable, ReentryDetailPanel, ReentryTableNavigation, ReentryStatsBar, ...
+|  |  |  |- hooks/useReentryScreening.ts
+|  |  |  `- lib/                # buildTriageBuckets, constants, formatters
+|  |  |- layout.tsx             # Sidebar + Topbar layout
+|  |  `- page.tsx               # Dashboard entry page
+|  |- globe/
+|  |  |- GlobeContent/
+|  |  |  |- components/
+|  |  |  |  |- panels/
+|  |  |  |  |  |- LeftPanel.tsx
+|  |  |  |  |  `- RightPanel.tsx
+|  |  |  |  |- DensityLegend.tsx
+|  |  |  |  |- ForeCastOverlay.tsx
+|  |  |  |  `- MobileViewNotice.tsx
+|  |  |  |- Globe3D.tsx         # deck.gl 3D globe renderer + layers
+|  |  |  |- GlobeContainer.tsx  # Main globe composition and state wiring
+|  |  |  `- Map2d.tsx           # 2D map renderer
+|  |  `- page.tsx
+|  |- [...slug]/
+|  |  `- page.tsx
+|  |- globals.css
+|  |- layout.tsx                # Root layout with providers
+|  `- page.tsx
+|- components/
+|  |- MiniGlobe/                # Compact globe preview (reentry dashboard, detail panels)
+|  |- Charts/                   # EChart wrapper + drakonTheme -- shared by every chart in the app
+|  `- DecisionTrace/            # Generic Verdict -> Trace -> Evidence shell (DecisionTrace, TraceStep)
+|- hooks/
+|  |- useTleEntriesQuery.ts     # TanStack Query hook -- fetches + parses TLE text
+|  |- useObjectTrendsQuery.ts   # Bulk object_trends fetch
+|  |- useObjectExplainQuery.ts / useObjectHistoryQuery.ts / useObjectSnapshotsQuery.ts / useRecentTrendChangesQuery.ts
+|  |- useSatellitePositions.ts  # Live SGP4 positions, 5s interval
+|  |- useSimulatedPositions.ts  # Projected positions at T+offset (600ms debounce)
+|  |- useSelectedSatelliteTrack.ts  # Past + future ground track for selected sat
+|  |- useInclinationBands.ts    # Orbital plane band membership + ground track
+|  |- useCollisionDensity.ts    # Voxel-based 3D density computation
+|  `- useSatelliteMetadata.ts   # Loads precomputed satellite metadata
+|- lib/
+|  |- store.ts                  # Redux store (visualization slice only)
+|  |- visualization-slice.ts    # Filters, bands, density, simulation, re-entry flags
+|  |- satellite.ts              # Synchronous SGP4 helpers (positionFromTLE etc.)
+|  |- satelliteWorker.ts        # Comlink async wrappers + in-memory cache (CACHE_MAX=1000)
+|  |- satelliteHelpers.ts       # parseBSTAR, parseMeanMotionDot, getReentryRisk, altitude-based estimate, tier assignment
+|  |- objectTrendRisk.ts        # resolveReentryRisk -- combines single/multi-epoch layers, pessimistic-of-two
+|  |- explainReentryTrend.ts    # classifyDecaySignal, estimateReentry, reconstructSignalContributions
+|  |- reentrySignals.ts         # Cross-signal agreement helpers
+|  |- solarFlux.ts              # NOAA F10.7 fetch + density multiplier
+|  |- redis.ts                  # Upstash Redis client singleton
+|  |- providers.tsx             # Redux + TanStack QueryClient providers
+|  |- types.ts                  # TleEntry, SatellitePoint, ReentryRisk, ObjectTrend, metadata types
+|  |- utils.ts
+|  |- db/
+|  |  |- index.ts               # Drizzle + Neon HTTP client
+|  |  `- schema.ts              # Table definitions
+|  |- jobs/
+|  |  |- ingestTleHistory.ts    # History + archive writes, concurrent chunk processing, job enqueue
+|  |  |- computeObjectTrends.ts # Regression, classification, trend worker
+|  |  `- requeueStaleObjects.ts # Version invalidation sweep
+|  `- workers/
+|     `- satellite.worker.ts    # Comlink worker: SGP4, density, ground tracks
+|- docs/
+|  |- ORBITAL_PLANE_VISUALIZATION.md
+|  |- COLLISION_DENSITY_MAP.md
+|  |- REENTRY_RISK.md
+|  `- TLE_HISTORY_PIPELINE.md
+|- drizzle/                     # SQL migrations
+|- scripts/
+|  `- build-satellite-metadata.ts  # Metadata build/precompute script
+|- public/
+|- package.json
+|- tsconfig.json
+`- README.md
 ```
 
 ---
@@ -221,31 +261,15 @@ Two separate systems handle different concerns:
 
 #### Re-Entry Risk Screening ✅
 
-Physics-based screening using BSTAR drag term from TLE Line 1. TLE parsing also stores `meanMotionDot` (Ṅ) for secondary decay validation.
+Two-layer screening, resolved together in `lib/objectTrendRisk.ts`: a fast single-epoch BSTAR/N-dot model (`getReentryRisk`, all debris, no backend dependency) and a multi-epoch regression model over 7-30 days of `tle_history` (`recomputeTrends`, required for active payloads -- a single TLE epoch's BSTAR is too maneuver-contaminated to trust alone). For objects below the altitude threshold, the two are resolved by taking whichever estimate is **more pessimistic**, so a stale multi-epoch trend can never mask a live, rapidly-decaying object.
 
-**Object filter:** Only objects classified as debris are screened. Rocket bodies are included by the TLE parser (`R/B`, `ROCKET`, `RKT` set `isDebris = true`). Active propulsive satellites are excluded — their BSTAR values are corrupted by maneuvers.
+**Risk tiers:** Critical (< 30 days) -> Warning -> Nominal -> Stable, with warning/nominal limits compressing at higher altitudes where single-epoch signals are less reliable.
 
-**Decay model:**
+**Decision Trace (Analysis page, `/dashboard/reentry/[noradId]`):** every flagged object has a dedicated page showing _why_ DRAKON reached its conclusion, not just the conclusion -- a one-line synthesized summary, then an expandable trace walking through each signal (load history -> BSTAR -> N-dot -> altitude -> consensus -> verdict) as a connected pipeline, backed by the exact persisted values that drove the tier assignment, plus evidence charts and a full change-history timeline (when did this object's classification last change, and in which direction).
 
-```
-decayRate (km/day) = |BSTAR| × 7.4e3 × exp((400 - altKm) / 60) × (v / 7.905)
-estimatedDays      = ceil(((perigeeKm - 120) / decayRate) × 2/3)
-```
+**Dashboard triage (`/dashboard/reentry`):** objects are grouped into New/Escalated, Active, and Watching using `trend_snapshots` -- an append-only log of classification changes -- rather than a flat sort, so the list answers "what needs attention right now" instead of just "what's currently bad."
 
-**Risk tiers:**
-
-| Tier     | Threshold                                  | Globe color |
-| -------- | ------------------------------------------ | ----------- |
-| Critical | < 30 days                                  | Red-orange  |
-| Warning  | Above critical, below altitude-aware limit | Amber       |
-| Nominal  | Above warning, below altitude-aware limit  | Yellow      |
-| Stable   | Beyond limit or excluded                   | Dimmed      |
-
-Critical stays fixed at 30 days. Warning/nominal limits compress at high altitude to reduce long-horizon false positives from noisy single-epoch drag terms. Positive `meanMotionDot` agreement raises confidence, but does not change the risk tier thresholds.
-
-**Sanity gates:** `perigeeKm > 2000` or `periodMin > 600` → stable; negligible computed decay → stable; altitude-aware decay-rate anomaly guard → stable. The old flat `decayRate > 20 km/day` guard is replaced with a density-scaled cap above 180 km and disabled during terminal low-altitude decay.
-
-📖 See [docs/REENTRY_RISK.md](./docs/REENTRY_RISK.md)
+See [docs/REENTRY_RISK.md](./docs/REENTRY_RISK.md) for the full model and architecture, and [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPELINE.md) for the pipeline and schema.
 
 #### Satellite Ground Track ✅
 
@@ -302,41 +326,48 @@ Used for globe coloring (gray dots) and as a gate in `getReentryRisk` for re-ent
 
 ## Pending / Backlog Features
 
-- **Conjunction timeline**: Sweep T+0→T+72h, chart pair counts over time
-- **Hohmann transfer maneuver planner**: Δv calculator for orbit transfers
-- **Multi-epoch BSTAR trending**: `tle_history` PostgreSQL table for BSTAR drift analysis
-- **Solar activity (F10.7 flux) correction**: Improve re-entry estimates during solar maximum
+- **Conjunction timeline**: Sweep T+0 to T+72h, chart pair counts over time
+- **Hohmann transfer maneuver planner**: dV calculator for orbit transfers
 - **Re-entry footprint corridor**: Show ground track corridor on globe for objects within 7 days
 - **Space-Track CDM integration**: Conjunction Data Messages (requires account + backend job)
-- **PostgreSQL tle_history inserts**: Fire-and-forget alongside Redis cache writes
 - **Stale data timestamp header**: `x-stale-since` response header + frontend freshness warning banner
+- **Automated partition maintenance**: create/drop `tle_history` monthly partitions on a schedule instead of manually
+- **`tle_archive` restructure**: only the latest name per object is ever read -- an upsert-in-place table would be simpler than an append-and-prune one
+
+> **Done, no longer pending** (moved out of this list as of the re-entry Decision Trace work): multi-epoch BSTAR trending, PostgreSQL `tle_history`/`object_trends` persistence, NOAA F10.7 solar flux correction. See [Re-Entry Risk Screening](#re-entry-risk-screening-) below and [docs/REENTRY_RISK.md](./docs/REENTRY_RISK.md).
 
 ---
 
-## Database Schema (PostgreSQL)
+## Database Schema (PostgreSQL -- Neon, via Drizzle ORM)
 
-| Table            | Description                                       |
-| ---------------- | ------------------------------------------------- |
-| **satellites**   | Core satellite data (name, NORAD ID, TLEs, owner) |
-| **tle_history**  | Historical TLE records for satellites             |
-| **positions**    | Computed positions over time                      |
-| **conjunctions** | Close approaches (time, distance, risk)           |
-| **maneuvers**    | Planned burns (Δv, ETA, fuel estimate)            |
-| **alerts**       | Collision warnings and critical events            |
+The tables below are the actual schema (`lib/db/schema.ts`), not an aspirational one -- earlier draft tables described in older versions of this README (`satellites`, `positions`, `conjunctions`, `maneuvers`, `alerts`) were never built; re-entry screening turned out not to need them.
+
+| Table                 | Description                                                                                                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`tle_history`**     | Time-series of parsed orbital parameters per NORAD ID, partitioned monthly by `epoch`. One row per object per TLE epoch.                                                                                |
+| **`tle_archive`**     | Raw TLE name + line 1 + line 2, one row per `(norad_id, epoch)`. Pruned to the 3 most recent rows per object on ingest.                                                                                 |
+| **`object_trends`**   | Derived cache, one row per NORAD ID. Regression slopes, decay classification, persisted signal-strength sub-scores, current re-entry estimate.                                                          |
+| **`trend_jobs`**      | Ephemeral work queue for the trend worker. Rows deleted on success, not marked done.                                                                                                                    |
+| **`trend_snapshots`** | Append-only log of `object_trends` outcome changes, written only when tier or decay signal actually differs from the last computation. Powers dashboard triage and the Analysis page's change timeline. |
+
+Full column-level detail: [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPELINE.md)
 
 ---
 
-## API Endpoints (MVP)
+## API Endpoints
 
-| Method | Endpoint                       | Description                                          |
-| ------ | ------------------------------ | ---------------------------------------------------- |
-| `GET`  | `/api/tle`                     | Combined TLE data (all groups). Redis-cached, 2h TTL |
-| `GET`  | `/api/satellites`              | List all tracked satellites                          |
-| `GET`  | `/api/satellites/:id/position` | Get position of a satellite at a given time          |
-| `GET`  | `/api/positions?since=...`     | Stream recent positions                              |
-| `GET`  | `/api/conjunctions?range=24h`  | Get conjunctions within a given time window          |
-| `POST` | `/api/run-screening`           | Trigger a collision screening job                    |
-| `GET`  | `/api/alerts`                  | Retrieve critical alerts                             |
+| Method | Endpoint                                 | Description                                                                           |
+| ------ | ---------------------------------------- | ------------------------------------------------------------------------------------- |
+| `GET`  | `/api/tle`                               | Combined TLE data (all groups), Redis-cached (2h TTL). Triggers ingest on cache miss. |
+| `GET`  | `/api/object-trends`                     | Bulk read of current `object_trends` rows                                             |
+| `GET`  | `/api/object-trends/[noradId]/history`   | Raw `tle_history` time series for one object -- Analysis page evidence charts         |
+| `GET`  | `/api/object-trends/[noradId]/explain`   | Persisted trend-model reasoning for one object (signal breakdown, consensus)          |
+| `GET`  | `/api/object-trends/[noradId]/snapshots` | Full classification-change history for one object -- Analysis page change timeline    |
+| `GET`  | `/api/object-trends/recent-changes`      | Latest 1-2 snapshots per object, catalog-wide -- dashboard triage grouping            |
+| `GET`  | `/api/solar-flux`                        | Read current NOAA F10.7 value from Redis                                              |
+| `POST` | `/api/solar-flux`                        | Refresh F10.7 from NOAA (cron-job.org, daily)                                         |
+| `POST` | `/api/internal/process-trends`           | Trend worker drain (cron-job.org, every 15 min, `x-internal-secret` auth)             |
+| `POST` | `/api/internal/requeue-stale`            | Re-enqueue `object_trends` rows on a stale `trend_version`                            |
 
 ---
 
@@ -373,25 +404,32 @@ npm run test:watch
 
 ### Environment Variables
 
-| Variable                   | Description                                                        |
-| -------------------------- | ------------------------------------------------------------------ |
-| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint                                        |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token                                           |
-| `InDevelopment`            | Set to `"true"` to show UnderDevelopment page for dashboard routes |
+| Variable                   | Description                                                                              |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint                                                              |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token                                                                 |
+| `DATABASE_URL`             | Neon PostgreSQL connection string (Drizzle)                                              |
+| `INTERNAL_JOB_SECRET`      | Shared secret for `x-internal-secret` header on internal cron routes (`/api/internal/*`) |
+| `InDevelopment`            | Set to `"true"` to show UnderDevelopment page for dashboard routes                       |
 
 ---
 
 ## Tests
 
 ```bash
-lib/fleet-health.test.ts      # distanceKm, orbitClassFromAlt, aggregateFleetHealth
-lib/satelliteHelpers.test.ts  # formatDistance, classifyOrbit, getOrbitType, parseBSTAR, parseMeanMotionDot
+lib/satelliteHelpers.test.ts          # BSTAR/N-dot parsing, tier assignment, altitude-based estimate
+lib/explainReentryTrend.test.ts       # classifyDecaySignal, estimateReentry, signal reconstruction
+lib/objectTrendRisk.test.ts           # resolveReentryRisk -- single/multi-epoch resolution, real fixtures
+app/dashboard/reentry/lib/buildTriageBuckets.test.ts
+app/dashboard/reentry/[noradId]/lib/buildReentryTrace.test.ts
+app/dashboard/reentry/[noradId]/lib/buildReentryChartOptions.test.ts
+app/dashboard/reentry/[noradId]/lib/buildChangeTimeline.test.ts
 ```
 
-Jest configured in `package.json` with `ts-jest`. Worker dependencies are mocked via `jest.mock('./satelliteWorker', ...)`.
+Jest configured via `jest.config.js` with `ts-jest`; `roots` covers both `lib/` and `app/`, since several pure functions live alongside the pages that consume them rather than centrally. Worker dependencies are mocked via `jest.mock('./satelliteWorker', ...)`.
 
 ---
 
 **License**
 
-MIT License © 2025 DRAKON Project
+MIT License (c) 2026 DRAKON

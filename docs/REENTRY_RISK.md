@@ -410,16 +410,63 @@ This prevents a version bump from flooding the queue with 18k jobs when the unde
 
 ---
 
+## Explainability Layer
+
+`lib/explainReentryTrend.ts` is the single source of truth for turning regression output into a classification — extracted from `computeObjectTrends.ts` specifically so the trend worker and the read-side API routes can never compute two different answers for the same object. It exports:
+
+- `classifyDecaySignal` / `estimateReentry` — the same functions the worker calls (unchanged behavior, pure refactor).
+- `SIGNAL_WEIGHTS` / `SIGNAL_AGREE_THRESHOLDS` — named constants (0.35 / 0.25 / 0.4 weights, 0.3 / 0.3 / 0.2 agreement thresholds) instead of inline magic numbers, so any consumer reconstructing a signal breakdown uses the exact same numbers the classifier used.
+- `reconstructSignalContributions(scores)` — rebuilds a `SignalContribution[]` (per-signal strength, weight, contribution, agreement) from the three persisted `object_trends` columns below, **without** re-querying `tle_history` or re-running regressions. This is what makes the read-side (`/explain`, the Analysis page) cheap and guaranteed-consistent with what was actually computed, rather than a live re-derivation that could drift.
+
+`object_trends` persists three additional columns for this purpose: `bstar_signal_strength`, `ndot_signal_strength`, `altitude_signal_strength` (all nullable — `null` for rows written before this was added, until their next recompute; `reconstructSignalContributions` returns an empty array rather than fabricate a value in that case), plus `consensus_required` / `consensus_met`.
+
+---
+
+## Decision Trace (Analysis Page)
+
+`/dashboard/reentry/[noradId]` — every object with a resolved risk gets a dedicated page answering "why," not just "what."
+
+**Verdict is computed from `risk`, not `trend`, directly.** `buildReentryTrace()` (in `app/dashboard/reentry/[noradId]/lib/buildReentryTrace.ts`) takes the same `{ risk, trend }` pair the dashboard already computes via `resolveReentryRisk()` — not a second, independent server-side computation. This was a deliberate fix: an earlier version read the verdict straight from the persisted `object_trends` row, which meant the Analysis page could show a different (staler, less pessimistic) tier than the Detail Panel for the same object below the altitude threshold, since it never applied the live-altitude pessimistic-merge. Reusing the exact same `risk` object the rest of the app renders makes that class of drift structurally impossible, not just less likely.
+
+**One-line summary.** `buildReentryTrace()` also composes a synthesized analytical sentence (`verdict.summary`) — a characterization clause (what's happening: sustained decay with all signals agreeing, a borderline signal, a live-altitude override ahead of the trend model, a probable maneuver, etc.) plus an evidentiary clause (epoch count, the estimate, and confidence in prose — `"moderate"`/`"high"`/`"low"`, a deliberately different register from the precise percentage shown elsewhere on the page). Always present, for every tier — shown before the "Show decision trace" toggle so the read order is verdict → summary → evidence on demand.
+
+**The trace itself renders as a connected pipeline**, not a flat checklist — each `TraceStep` is a circular icon node joined to the next by a vertical connector line, with a small uppercase stage label (`Load history`, `Bstar analysis`, `N-dot analysis`, `Altitude analysis`, `Consensus`, `Live override`, `Verdict`) above the actual claim. Steps are generated in this order by `buildReentryTrace()`:
+
+1. **Load history** — epoch count and days of history (only when a `trend` row exists)
+2. **Bstar / N-dot / Altitude analysis** — one step per `SignalContribution`, from `reconstructSignalContributions`
+3. **Consensus** — full/partial/none, and whether it was met
+4. **Verdict** — the tier assignment itself
+5. **Live override** — only present when `trend.reentryTier !== risk.tier`, explicitly stating the trend model's own number alongside the live one so the disagreement is legible, not silently swapped
+
+**Evidence** (always visible, not gated by the trace toggle): altitude-decay and BSTAR-trend charts (ECharts, `components/Charts/`, fed by `/api/object-trends/[noradId]/history`), and a change-history timeline (below).
+
+---
+
+## Triage & Change History
+
+`trend_snapshots` is an append-only log, written by `upsertTrend()` in `computeObjectTrends.ts` only when an object's `reentryTier` or `decaySignal` actually differs from what was persisted before the write — not on every recompute. This is what makes "what changed recently" answerable without diffing the whole catalog on every page load.
+
+**Dashboard triage** (`app/dashboard/reentry/lib/buildTriageBuckets.ts`) groups flagged objects into three buckets using each object's two most recent snapshots (`/api/object-trends/recent-changes`, one unscoped window-function query across the whole table):
+
+- **New / escalated** — the most recent snapshot is within a 72-hour window _and_ represents an actual severity increase (or is the object's first-ever snapshot). A recent _improvement_ does not qualify — it falls back to grouping by current tier, so good news isn't surfaced with the same urgency as bad news.
+- **Active** — current tier is critical/warning, nothing changed recently.
+- **Watching** — current tier is nominal, stable.
+
+**Change-history timeline** (Analysis page, `app/dashboard/reentry/[noradId]/lib/buildChangeTimeline.ts`, backed by `/api/object-trends/[noradId]/snapshots` — up to the 20 most recent snapshots for one object) turns consecutive snapshot pairs into readable events: **escalated** (tier got worse), **improved** (tier got better), **lateral** (decay signal changed, tier didn't — e.g. `decaying` → `maneuvering` while staying `warning`), and **first** (the oldest entry in the returned window — captioned as such, not implied to be the object's true first-ever classification if the 20-row cap was hit).
+
+---
+
 ## UI Surfaces
 
-| Surface                | What it shows                                                                                                                           |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Globe ScatterplotLayer | Objects colored by tier when `showReentry` active; non-flagged objects dimmed to `[60, 60, 80, 100]`                                    |
-| RightPanel             | Tier counts, top-50 list sorted by `estimatedDaysRemaining`, link to dashboard                                                          |
-| LeftPanel              | Re-entry detail section for focused satellite; `multi_epoch` source accent on Signal row                                                |
-| `/dashboard/reentry`   | Full sortable/filterable table, MiniGlobe preview, ReentryStatsBar with F10.7 display, live countdown timer for trend-sourced estimates |
+| Surface                        | What it shows                                                                                                                             |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Globe ScatterplotLayer         | Objects colored by tier when `showReentry` active; non-flagged objects dimmed to `[60, 60, 80, 100]`                                      |
+| RightPanel                     | Tier counts, top-50 list sorted by `estimatedDaysRemaining`, link to dashboard                                                            |
+| LeftPanel                      | Re-entry detail section for focused satellite; `multi_epoch` source accent on Signal row                                                  |
+| `/dashboard/reentry`           | Triage tabs (New/Escalated · Active · Watching), sortable/filterable table per tab, MiniGlobe preview, ReentryStatsBar with F10.7 display |
+| `/dashboard/reentry/[noradId]` | Decision Trace: one-line summary, connected-pipeline reasoning trace, evidence charts, change-history timeline                            |
 
-The dashboard re-entry page uses `focusedSatelliteId` from Redux so selecting a table row also focuses the satellite on the globe when "Open globe" is clicked.
+The dashboard re-entry table links each row to its Analysis page ("Full analysis"); the Analysis page's own "Track object" action jumps to the globe with that satellite focused.
 
 ---
 
@@ -443,23 +490,36 @@ Factors not modelled:
 
 ## Files
 
-| File                                       | Role                                                                                                                                                                                                                   |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/satelliteHelpers.ts`                  | `parseBSTAR`, `parseMeanMotionDot`, `getReentryRisk`, `altitudeBasedReentryEstimate`, `estimateDecayRateFromAltitude`, `assignReentryTier`, `applyConfidenceCeiling`, `ndotIndicatesDecay`, `getReentryTierThresholds` |
-| `lib/objectTrendRisk.ts`                   | `resolveReentryRisk`, `objectTrendToReentryRisk`, `buildReentryRiskMap`, `isActionableTrend`                                                                                                                           |
-| `lib/reentrySignals.ts`                    | `allTrendSignalsAgree`, `trendSignalsAgree`, `allSignalsAgreeFromSlopes`, `decaySignalFlags`, `isDebrisEntry`                                                                                                          |
-| `lib/solarFlux.ts`                         | `solarFluxMultiplierFromF107`, `getSolarFlux`, `refreshSolarFluxInRedis`, `pickDailyF107`                                                                                                                              |
-| `lib/jobs/computeObjectTrends.ts`          | `recomputeTrends`, `processTrendJobs`, `classifyDecaySignal`, `regression`, `weightedRegression`, `slopeOverWindowWeighted`                                                                                            |
-| `lib/jobs/ingestTleHistory.ts`             | History + archive writes, per-chunk job enqueue, terminal priority requeue                                                                                                                                             |
-| `lib/jobs/requeueStaleObjects.ts`          | Version invalidation sweep with new-history guard                                                                                                                                                                      |
-| `lib/visualization-slice.ts`               | `showReentry` state, `setShowReentry` action                                                                                                                                                                           |
-| `hooks/useObjectTrendsQuery.ts`            | Client trends fetch, enabled only when `showReentry`                                                                                                                                                                   |
-| `app/dashboard/reentry/`                   | Dashboard page, table, detail panel, stats bar, countdown, navigation                                                                                                                                                  |
-| `app/api/solar-flux/route.ts`              | GET: read from Redis; POST: refresh from NOAA                                                                                                                                                                          |
-| `app/api/object-trends/route.ts`           | Read-only trend fetch for client                                                                                                                                                                                       |
-| `app/api/internal/process-trends/route.ts` | Worker drain endpoint                                                                                                                                                                                                  |
-| `app/api/internal/requeue-stale/route.ts`  | Version invalidation requeue                                                                                                                                                                                           |
-| `.github/workflows/tle-ping.yml`           | 2-hour GitHub Actions cron for TLE ingest                                                                                                                                                                              |
+| File                                                 | Role                                                                                                                                                                                                                   |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/satelliteHelpers.ts`                            | `parseBSTAR`, `parseMeanMotionDot`, `getReentryRisk`, `altitudeBasedReentryEstimate`, `estimateDecayRateFromAltitude`, `assignReentryTier`, `applyConfidenceCeiling`, `ndotIndicatesDecay`, `getReentryTierThresholds` |
+| `lib/objectTrendRisk.ts`                             | `resolveReentryRisk`, `objectTrendToReentryRisk`, `buildReentryRiskMap`, `isActionableTrend`                                                                                                                           |
+| `lib/explainReentryTrend.ts`                         | `classifyDecaySignal`, `estimateReentry`, `reconstructSignalContributions`, `SIGNAL_WEIGHTS`, `SIGNAL_AGREE_THRESHOLDS`                                                                                                |
+| `lib/reentrySignals.ts`                              | `allTrendSignalsAgree`, `trendSignalsAgree`, `allSignalsAgreeFromSlopes`, `decaySignalFlags`, `isDebrisEntry`                                                                                                          |
+| `lib/solarFlux.ts`                                   | `solarFluxMultiplierFromF107`, `getSolarFlux`, `refreshSolarFluxInRedis`, `pickDailyF107`                                                                                                                              |
+| `lib/jobs/computeObjectTrends.ts`                    | `recomputeTrends`, `processTrendJobs`, `upsertTrend` (writes `object_trends` + conditionally `trend_snapshots`), `regression`, `weightedRegression`, `slopeOverWindowWeighted`                                         |
+| `lib/jobs/ingestTleHistory.ts`                       | History + archive writes (concurrent chunk processing, `CHUNK_CONCURRENCY=4`), per-chunk job enqueue, terminal priority requeue                                                                                        |
+| `lib/jobs/requeueStaleObjects.ts`                    | Version invalidation sweep with new-history guard                                                                                                                                                                      |
+| `lib/visualization-slice.ts`                         | `showReentry` state, `setShowReentry` action                                                                                                                                                                           |
+| `hooks/useObjectTrendsQuery.ts`                      | Client trends fetch, enabled only when `showReentry`                                                                                                                                                                   |
+| `hooks/useObjectExplainQuery.ts`                     | `/explain` fetch — standalone trend-model reasoning, independent of the Analysis page's own `risk`+`trend` trace                                                                                                       |
+| `hooks/useObjectHistoryQuery.ts`                     | `/history` fetch for evidence charts                                                                                                                                                                                   |
+| `hooks/useObjectSnapshotsQuery.ts`                   | `/snapshots` fetch for the change-history timeline                                                                                                                                                                     |
+| `hooks/useRecentTrendChangesQuery.ts`                | `/recent-changes` fetch for dashboard triage                                                                                                                                                                           |
+| `app/dashboard/reentry/`                             | Dashboard page (triage tabs), table, detail panel, stats bar, countdown, navigation                                                                                                                                    |
+| `app/dashboard/reentry/lib/buildTriageBuckets.ts`    | New/escalated · active · watching classification                                                                                                                                                                       |
+| `app/dashboard/reentry/[noradId]/`                   | Analysis page: `buildReentryTrace.ts`, `buildReentryChartOptions.ts`, `buildChangeTimeline.ts`, `formatTimestamp.ts`                                                                                                   |
+| `components/DecisionTrace/`                          | Generic Verdict → Trace → Evidence shell (`DecisionTrace`, `TraceStep`) — not re-entry-specific, intended for reuse by future modules                                                                                  |
+| `components/Charts/`                                 | EChart wrapper + theme, shared by the Analysis page's evidence charts                                                                                                                                                  |
+| `app/api/solar-flux/route.ts`                        | GET: read from Redis; POST: refresh from NOAA                                                                                                                                                                          |
+| `app/api/object-trends/route.ts`                     | Read-only bulk trend fetch for client                                                                                                                                                                                  |
+| `app/api/object-trends/[noradId]/history/route.ts`   | Raw `tle_history` time series for one object                                                                                                                                                                           |
+| `app/api/object-trends/[noradId]/explain/route.ts`   | Persisted trend-model reasoning for one object, via `reconstructSignalContributions`                                                                                                                                   |
+| `app/api/object-trends/[noradId]/snapshots/route.ts` | Up to 20 most recent `trend_snapshots` rows for one object                                                                                                                                                             |
+| `app/api/object-trends/recent-changes/route.ts`      | Latest 1-2 snapshots per object, catalog-wide, for dashboard triage                                                                                                                                                    |
+| `app/api/internal/process-trends/route.ts`           | Worker drain endpoint                                                                                                                                                                                                  |
+| `app/api/internal/requeue-stale/route.ts`            | Version invalidation requeue                                                                                                                                                                                           |
+| `.github/workflows/tle-ping.yml`                     | 2-hour GitHub Actions cron for TLE ingest                                                                                                                                                                              |
 
 ---
 
