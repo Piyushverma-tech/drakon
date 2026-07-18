@@ -61,6 +61,7 @@ import {
   SatelliteTrack,
   TrackSegment,
 } from './types';
+import { decodeAlpha5CatalogNumber } from './alpha5';
 
 export type {
   CandidatePair,
@@ -289,7 +290,7 @@ export async function generateSatelliteTrackAsync(
         };
       });
 
-    const satId = Number(l1.substring(2, 7));
+    const satId = decodeAlpha5CatalogNumber(l1.substring(2, 7)) ?? -1;
     return {
       satId,
       past: toSegments(pastSegments),
@@ -333,7 +334,7 @@ export async function generateSatelliteOrbitPathAsync(
     const segments = splitOrbitAtAntimeridian(raw).map((path) => ({ path }));
     if (!segments.length) return null;
 
-    const satId = Number(l1.substring(2, 7));
+    const satId = decodeAlpha5CatalogNumber(l1.substring(2, 7)) ?? -1;
     return {
       satId,
       segments,
