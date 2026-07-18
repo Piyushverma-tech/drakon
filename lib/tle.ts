@@ -1,3 +1,4 @@
+import { decodeAlpha5CatalogNumber } from './alpha5';
 import { parseTLEMeta } from './satelliteHelpers';
 import type { TleEntry } from './types';
 
@@ -39,8 +40,8 @@ export function parseTleText(tleText: string): TleEntry[] {
 
     if (!l1.startsWith('1 ') || !l2.startsWith('2 ')) continue;
 
-    const id = Number(l1.substring(2, 7));
-    if (!Number.isFinite(id)) continue;
+    const id = decodeAlpha5CatalogNumber(l1.substring(2, 7));
+    if (id === null) continue;
 
     entries.push({
       id,

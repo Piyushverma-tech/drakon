@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import Papa from 'papaparse';
 import type { SatelliteMetadata } from '../lib/types';
+import { decodeAlpha5CatalogNumber } from '../lib/alpha5';
 
 const UCS_URL = 'https://www.ucs.org/media/11493';
 const SATCAT_URL = 'https://celestrak.org/pub/satcat.csv';
@@ -44,13 +45,9 @@ function parseNumber(value: unknown): number | undefined {
 
 function parseNoradId(value: unknown): number | undefined {
   const text = cleanString(value);
-
   if (!text) return undefined;
-
-  const digits = text.replace(/^0+/, '');
-  const parsed = Number(digits);
-
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+  const decoded = decodeAlpha5CatalogNumber(text.replace(/^0+/, '') || '0');
+  return decoded !== null && decoded > 0 ? decoded : undefined;
 }
 
 function parseIsoDate(value: unknown): string | undefined {
