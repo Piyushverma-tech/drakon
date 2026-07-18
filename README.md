@@ -7,12 +7,6 @@ The platform combines satellite telemetry, orbit propagation, and predictive ana
 
 ---
 
-## Overview
-
-DRAKON integrates real-time orbit computation, conjunction analysis, and fleet visualization into a unified interface for satellite operators, researchers, and mission analysts.
-
----
-
 ## 📸 Screenshots / Demo
 
 <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
@@ -26,13 +20,14 @@ DRAKON integrates real-time orbit computation, conjunction analysis, and fleet v
 
 ## Current MVP Features
 
-- **Interactive 3D Globe:** Real-time visualization of satellites using TLEs and `satellite.js`.
+- **Interactive 3D Globe:** Real-time visualization of satellites using TLEs and SGP4 from `satellite.js`.
 - **Fleet Health Overview:** Orbit breakdown (LEO / MEO / GEO / Debris).
 - **Satellite Details Panel:** Display NORAD ID, velocity, inclination, orbit type, and related data.
 - **Proximity Timeline:** Visualize potential close approaches over the next 24 hours.
 - **Critical Alerts:** List of high-risk conjunctions and anomalies.
-- **Historical Trends:** Basic analytics on orbit and event data.
+- **Historical Trends:** Analytics on orbit and event data.
 - **Collision Screening:** Trigger on-demand screening jobs for conjunction checks.
+- **Reentry Screening:** Identifies objects that are actively decaying and likely to re-enter Earth's atmosphere within a meaningful time window
 
 ---
 
@@ -204,8 +199,6 @@ Celestrak NORAD GP API
 | `cosmos-2251-debris` | ~1500 fragments from 2009 collision               |
 | `fengyun-1c-debris`  | ~3000 fragments from 2007 Chinese ASAT test       |
 
-> `1999-025` (Fengyun-1C debris alternate group) was removed — Celestrak discontinued it and returned HTTP 200 with an error string, which poisoned the cache and misaligned the TLE parser for all subsequent groups.
-
 ### Client-Side Caching (TanStack Query)
 
 ```typescript
@@ -226,17 +219,7 @@ Two separate systems handle different concerns:
 
 ---
 
-## Current Status
-
-### Core Features ✅
-
-- **Interactive 3D Globe**: Real-time visualization of satellites using TLEs and `satellite.js` with deck.gl GlobeView
-- **Day/Night Earth Texture**: BitmapLayer blending `earth_day.jpg` / `earth_night.jpg` based on SunCalc sub-solar position, redrawn every 30s with `drawTick` state trigger
-- **Fleet Overview**: LEO/MEO/GEO/Debris classification with interactive filtering
-- **Satellite Details Panel**: NORAD ID, position, velocity, inclination, orbit type, TLE epoch, re-entry risk
-- **Search**: Real-time search by satellite name or NORAD ID with globe fly-to on selection
-
-### Advanced Visualization Features ✅
+### Advanced Visualization Features
 
 #### Orbital Plane Visualization (Inclination Bands)
 
@@ -259,7 +242,7 @@ Two separate systems handle different concerns:
 
 📖 See [docs/COLLISION_DENSITY_MAP.md](./docs/COLLISION_DENSITY_MAP.md)
 
-#### Re-Entry Risk Screening ✅
+#### Re-Entry Risk Screening
 
 Two-layer screening, resolved together in `lib/objectTrendRisk.ts`: a fast single-epoch BSTAR/N-dot model (`getReentryRisk`, all debris, no backend dependency) and a multi-epoch regression model over 7-30 days of `tle_history` (`recomputeTrends`, required for active payloads -- a single TLE epoch's BSTAR is too maneuver-contaminated to trust alone). For objects below the altitude threshold, the two are resolved by taking whichever estimate is **more pessimistic**, so a stale multi-epoch trend can never mask a live, rapidly-decaying object.
 
@@ -271,7 +254,7 @@ Two-layer screening, resolved together in `lib/objectTrendRisk.ts`: a fast singl
 
 See [docs/REENTRY_RISK.md](./docs/REENTRY_RISK.md) for the full model and architecture, and [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPELINE.md) for the pipeline and schema.
 
-#### Satellite Ground Track ✅
+#### Satellite Ground Track
 
 - Past track (teal, fading) + future track (blue, fading) as `PathLayer` segments
 - `generateSatelliteTrack` in worker: 120 samples past + 120 future across 1 orbital period
@@ -280,7 +263,7 @@ See [docs/REENTRY_RISK.md](./docs/REENTRY_RISK.md) for the full model and archit
 - `requestIdRef` pattern prevents stale async results when satellite changes mid-flight
 - Reruns on `simulationOffsetHours` change
 
-#### Predictive Time Simulation ✅
+#### Predictive Time Simulation
 
 - Redux: `simulationOffsetHours`, `isSimulating`, `simLoading`
 - `useSimulatedPositions` hook: 600ms debounce on initial compute, 10s periodic refresh
@@ -288,20 +271,13 @@ See [docs/REENTRY_RISK.md](./docs/REENTRY_RISK.md) for the full model and archit
 - ForecastOverlay: IBM Plex Mono, 72h window, drag scrubber, amber warning beyond 48h (SGP4 accuracy degrades)
 - `simLoading` in Redux so ForecastOverlay subscribes independently without prop drilling
 
-### Performance Optimizations ✅
+### Performance Optimizations
 
 **Worker architecture:**
 
 - Single persistent Comlink worker (`satellite.worker.ts`) — no per-call worker spawn overhead
 - In-memory LRU-style cache in `satelliteWorker.ts` (`CACHE_MAX=1000`, FIFO eviction)
 - `batchPositionFromTLE` sends entire array in one Comlink call, not per-satellite messages
-
-**React rendering:**
-
-- `filteredSatellites`, `reentryRisks`, `densityLayers`, `trackLayers`, `layers` all `useMemo`
-- `RightPanel` and `LeftPanel` wrapped in `memo` with custom prop comparators
-- `reentryRisksRef` pattern: ref updated by `useEffect`, read inside `getFillColor` closure — avoids adding `reentryRisks` Map to `layers` useMemo deps (prevents 5s recompute freeze)
-- `focusSatellite` wrapped in `useCallback([simulationOffsetHours])` — fixes stale closure bug when simulation is active, and included in RightPanel memo comparator
 
 **isDebris classification** (in `useTleEntriesQuery.ts`):
 
@@ -334,13 +310,9 @@ Used for globe coloring (gray dots) and as a gate in `getReentryRisk` for re-ent
 - **Automated partition maintenance**: create/drop `tle_history` monthly partitions on a schedule instead of manually
 - **`tle_archive` restructure**: only the latest name per object is ever read -- an upsert-in-place table would be simpler than an append-and-prune one
 
-> **Done, no longer pending** (moved out of this list as of the re-entry Decision Trace work): multi-epoch BSTAR trending, PostgreSQL `tle_history`/`object_trends` persistence, NOAA F10.7 solar flux correction. See [Re-Entry Risk Screening](#re-entry-risk-screening-) below and [docs/REENTRY_RISK.md](./docs/REENTRY_RISK.md).
-
 ---
 
 ## Database Schema (PostgreSQL -- Neon, via Drizzle ORM)
-
-The tables below are the actual schema (`lib/db/schema.ts`), not an aspirational one -- earlier draft tables described in older versions of this README (`satellites`, `positions`, `conjunctions`, `maneuvers`, `alerts`) were never built; re-entry screening turned out not to need them.
 
 | Table                 | Description                                                                                                                                                                                             |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
