@@ -56,3 +56,10 @@ export function parseTleText(tleText: string): TleEntry[] {
 
   return entries;
 }
+
+/** Inverse of parseTleText — used by the ingestion service to write a
+ * merged Map<id, TleEntry> snapshot back to the 3-line TLE text the Redis
+ * cache and every downstream consumer expect. */
+export function serializeTleEntries(entries: TleEntry[]): string {
+  return entries.map((e) => `${e.name}\n${e.l1}\n${e.l2}`).join('\n') + '\n';
+}

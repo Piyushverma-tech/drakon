@@ -80,7 +80,8 @@ drakon/
 |  |  |     `- snapshots/route.ts         # Full change history for one object
 |  |  `- internal/
 |  |     |- process-trends/route.ts       # Trend worker drain (cron-job.org, 15min)
-|  |     `- requeue-stale/route.ts        # Version-invalidation requeue
+|  |     |- requeue-stale/route.ts        # Version-invalidation requeue
+|  |     `- ingest-tle/route.ts           # Space-Track/CelesTrak merge cycle (see DRAKON-SpaceTrack-migration.md §9)
 |  |- dashboard/
 |  |  |- components/
 |  |  |  |- layout/
@@ -151,6 +152,13 @@ drakon/
 |  |  |- ingestTleHistory.ts    # History + archive writes, concurrent chunk processing, job enqueue
 |  |  |- computeObjectTrends.ts # Regression, classification, trend worker
 |  |  `- requeueStaleObjects.ts # Version invalidation sweep
+|  |- tle-providers/            # TLEProvider abstraction (Celestrak/Space-Track/Mock) -- see DRAKON-SpaceTrack-migration.md
+|  |  |- types.ts               # ProviderName, TleFetchOptions/Result, TLEProvider interface
+|  |  |- celestrak.ts           # CelesTrakProvider -- extracted from the original app/api/tle/route.ts fetch logic
+|  |  |- spacetrack.ts          # SpaceTrackProvider -- session-cookie auth, predicate-scoped `gp` class query
+|  |  |- mock.ts                # MockProvider -- deterministic fixture incl. one Alpha-5 object, for tests/CI
+|  |  |- shadowDiff.ts          # Phase 1 shadow-mode: logs a Space-Track/CelesTrak diff, no side effects
+|  |  `- index.ts                # getPrimaryProvider()/getFallbackProvider(), keyed off TLE_PROVIDER
 |  `- workers/
 |     `- satellite.worker.ts    # Comlink worker: SGP4, density, ground tracks
 |- docs/
@@ -328,18 +336,19 @@ Full column-level detail: [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPE
 
 ## API Endpoints
 
-| Method | Endpoint                                 | Description                                                                           |
-| ------ | ---------------------------------------- | ------------------------------------------------------------------------------------- |
-| `GET`  | `/api/tle`                               | Combined TLE data (all groups), Redis-cached (2h TTL). Triggers ingest on cache miss. |
-| `GET`  | `/api/object-trends`                     | Bulk read of current `object_trends` rows                                             |
-| `GET`  | `/api/object-trends/[noradId]/history`   | Raw `tle_history` time series for one object -- Analysis page evidence charts         |
-| `GET`  | `/api/object-trends/[noradId]/explain`   | Persisted trend-model reasoning for one object (signal breakdown, consensus)          |
-| `GET`  | `/api/object-trends/[noradId]/snapshots` | Full classification-change history for one object -- Analysis page change timeline    |
-| `GET`  | `/api/object-trends/recent-changes`      | Latest 1-2 snapshots per object, catalog-wide -- dashboard triage grouping            |
-| `GET`  | `/api/solar-flux`                        | Read current NOAA F10.7 value from Redis                                              |
-| `POST` | `/api/solar-flux`                        | Refresh F10.7 from NOAA (cron-job.org, daily)                                         |
-| `POST` | `/api/internal/process-trends`           | Trend worker drain (cron-job.org, every 15 min, `x-internal-secret` auth)             |
-| `POST` | `/api/internal/requeue-stale`            | Re-enqueue `object_trends` rows on a stale `trend_version`                            |
+| Method | Endpoint                                 | Description                                                                                                                                                                                                                                                                                                                                                      |
+| ------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/tle`                               | Combined TLE data (all groups), Redis-cached (2h TTL). Still fetches CelesTrak + writes cache directly on its own cache miss (Phase 4 will remove this once `/api/internal/ingest-tle` has proven it keeps the cache warm -- see `DRAKON-SpaceTrack-migration.md` §12). Also fires a one-per-hour Space-Track shadow diff (log only, no effect on the response). |
+| `GET`  | `/api/object-trends`                     | Bulk read of current `object_trends` rows                                                                                                                                                                                                                                                                                                                        |
+| `GET`  | `/api/object-trends/[noradId]/history`   | Raw `tle_history` time series for one object -- Analysis page evidence charts                                                                                                                                                                                                                                                                                    |
+| `GET`  | `/api/object-trends/[noradId]/explain`   | Persisted trend-model reasoning for one object (signal breakdown, consensus)                                                                                                                                                                                                                                                                                     |
+| `GET`  | `/api/object-trends/[noradId]/snapshots` | Full classification-change history for one object -- Analysis page change timeline                                                                                                                                                                                                                                                                               |
+| `GET`  | `/api/object-trends/recent-changes`      | Latest 1-2 snapshots per object, catalog-wide -- dashboard triage grouping                                                                                                                                                                                                                                                                                       |
+| `GET`  | `/api/solar-flux`                        | Read current NOAA F10.7 value from Redis                                                                                                                                                                                                                                                                                                                         |
+| `POST` | `/api/solar-flux`                        | Refresh F10.7 from NOAA (cron-job.org, daily)                                                                                                                                                                                                                                                                                                                    |
+| `POST` | `/api/internal/process-trends`           | Trend worker drain (cron-job.org, every 15 min, `x-internal-secret` auth)                                                                                                                                                                                                                                                                                        |
+| `POST` | `/api/internal/requeue-stale`            | Re-enqueue `object_trends` rows on a stale `trend_version`                                                                                                                                                                                                                                                                                                       |
+| `POST` | `/api/internal/ingest-tle`               | Space-Track (primary) + CelesTrak (debris, always; payload/rocket-body fallback) merge cycle, writes `tle:combined`/`tle:combined:stale` and per-source `tle_history` rows. Point the hourly trigger here per the migration plan's Phase 2. `x-internal-secret` auth.                                                                                            |
 
 ---
 
@@ -376,13 +385,16 @@ npm run test:watch
 
 ### Environment Variables
 
-| Variable                   | Description                                                                              |
-| -------------------------- | ---------------------------------------------------------------------------------------- |
-| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint                                                              |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token                                                                 |
-| `DATABASE_URL`             | Neon PostgreSQL connection string (Drizzle)                                              |
-| `INTERNAL_JOB_SECRET`      | Shared secret for `x-internal-secret` header on internal cron routes (`/api/internal/*`) |
-| `InDevelopment`            | Set to `"true"` to show UnderDevelopment page for dashboard routes                       |
+| Variable                   | Description                                                                                                                                                                                     |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint                                                                                                                                                                     |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token                                                                                                                                                                        |
+| `DATABASE_URL`             | Neon PostgreSQL connection string (Drizzle)                                                                                                                                                     |
+| `INTERNAL_JOB_SECRET`      | Shared secret for `x-internal-secret` header on internal cron routes (`/api/internal/*`)                                                                                                        |
+| `InDevelopment`            | Set to `"true"` to show UnderDevelopment page for dashboard routes                                                                                                                              |
+| `SPACETRACK_IDENTITY`      | Space-Track account email (see `DRAKON-SpaceTrack-migration.md`). Without this, the Phase 1 shadow-mode fetch fails auth and logs a warning only -- everything else keeps working.              |
+| `SPACETRACK_PASSWORD`      | Space-Track account password                                                                                                                                                                    |
+| `TLE_PROVIDER`             | `spacetrack` (default) or `celestrak`. Not wired into the live ingest path yet -- read by `getPrimaryProvider()`/`getFallbackProvider()` in `lib/tle-providers/`, unused until Phase 2 cutover. |
 
 ---
 

@@ -3,7 +3,14 @@ import redis from '@/lib/redis';
 import { ingestTleHistory } from '@/lib/jobs/ingestTleHistory';
 import { parseTleText } from '@/lib/tle';
 import { solarFluxResponseHeaders } from '@/lib/solarFlux';
+import { logSpaceTrackShadowDiff } from '@/lib/tle-providers/shadowDiff';
 import { after } from 'next/server';
+import {
+  CACHE_KEY,
+  CACHE_TTL_SECONDS,
+  normalizeNewlines,
+  STALE_CACHE_KEY,
+} from '@/lib/tleCache';
 
 export const maxDuration = 60;
 
@@ -13,18 +20,6 @@ const GROUPS = [
   'cosmos-2251-debris',
   'fengyun-1c-debris',
 ];
-const CACHE_KEY = 'tle:combined';
-const STALE_CACHE_KEY = 'tle:combined:stale';
-const CACHE_TTL_SECONDS = 7200;
-
-// Upstash JSON-encodes all values, which can escape newlines in multiline strings.
-// This normalizes them back to real newline characters.
-function normalizeNewlines(str: string): string {
-  return str
-    .replace(/\\r\\n/g, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\n');
-}
 
 async function fetchFromCelestrak(
   groups: string[],
@@ -162,8 +157,9 @@ export async function GET(request: Request) {
   }
 
   after(async () => {
+    const parsedEntries = parseTleText(combined);
+
     try {
-      const parsedEntries = parseTleText(combined);
       const ingestResult = await ingestTleHistory(
         parsedEntries,
         effectiveGroups.join(',')
@@ -171,6 +167,15 @@ export async function GET(request: Request) {
       console.log('[TLE] Historical ingest:', ingestResult);
     } catch (err) {
       console.warn('[TLE] Post-response pipeline failed:', err);
+    }
+
+    // Phase 1 shadow mode (DRAKON-SpaceTrack-migration.md §12): fetch from
+    // Space-Track alongside the CelesTrak path above and log a diff only —
+    // no write, no read, no effect on the response or the ingest above.
+    // Scoped to isDefaultGroups so an arbitrary client-supplied `group`
+    // query param can't multiply Space-Track calls.
+    if (isDefaultGroups) {
+      await logSpaceTrackShadowDiff(parsedEntries);
     }
   });
 
