@@ -34,7 +34,12 @@ export function parseTleText(tleText: string): TleEntry[] {
   const entries: TleEntry[] = [];
 
   for (let i = 0; i + 2 < lines.length; i += 3) {
-    const name = lines[i].trim();
+    const rawNameLine = lines[i].trim();
+    // Space-Track's  format/3le includes  "0 " line-type
+    // marker on name (matching "1 "/"2 " on the element lines); CelesTrak's FORMAT=3le omits it.
+    const name = rawNameLine.startsWith('0 ')
+      ? rawNameLine.slice(2).trim()
+      : rawNameLine;
     const l1 = lines[i + 1];
     const l2 = lines[i + 2];
 
