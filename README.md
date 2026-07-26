@@ -81,7 +81,8 @@ drakon/
 |  |  `- internal/
 |  |     |- process-trends/route.ts       # Trend worker drain (cron-job.org, 15min)
 |  |     |- requeue-stale/route.ts        # Version-invalidation requeue
-|  |     `- ingest-tle/route.ts           # Space-Track/CelesTrak merge cycle (see DRAKON-SpaceTrack-migration.md §9)
+|  |     |- ingest-tle/route.ts           # Space-Track/CelesTrak merge cycle (see DRAKON-SpaceTrack-migration.md §9)
+|  |     `- manage-tle-partitions/route.ts # Monthly tle_history partition create-ahead/drop-stale (see §11)
 |  |- dashboard/
 |  |  |- components/
 |  |  |  |- layout/
@@ -181,24 +182,13 @@ drakon/
 
 ### TLE Pipeline
 
-```
-Celestrak NORAD GP API
-  └─ /api/tle (Next.js route)
-       ├─ Step 1: Upstash Redis GET tle:combined  → HIT: return cached (x-cache: HIT)
-       ├─ Step 2: Fetch all 4 groups from Celestrak with content validation
-       │    └─ Guards: HTTP status + "Invalid query" text + TLE line format check
-       ├─ Step 3: Redis SET tle:combined (TTL 2h) + tle:combined:stale (no TTL)
-       └─ Step 4: If Celestrak empty → serve tle:combined:stale (x-cache: STALE)
-```
+Two sources behind one interface: **Space-Track** (primary, broader payload + rocket-body catalog) and **CelesTrak** (always for the three debris clouds, and the automatic fallback if Space-Track fails). An hourly job (`POST /api/internal/ingest-tle`) merges fresh data into the existing Redis snapshot — never overwrites it — and writes per-source-labeled rows to `tle_history`. The client-facing `GET /api/tle` is a pure read path: Redis in, plain text out, no fetching or writing of its own.
 
-**Key design decisions:**
+Full architecture — provider interface, the merge/prune algorithm, Redis key roles, partition maintenance — is in **[docs/TLE_PIPELINE_ARCHITECTURE.md](./docs/TLE_PIPELINE_ARCHITECTURE.md)**. What happens to the data after ingestion (history storage, trend computation, screening) is in [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPELINE.md).
 
-- Single combined `/api/tle` call from client — no per-group requests
-- `tle:combined:stale` has no TTL intentionally — it's an emergency fallback, overwritten every successful fetch
-- Content validation rejects Celestrak's 200-with-error-body responses (e.g. discontinued `1999-025` group)
-- 1.1s delay between group fetches to respect Celestrak rate limits
+### TLE Groups (CelesTrak)
 
-### TLE Groups
+These are CelesTrak's named groups — used for the three debris clouds unconditionally, and for `active` only when Space-Track itself is unreachable and CelesTrak is serving as fallback. Space-Track's own primary query isn't scoped by these group names at all (see docs/TLE_PIPELINE_ARCHITECTURE.md).
 
 | Group                | Contents                                          |
 | -------------------- | ------------------------------------------------- |
@@ -336,25 +326,26 @@ Full column-level detail: [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPE
 
 ## API Endpoints
 
-| Method | Endpoint                                 | Description                                                                                                                                                                                                                                                                                                                                                      |
-| ------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/api/tle`                               | Combined TLE data (all groups), Redis-cached (2h TTL). Still fetches CelesTrak + writes cache directly on its own cache miss (Phase 4 will remove this once `/api/internal/ingest-tle` has proven it keeps the cache warm -- see `DRAKON-SpaceTrack-migration.md` §12). Also fires a one-per-hour Space-Track shadow diff (log only, no effect on the response). |
-| `GET`  | `/api/object-trends`                     | Bulk read of current `object_trends` rows                                                                                                                                                                                                                                                                                                                        |
-| `GET`  | `/api/object-trends/[noradId]/history`   | Raw `tle_history` time series for one object -- Analysis page evidence charts                                                                                                                                                                                                                                                                                    |
-| `GET`  | `/api/object-trends/[noradId]/explain`   | Persisted trend-model reasoning for one object (signal breakdown, consensus)                                                                                                                                                                                                                                                                                     |
-| `GET`  | `/api/object-trends/[noradId]/snapshots` | Full classification-change history for one object -- Analysis page change timeline                                                                                                                                                                                                                                                                               |
-| `GET`  | `/api/object-trends/recent-changes`      | Latest 1-2 snapshots per object, catalog-wide -- dashboard triage grouping                                                                                                                                                                                                                                                                                       |
-| `GET`  | `/api/solar-flux`                        | Read current NOAA F10.7 value from Redis                                                                                                                                                                                                                                                                                                                         |
-| `POST` | `/api/solar-flux`                        | Refresh F10.7 from NOAA (cron-job.org, daily)                                                                                                                                                                                                                                                                                                                    |
-| `POST` | `/api/internal/process-trends`           | Trend worker drain (cron-job.org, every 15 min, `x-internal-secret` auth)                                                                                                                                                                                                                                                                                        |
-| `POST` | `/api/internal/requeue-stale`            | Re-enqueue `object_trends` rows on a stale `trend_version`                                                                                                                                                                                                                                                                                                       |
-| `POST` | `/api/internal/ingest-tle`               | Space-Track (primary) + CelesTrak (debris, always; payload/rocket-body fallback) merge cycle, writes `tle:combined`/`tle:combined:stale` and per-source `tle_history` rows. Point the hourly trigger here per the migration plan's Phase 2. `x-internal-secret` auth.                                                                                            |
+| Method | Endpoint                                 | Description                                                                                                                                                                                                                                                           |
+| ------ | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/tle`                               | Combined TLE data (all groups), served from Redis (`tle:combined`, 2h TTL; falls back to permanent `tle:combined:stale`). Pure read path as of Phase 4 -- no fetching, writing, or shadow diff of its own; ingestion is entirely owned by `/api/internal/ingest-tle`. |
+| `GET`  | `/api/object-trends`                     | Bulk read of current `object_trends` rows                                                                                                                                                                                                                             |
+| `GET`  | `/api/object-trends/[noradId]/history`   | Raw `tle_history` time series for one object -- Analysis page evidence charts                                                                                                                                                                                         |
+| `GET`  | `/api/object-trends/[noradId]/explain`   | Persisted trend-model reasoning for one object (signal breakdown, consensus)                                                                                                                                                                                          |
+| `GET`  | `/api/object-trends/[noradId]/snapshots` | Full classification-change history for one object -- Analysis page change timeline                                                                                                                                                                                    |
+| `GET`  | `/api/object-trends/recent-changes`      | Latest 1-2 snapshots per object, catalog-wide -- dashboard triage grouping                                                                                                                                                                                            |
+| `GET`  | `/api/solar-flux`                        | Read current NOAA F10.7 value from Redis                                                                                                                                                                                                                              |
+| `POST` | `/api/solar-flux`                        | Refresh F10.7 from NOAA (cron-job.org, daily)                                                                                                                                                                                                                         |
+| `POST` | `/api/internal/process-trends`           | Trend worker drain (cron-job.org, every 15 min, `x-internal-secret` auth)                                                                                                                                                                                             |
+| `POST` | `/api/internal/requeue-stale`            | Re-enqueue `object_trends` rows on a stale `trend_version`                                                                                                                                                                                                            |
+| `POST` | `/api/internal/ingest-tle`               | Space-Track (primary) + CelesTrak (debris, always; payload/rocket-body fallback) merge cycle, writes `tle:combined`/`tle:combined:stale` and per-source `tle_history` rows. Point the hourly trigger here per the migration plan's Phase 2. `x-internal-secret` auth. |
+| `POST` | `/api/internal/manage-tle-partitions`    | Creates the next few months of `tle_history` partitions ahead of time and drops any partition entirely >35 days stale. Idempotent, meant to run monthly. `x-internal-secret` auth.                                                                                    |
 
 ---
 
 ## Data Flow
 
-1. `/api/tle` fetches all 4 Celestrak groups server-side with content validation, combines them, and writes to Upstash Redis (`tle:combined` TTL 2h + `tle:combined:stale` permanent).
+1. An hourly job merges Space-Track (primary) and CelesTrak (debris + fallback) into Upstash Redis (`tle:combined` TTL 2h + `tle:combined:stale` permanent) — see docs/TLE_PIPELINE_ARCHITECTURE.md. `/api/tle` itself is a pure read of that snapshot, no side effects.
 2. Client calls `/api/tle` once via TanStack Query (`staleTime: 2h`). Parsed into `TleEntry[]` by `parseTleText` in `useTleEntriesQuery`.
 3. `useSatellitePositions` propagates all entries via `batchPositionFromTLEAsync` (Comlink worker) every 5 seconds.
 4. `useSimulatedPositions` computes projected positions at T+offset when forecast mode is active.

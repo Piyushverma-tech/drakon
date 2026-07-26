@@ -2,7 +2,9 @@
 
 ## Overview
 
-The TLE history pipeline stores successive Celestrak GP element sets in **Neon PostgreSQL**, derives per-object decay trends in the background, and feeds those trends into the globe's re-entry screening UI. It sits alongside the existing Redis-cached TLE proxy — clients still receive plain-text TLE from `/api/tle`; history ingest is a server-side side effect.
+The TLE history pipeline stores successive GP element sets in **Neon PostgreSQL**, derives per-object decay trends in the background, and feeds those trends into the globe's re-entry screening UI. It sits alongside the existing Redis-cached TLE proxy — clients still receive plain-text TLE from `/api/tle`; history ingest is a server-side side effect.
+
+**This doc covers what happens to TLE data once it's ingested** — history storage, trend computation, screening, client consumption. For how the data actually gets fetched and merged in the first place (Space-Track as primary source, CelesTrak for debris and fallback, the ingestion service's merge/prune logic, partition maintenance), see **[TLE_PIPELINE_ARCHITECTURE.md](./TLE_PIPELINE_ARCHITECTURE.md)** — that's the newer, more detailed reference for the fetch/provider layer this doc used to describe inline. The "Ingest path" section below has been updated to match, but the full design is in that doc now, not here.
 
 **Goals:**
 
@@ -19,18 +21,20 @@ The TLE history pipeline stores successive Celestrak GP element sets in **Neon P
 ```mermaid
 flowchart TB
   subgraph external [External]
-    CS[Celestrak GP catalog]
+    ST[Space-Track · primary]
+    CS[CelesTrak · debris always + fallback]
   end
 
-  subgraph ingest [Ingest — cache miss only]
-    TLE_API["GET /api/tle"]
+  subgraph ingest [Ingestion — see TLE_PIPELINE_ARCHITECTURE.md]
+    IngestRoute["POST /api/internal/ingest-tle<br/>hourly"]
+    TLE_API["GET /api/tle<br/>pure read path"]
     Redis[(Upstash Redis<br/>tle:combined · 2h TTL)]
-    Parse[parseTleText]
-    Ingest[ingestTleHistory]
-    CS --> TLE_API
-    Redis -.->|cache HIT| TLE_API
-    TLE_API -->|cache MISS| CS
-    TLE_API --> Parse --> Ingest
+    Ingest[runIngestionCycle /<br/>ingestTleHistory]
+    ST --> IngestRoute
+    CS --> IngestRoute
+    IngestRoute --> Ingest
+    Ingest --> Redis
+    Redis --> TLE_API
     Ingest --> TH[(tle_history)]
     Ingest --> TA[(tle_archive)]
     Ingest --> TJ[(trend_jobs)]
@@ -71,14 +75,13 @@ flowchart TB
 
 ## Data flow summary
 
-| Stage          | Trigger                        | Input                         | Output                                                      |
-| -------------- | ------------------------------ | ----------------------------- | ----------------------------------------------------------- |
-| TLE fetch      | Client loads globe             | Celestrak groups              | Plain-text TLE to client                                    |
-| Redis cache    | Default groups                 | Combined TLE text             | 2h TTL; stale key has no TTL                                |
-| History ingest | TLE **cache miss** only        | Parsed `TleEntry[]`           | Rows in `tle_history` + `tle_archive`; jobs in `trend_jobs` |
-| Trend worker   | cron-job.org POST every 15 min | Pending `trend_jobs`          | Upsert `object_trends`; delete completed jobs               |
-| Trends API     | Re-entry toggle ON             | —                             | JSON map of actionable trends                               |
-| Screening      | `showReentry` enabled          | TLE entries + optional trends | `reentryRisks` Map → globe colors + panels                  |
+| Stage          | Trigger                                  | Input                           | Output                                                                                                                                                  |
+| -------------- | ---------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TLE fetch      | Client loads globe                       | Redis `tle:combined` snapshot   | Plain-text TLE to client                                                                                                                                |
+| History ingest | cron-job.org POST, hourly (primary path) | Space-Track + CelesTrak fetches | Merged Redis snapshot; rows in `tle_history` + `tle_archive`; jobs in `trend_jobs` — see [TLE_PIPELINE_ARCHITECTURE.md](./TLE_PIPELINE_ARCHITECTURE.md) |
+| Trend worker   | cron-job.org POST every 15 min           | Pending `trend_jobs`            | Upsert `object_trends`; delete completed jobs                                                                                                           |
+| Trends API     | Re-entry toggle ON                       | —                               | JSON map of actionable trends                                                                                                                           |
+| Screening      | `showReentry` enabled                    | TLE entries + optional trends   | `reentryRisks` Map → globe colors + panels                                                                                                              |
 
 ---
 
@@ -168,13 +171,15 @@ Append-only log of `object_trends` outcome changes. Written by `upsertTrend()` i
 
 ## Ingest path
 
-**Entry point:** `app/api/tle/route.ts` → `ingestTleHistory()` in `lib/jobs/ingestTleHistory.ts`
+**Sole entry point (as of Phase 4 cleanup, 2026-07-26):** `POST /api/internal/ingest-tle` → `runIngestionCycle()` in `lib/ingestion/tleIngestionService.ts` → `ingestTleHistory()` in `lib/jobs/ingestTleHistory.ts`, called twice per cycle (once for the primary/fallback provider's entries, once for the three debris groups, separately labeled). Full design — Space-Track vs. CelesTrak, the merge/prune algorithm, provenance labeling — is in [TLE_PIPELINE_ARCHITECTURE.md](./TLE_PIPELINE_ARCHITECTURE.md); this section only covers what `ingestTleHistory()` itself does once it's called.
+
+`app/api/tle/route.ts` no longer calls `ingestTleHistory()` at all — its own CelesTrak-fetch-on-miss fallback (kept deliberately through Phases 1-3 as a safety net while the new pipeline proved itself) was removed once it had. `GET /api/tle` is now a pure read path: Redis in, plain text out, no side effects.
 
 ### When ingest runs
 
-Ingest executes **only on Redis cache miss** for the default Celestrak groups (`active`, debris groups). Cache hits return TLE immediately with **no database writes**. At steady state this means at most one ingest cycle per 2 hours.
+Hourly, via the `POST /api/internal/ingest-tle` cron trigger — not tied to the Redis cache TTL at all.
 
-`/api/tle`'s `after()` callback runs `ingestTleHistory()` only -- it no longer also calls `processTrendJobs()`. That call was removed: the dedicated `/api/internal/process-trends` cron was already sufficient on its own (it runs every 15 minutes, far more often than the 2-hour ingest cycle needs), and having both compete for the same 60s budget on this route caused `Vercel Runtime Timeout Error` failures once the catalog and per-object write cost grew (concurrent chunk processing, `trend_snapshots` writes). The trend queue drain is handled exclusively by the cron.
+`processTrendJobs()` is not called inline from ingestion either way — that call was removed from `/api/tle` early on, before this migration: the dedicated `/api/internal/process-trends` cron was already sufficient on its own, and having both compete for the same 60s budget on that route caused `Vercel Runtime Timeout Error` failures once the catalog and per-object write cost grew (concurrent chunk processing, `trend_snapshots` writes). The trend queue drain is handled exclusively by that cron.
 
 ### Ingest algorithm
 
@@ -189,7 +194,7 @@ Ingest executes **only on Redis cache miss** for the default Celestrak groups (`
 Returns `{ inserted, skipped, invalid }`:
 
 - **inserted** — new epoch rows written
-- **skipped** — epoch already in DB (same Celestrak publish)
+- **skipped** — epoch already in DB (same publish, regardless of which provider it came from)
 - **invalid** — failed validation
 
 ### Parsed fields
@@ -343,6 +348,8 @@ Signal agreement helpers live in `lib/reentrySignals.ts`. Full screening physics
 
 > `CRON_SECRET` is no longer used. All internal route auth uses `INTERNAL_JOB_SECRET` via the `x-internal-secret` header consistently.
 
+> `SPACETRACK_IDENTITY`, `SPACETRACK_PASSWORD`, and `TLE_PROVIDER` are used by the fetch/provider layer, not by anything this doc covers directly — see [TLE_PIPELINE_ARCHITECTURE.md](./TLE_PIPELINE_ARCHITECTURE.md#environment-variables).
+
 ---
 
 ## Operations
@@ -362,7 +369,7 @@ Vercel Hobby plan limits built-in cron to once per day. The trend worker is sche
 
 ### Cold start timeline
 
-History grows one epoch per cache-miss ingest cycle (~2h minimum interval):
+History grows one epoch per ingestion cycle (hourly, via `POST /api/internal/ingest-tle` — see [TLE_PIPELINE_ARCHITECTURE.md](./TLE_PIPELINE_ARCHITECTURE.md); this table predates that route and originally described the old cache-miss-driven cadence, but the day-by-day shape is still the same for a fresh deployment):
 
 | Day | Typical state                                                                     |
 | --- | --------------------------------------------------------------------------------- |
@@ -404,15 +411,9 @@ If `COUNT(*)` significantly exceeds `COUNT(DISTINCT norad_id)` for `pending` row
 
 ### Partition maintenance
 
-Before each new month, add a partition to `tle_history`:
+Automated as of 2026-07-25 — `POST /api/internal/manage-tle-partitions` (`lib/db/tlePartitions.ts`), meant to run monthly via cron-job.org. It creates the current month plus 2 months of forward buffer (`CREATE TABLE IF NOT EXISTS ... PARTITION OF`, idempotent) and drops any partition whose entire range is more than 35 days stale (discovered dynamically via `pg_inherits`, never touches `tle_history_default`). Full details in [TLE_PIPELINE_ARCHITECTURE.md](./TLE_PIPELINE_ARCHITECTURE.md#partition-maintenance).
 
-```sql
-CREATE TABLE tle_history_2026_09
-  PARTITION OF tle_history
-  FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
-```
-
-Partitions `tle_history_2026_06` through `tle_history_2026_08` plus `tle_history_default` exist in the current schema. If inserts land in `tle_history_default`, the missing partition's range index is bypassed and query performance degrades silently.
+Before this existed, partitions were created once by hand in the initial migration (`drizzle/0000_clever_titania.sql`, covering June–August 2026) with nothing creating any since — if inserts ever land in `tle_history_default`, that's the missing-partition symptom this route now exists to prevent.
 
 ---
 
@@ -420,7 +421,13 @@ Partitions `tle_history_2026_06` through `tle_history_2026_08` plus `tle_history
 
 | Path                                                                 | Role                                                                                                                                                     |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app/api/tle/route.ts`                                               | Celestrak proxy, Redis cache, ingest trigger (no longer also drains `trend_jobs` -- see "Ingest path")                                                   |
+| `app/api/tle/route.ts`                                               | Client-facing read path -- pure read, no side effects (see "Ingest path")                                                                                |
+| `app/api/internal/ingest-tle/route.ts`                               | Primary hourly ingestion trigger -- see [TLE_PIPELINE_ARCHITECTURE.md](./TLE_PIPELINE_ARCHITECTURE.md)                                                   |
+| `app/api/internal/manage-tle-partitions/route.ts`                    | Monthly partition create-ahead/drop-stale trigger                                                                                                        |
+| `lib/ingestion/tleIngestionService.ts`                               | `runIngestionCycle()` -- Space-Track/CelesTrak merge + prune algorithm                                                                                   |
+| `lib/tle-providers/`                                                 | `TLEProvider` interface and the CelesTrak/Space-Track/Mock implementations                                                                               |
+| `lib/tleCache.ts`                                                    | Shared `tle:combined`/`tle:combined:stale` keys + the Upstash newline-unescaping fix                                                                     |
+| `lib/db/tlePartitions.ts`                                            | `ensureUpcomingPartitions()` / `dropStalePartitions()`                                                                                                   |
 | `app/api/object-trends/route.ts`                                     | Public bulk trends read API (read-only, no background work)                                                                                              |
 | `app/api/object-trends/[noradId]/history/route.ts`                   | Raw `tle_history` time series for one object                                                                                                             |
 | `app/api/object-trends/[noradId]/explain/route.ts`                   | Persisted trend-model reasoning, via `reconstructSignalContributions`                                                                                    |
@@ -453,5 +460,6 @@ Partitions `tle_history_2026_06` through `tle_history_2026_08` plus `tle_history
 
 ## Related documentation
 
+- [TLE_PIPELINE_ARCHITECTURE.md](./TLE_PIPELINE_ARCHITECTURE.md) — how TLE data actually gets fetched and merged: Space-Track/CelesTrak providers, the ingestion service, partition maintenance
 - [REENTRY_RISK.md](./REENTRY_RISK.md) — BSTAR formula, tier thresholds, anomaly guards
 - [README.md](../README.md) — TLE proxy and Redis cache overview

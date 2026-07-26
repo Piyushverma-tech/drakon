@@ -1,7 +1,6 @@
 import { parseTleText } from '@/lib/tle';
 import type { TLEProvider, TleFetchOptions, TleFetchResult } from './types';
 
-// Same two jobs described in the migration plan (§6):
 //  1. Always-on source for the three static debris clouds, fetched every
 //     cycle regardless of which provider is primary.
 //  2. Outage fallback for the payload/rocket-body scope, only when the
@@ -10,9 +9,6 @@ import type { TLEProvider, TleFetchOptions, TleFetchResult } from './types';
 // it's being used for is the caller's decision (see the ingestion service).
 const DEFAULT_GROUPS = ['active'];
 
-// Content validation logic is unchanged from the original app/api/tle/route.ts
-// fetchFromCelestrak() — CelesTrak returns HTTP 200 with an error body for
-// invalid/discontinued groups, so a status check alone isn't enough.
 async function fetchGroup(group: string, format: string): Promise<string> {
   const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${encodeURIComponent(group)}&FORMAT=${format}`;
 
@@ -72,9 +68,6 @@ export const celestrakProvider: TLEProvider = {
 
   async fetch(options: TleFetchOptions = {}): Promise<TleFetchResult> {
     const groups = options.groups?.length ? options.groups : DEFAULT_GROUPS;
-    // CelesTrak documents FORMAT=tle and FORMAT=3le as synonyms (both
-    // include the name line), unlike Space-Track — but request 3le
-    // explicitly anyway for consistency across providers.
     const format = options.format ?? '3le';
 
     const raw = await fetchFromCelestrak(groups, format);

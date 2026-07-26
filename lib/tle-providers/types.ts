@@ -1,10 +1,4 @@
 // Provider-agnostic contract for fetching TLE/3LE data.
-//
-// Everything downstream of a fetch() call (parseTleText, ingestTleHistory,
-// the trend worker, the globe/dashboard consumers) only ever sees parsed
-// TleEntry[] or DB rows — it has no knowledge of which provider produced
-// them. That's what lets CelesTrak and Space-Track sit behind the same
-// interface without touching anything else in the app.
 
 export type ProviderName = 'celestrak' | 'spacetrack' | 'mock';
 

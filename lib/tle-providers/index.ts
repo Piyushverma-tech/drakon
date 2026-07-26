@@ -8,10 +8,7 @@ export { celestrakProvider } from './celestrak';
 export { spacetrackProvider, extractSessionCookie } from './spacetrack';
 export { mockProvider } from './mock';
 
-// TLE_PROVIDER is unset (defaults to CelesTrak) until Phase 2 cutover —
-// see the migration plan §12. Shadow mode (Phase 1) does not read this;
-// it calls spacetrackProvider directly alongside the unchanged CelesTrak
-// path, regardless of this env var.
+// Default to Space-Track as primary, CelesTrak as fallback
 export function getPrimaryProvider(): TLEProvider {
   return process.env.TLE_PROVIDER === 'celestrak'
     ? celestrakProvider

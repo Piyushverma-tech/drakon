@@ -16,7 +16,7 @@ import {
 } from '../tleCache';
 
 const LAST_FULL_RESYNC_KEY = 'tle:last_full_resync';
-const FULL_RESYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // once a day; tune later if needed
+const FULL_RESYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // once a day
 const LOCK_KEY = 'tle:ingestion:lock';
 const LOCK_TTL_SECONDS = 120; // generous vs. an expected ~5-15s cycle
 const STATIC_DEBRIS_GROUPS = [
@@ -49,14 +49,6 @@ async function needsFullResync(): Promise<boolean> {
  * CelesTrak on failure), always fetch the three static debris clouds from
  * CelesTrak separately, merge everything into the existing Redis snapshot,
  * and write history rows per-source so provenance stays accurate.
- *
- * See DRAKON-SpaceTrack-migration.md §8 for the full reasoning — in
- * particular §8.1's four mistakes an earlier draft made (overwriting
- * instead of merging; treating a CelesTrak fallback as authoritative
- * enough to prune from; mixed-source batches mislabeling provenance;
- * reusing the isDebris name-heuristic for a data-source distinction it
- * doesn't represent) are why this looks the way it does rather than
- * simpler.
  */
 export async function runIngestionCycle(): Promise<IngestionCycleResult> {
   // Prevent two overlapping triggers from racing on the read-modify-write
@@ -78,6 +70,7 @@ export async function runIngestionCycle(): Promise<IngestionCycleResult> {
     let primaryResult: TleFetchResult;
     let primaryProviderUsed: ProviderName;
     let usedFallback = false;
+
     try {
       primaryResult = await primary.fetch({ fullResync: doFullResync });
       primaryProviderUsed = primary.name;
@@ -99,9 +92,7 @@ export async function runIngestionCycle(): Promise<IngestionCycleResult> {
 
     const primaryEntries = parseTleText(primaryResult.raw);
     const debrisEntries = parseTleText(debrisResult.raw);
-    // Membership in this cycle's debris fetch — NOT TleEntry.isDebris, which
-    // is a name-pattern heuristic and doesn't mean "sourced from the static
-    // CelesTrak debris groups". See §8.1 mistake 4.
+
     const debrisIds = new Set(debrisEntries.map((e) => e.id));
 
     const existingRaw = normalizeNewlines(
@@ -112,10 +103,7 @@ export async function runIngestionCycle(): Promise<IngestionCycleResult> {
     );
 
     if (doFullResync && !usedFallback) {
-      // Only an authoritative Space-Track sweep can drop objects — a
-      // CelesTrak fallback result is never treated as the complete truth,
-      // even temporarily, or it reintroduces the curation-lag gap this
-      // migration exists to close.
+      // Only an authoritative Space-Track sweep can drop objects
       const freshIds = new Set(primaryEntries.map((e) => e.id));
       for (const [id] of snapshotMap) {
         if (!debrisIds.has(id) && !freshIds.has(id)) snapshotMap.delete(id);
@@ -135,7 +123,7 @@ export async function runIngestionCycle(): Promise<IngestionCycleResult> {
     // Ingest each source separately so tle_history.source_group stays
     // accurate per row — combining them into one array before calling
     // ingestTleHistory would mislabel every debris row with whichever
-    // provider name was passed for the batch. See §8.1 mistake 3.
+    // provider name was passed for the batch.
     const primaryIngest = await ingestTleHistory(
       primaryEntries,
       primaryProviderUsed
