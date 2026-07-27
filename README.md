@@ -158,7 +158,6 @@ drakon/
 |  |  |- celestrak.ts           # CelesTrakProvider -- extracted from the original app/api/tle/route.ts fetch logic
 |  |  |- spacetrack.ts          # SpaceTrackProvider -- session-cookie auth, predicate-scoped `gp` class query
 |  |  |- mock.ts                # MockProvider -- deterministic fixture incl. one Alpha-5 object, for tests/CI
-|  |  |- shadowDiff.ts          # Phase 1 shadow-mode: logs a Space-Track/CelesTrak diff, no side effects
 |  |  `- index.ts                # getPrimaryProvider()/getFallbackProvider(), keyed off TLE_PROVIDER
 |  `- workers/
 |     `- satellite.worker.ts    # Comlink worker: SGP4, density, ground tracks
@@ -376,16 +375,16 @@ npm run test:watch
 
 ### Environment Variables
 
-| Variable                   | Description                                                                                                                                                                                     |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint                                                                                                                                                                     |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token                                                                                                                                                                        |
-| `DATABASE_URL`             | Neon PostgreSQL connection string (Drizzle)                                                                                                                                                     |
-| `INTERNAL_JOB_SECRET`      | Shared secret for `x-internal-secret` header on internal cron routes (`/api/internal/*`)                                                                                                        |
-| `InDevelopment`            | Set to `"true"` to show UnderDevelopment page for dashboard routes                                                                                                                              |
-| `SPACETRACK_IDENTITY`      | Space-Track account email (see `DRAKON-SpaceTrack-migration.md`). Without this, the Phase 1 shadow-mode fetch fails auth and logs a warning only -- everything else keeps working.              |
-| `SPACETRACK_PASSWORD`      | Space-Track account password                                                                                                                                                                    |
-| `TLE_PROVIDER`             | `spacetrack` (default) or `celestrak`. Not wired into the live ingest path yet -- read by `getPrimaryProvider()`/`getFallbackProvider()` in `lib/tle-providers/`, unused until Phase 2 cutover. |
+| Variable                   | Description                                                                                                                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint                                                                                                                                                                                                                      |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token                                                                                                                                                                                                                         |
+| `DATABASE_URL`             | Neon PostgreSQL connection string (Drizzle)                                                                                                                                                                                                      |
+| `INTERNAL_JOB_SECRET`      | Shared secret for `x-internal-secret` header on internal cron routes (`/api/internal/*`)                                                                                                                                                         |
+| `InDevelopment`            | Set to `"true"` to show UnderDevelopment page for dashboard routes                                                                                                                                                                               |
+| `SPACETRACK_IDENTITY`      | Space-Track account username.                                                                                                                                                                                                                    |
+| `SPACETRACK_PASSWORD`      | Space-Track account password                                                                                                                                                                                                                     |
+| `TLE_PROVIDER`             | `spacetrack` (default) or `celestrak`. Read by `getPrimaryProvider()`/`getFallbackProvider()` in `lib/tle-providers/`, which `lib/ingestion/tleIngestionService.ts` calls every cycle -- actively wired into the live ingest path since Phase 2. |
 
 ---
 

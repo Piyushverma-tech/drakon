@@ -25,6 +25,9 @@ const STATIC_DEBRIS_GROUPS = [
   'fengyun-1c-debris',
 ];
 
+// This is a sanity check to avoid pruning real debris objects if the CelesTrak debris fetch is degraded or partial. The three static debris clouds are small enough that a healthy fetch should always return at least this many rows.
+const MIN_HEALTHY_DEBRIS_COUNT = 500;
+
 export interface IngestionCycleSummary {
   skipped: false;
   provider: string;
@@ -102,13 +105,45 @@ export async function runIngestionCycle(): Promise<IngestionCycleResult> {
       parseTleText(existingRaw).map((e) => [e.id, e])
     );
 
-    if (doFullResync && !usedFallback) {
-      // Only an authoritative Space-Track sweep can drop objects
+    // Pruning eligibility. A full resync may only prune when ALL of these
+    // hold:
+    //  - doFullResync: enough time has passed since the last authoritative sweep
+    //  - primaryProviderUsed === 'spacetrack': only Space-Track's broader
+    //    catalog is authoritative enough to treat "missing from this
+    //    fetch" as "actually gone" — NOT just "whatever is currently
+    //    configured as primary", so an intentional TLE_PROVIDER=celestrak
+    //    flip (e.g. incident response) can never prune Space-Track-only
+    //    objects using CelesTrak's narrower `active` curation as if it
+    //    were ground truth.
+    //  - !usedFallback: an unplanned fallback this cycle is exactly as
+    //    untrustworthy for pruning as a deliberate CelesTrak-primary
+    //    config would be.
+    //  - debrisHealthy: a degraded/partial debris fetch must not cause
+    //    real debris objects to fall out of both the fresh-fetch set and
+    //    the exemption set simultaneously.
+    const debrisHealthy = debrisEntries.length >= MIN_HEALTHY_DEBRIS_COUNT;
+    const canPrune =
+      doFullResync &&
+      primaryProviderUsed === 'spacetrack' &&
+      !usedFallback &&
+      debrisHealthy;
+
+    if (doFullResync && !canPrune) {
+      console.warn(
+        '[TLE] Full resync was due but skipped this cycle (not eligible to prune):',
+        {
+          primaryProviderUsed,
+          usedFallback,
+          debrisEntryCount: debrisEntries.length,
+        }
+      );
+    }
+
+    if (canPrune) {
       const freshIds = new Set(primaryEntries.map((e) => e.id));
       for (const [id] of snapshotMap) {
         if (!debrisIds.has(id) && !freshIds.has(id)) snapshotMap.delete(id);
       }
-      await redis.set(LAST_FULL_RESYNC_KEY, new Date().toISOString());
     }
     for (const entry of [...primaryEntries, ...debrisEntries]) {
       // Every path — windowed, resync, or fallback — merges what it fetched;
@@ -133,12 +168,16 @@ export async function runIngestionCycle(): Promise<IngestionCycleResult> {
       'celestrak:debris'
     );
 
+    if (canPrune) {
+      await redis.set(LAST_FULL_RESYNC_KEY, new Date().toISOString());
+    }
+
     const summary: IngestionCycleSummary = {
       skipped: false,
       provider: usedFallback
         ? `${fallback.name} (fallback)`
         : primaryProviderUsed,
-      fullResync: doFullResync && !usedFallback,
+      fullResync: canPrune,
       snapshotSize: snapshotMap.size,
       inserted: primaryIngest.inserted + debrisIngest.inserted,
       skippedRows: primaryIngest.skipped + debrisIngest.skipped,

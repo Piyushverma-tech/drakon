@@ -47,7 +47,7 @@ const HOURLY_WINDOW_DAYS = 3;
 const RESYNC_WINDOW_DAYS = 45;
 
 async function fetchFromSpaceTrack(
-  options: TleFetchOptions
+  options: TleFetchOptions = {}
 ): Promise<TleFetchResult> {
   const cookie = await getSession();
   const windowDays = options.fullResync
@@ -75,6 +75,17 @@ async function fetchFromSpaceTrack(
   if (!res.ok) throw new Error(`Space-Track query failed: ${res.status}`);
 
   const raw = await res.text();
+
+  const lines = raw.split(/\r?\n/).filter(Boolean);
+  const hasTleLines = lines.some(
+    (l) => l.startsWith('1 ') || l.startsWith('2 ')
+  );
+  if (!hasTleLines) {
+    throw new Error(
+      'Space-Track query returned no valid TLE lines (empty or degraded response)'
+    );
+  }
+
   const entries = parseTleText(raw);
   return {
     raw,

@@ -49,7 +49,9 @@ describe('spacetrackProvider.fetch', () => {
         ok: true,
         headers: {
           get: (name: string) =>
-            name === 'set-cookie' ? 'chocolatechip=tok; Path=/; HttpOnly' : null,
+            name === 'set-cookie'
+              ? 'chocolatechip=tok; Path=/; HttpOnly'
+              : null,
         },
       })
       .mockResolvedValueOnce({
@@ -118,5 +120,49 @@ describe('spacetrackProvider.fetch', () => {
       /session rejected/
     );
     expect(mockedRedis.del).toHaveBeenCalledWith('spacetrack:session_cookie');
+  });
+
+  it('throws on a 200 with an empty body instead of silently returning zero entries', async () => {
+    mockedRedis.get.mockResolvedValueOnce('chocolatechip=cached');
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => '',
+    });
+
+    await expect(spacetrackProvider.fetch({})).rejects.toThrow(
+      /no valid TLE lines/
+    );
+  });
+
+  it('throws on a 200 with a degraded/non-TLE body', async () => {
+    mockedRedis.get.mockResolvedValueOnce('chocolatechip=cached');
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => '<html>Space-Track is down for maintenance</html>',
+    });
+
+    await expect(spacetrackProvider.fetch({})).rejects.toThrow(
+      /no valid TLE lines/
+    );
+  });
+
+  it('does not crash when called with no arguments at all, matching the optional interface', async () => {
+    mockedRedis.get.mockResolvedValueOnce('chocolatechip=cached');
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => VALID_3LE,
+    });
+
+    // spacetrackProvider satisfies TLEProvider, whose fetch() takes an
+    // optional argument -- calling it with none must not throw a
+    // "Cannot read properties of undefined" error.
+    const result = await spacetrackProvider.fetch();
+
+    expect(result.objectCount).toBe(1);
+    const queryUrl = fetchSpy.mock.calls[0][0] as string;
+    expect(queryUrl).toContain('epoch/>now-3'); // HOURLY_WINDOW_DAYS, the non-fullResync default
   });
 });

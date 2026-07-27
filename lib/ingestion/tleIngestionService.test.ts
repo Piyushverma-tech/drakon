@@ -34,6 +34,16 @@ function tle(id: number, name = `OBJ-${id}`): string {
   return `${name}\n1 ${idStr}U 98067A   26199.50000000  .00016717  00000-0  10270-3 0  9994\n2 ${idStr}  51.6400 208.9163 0007540  69.9862  25.2906 15.49560000123456\n`;
 }
 
+// A debris fetch above MIN_HEALTHY_DEBRIS_COUNT (500), for tests that need
+// pruning to actually be eligible rather than skipped for being "unhealthy".
+// Always includes tle(99, 'DEBRIS') specifically so existing assertions
+// checking for that exact id/name keep working.
+function healthyDebrisRaw(): string {
+  let raw = tle(99, 'DEBRIS');
+  for (let i = 0; i < 600; i++) raw += tle(90000 + i, `DEBRIS-${i}`);
+  return raw;
+}
+
 function fetchResult(raw: string, provider: string) {
   return { raw, provider, fetchedAt: new Date(), objectCount: 0 };
 }
@@ -100,7 +110,9 @@ describe('runIngestionCycle', () => {
   it('merges a fresh primary fetch into an empty snapshot and labels history rows per source', async () => {
     mockedRedis.get.mockResolvedValue(null); // cold start: no last-resync, no existing snapshot
     spacetrackFetch.mockResolvedValue(fetchResult(tle(1), 'spacetrack'));
-    mockedDebrisFetch.mockResolvedValue(fetchResult(tle(99, 'DEBRIS'), 'celestrak'));
+    mockedDebrisFetch.mockResolvedValue(
+      fetchResult(healthyDebrisRaw(), 'celestrak')
+    );
 
     const result = await runIngestionCycle();
 
@@ -108,7 +120,7 @@ describe('runIngestionCycle', () => {
       skipped: false,
       provider: 'spacetrack',
       fullResync: true,
-      snapshotSize: 2,
+      snapshotSize: 602, // 1 primary + 601 debris (tle(99) + 600 generated)
     });
 
     // Provenance: two separate ingestTleHistory calls, not one mixed batch.
@@ -117,7 +129,7 @@ describe('runIngestionCycle', () => {
     expect(primaryCall[1]).toBe('spacetrack');
     expect(primaryCall[0]).toHaveLength(1);
     expect(debrisCall[1]).toBe('celestrak:debris');
-    expect(debrisCall[0]).toHaveLength(1);
+    expect(debrisCall[0]).toHaveLength(601);
 
     // Snapshot written to both cache keys.
     const cacheWrite = mockedRedis.set.mock.calls.find(
@@ -154,11 +166,13 @@ describe('runIngestionCycle', () => {
       return null;
     });
     spacetrackFetch.mockResolvedValue(fetchResult(tle(1), 'spacetrack')); // object 2 has decayed off the catalog
-    mockedDebrisFetch.mockResolvedValue(fetchResult(tle(99, 'DEBRIS'), 'celestrak'));
+    mockedDebrisFetch.mockResolvedValue(
+      fetchResult(healthyDebrisRaw(), 'celestrak')
+    );
 
     const result = await runIngestionCycle();
 
-    expect(result).toMatchObject({ fullResync: true, snapshotSize: 2 }); // obj 1 + debris, obj 2 dropped
+    expect(result).toMatchObject({ fullResync: true, snapshotSize: 602 }); // obj 1 + 601 debris, obj 2 dropped
     const cacheWrite = mockedRedis.set.mock.calls.find(
       (c) => c[0] === 'tle:combined'
     );
@@ -208,5 +222,112 @@ describe('runIngestionCycle', () => {
     // If normalization were missing, parseTleText(existingEscaped) would
     // yield zero entries and object 2 would vanish from the snapshot.
     expect(result).toMatchObject({ snapshotSize: 2 });
+  });
+
+  it('does not prune when TLE_PROVIDER=celestrak makes CelesTrak the deliberate primary (finding 1)', async () => {
+    // getPrimaryProvider() would return celestrakProvider in this config,
+    // and it succeeds outright -- no fallback involved at all.
+    mockedGetPrimary.mockReturnValue({
+      name: 'celestrak',
+      fetch: celestrakFallbackFetch,
+    });
+    mockedGetFallback.mockReturnValue({
+      name: 'spacetrack',
+      fetch: spacetrackFetch,
+    });
+
+    mockedRedis.get.mockImplementation(async (key: string) => {
+      if (key === 'tle:last_full_resync') return null; // resync due
+      // A Space-Track-only object from a previous cycle, before this
+      // deliberate config change to CelesTrak-primary.
+      if (key === 'tle:combined') return tle(1) + tle(2);
+      return null;
+    });
+    // CelesTrak's curated `active` group only ever returns object 1 --
+    // object 2 is exactly the kind of Space-Track-only object CelesTrak's
+    // narrower curation doesn't carry.
+    celestrakFallbackFetch.mockResolvedValue(fetchResult(tle(1), 'celestrak'));
+    mockedDebrisFetch.mockResolvedValue(
+      fetchResult(healthyDebrisRaw(), 'celestrak')
+    );
+
+    const result = await runIngestionCycle();
+
+    expect(result).toMatchObject({
+      provider: 'celestrak', // succeeded outright, not "(fallback)"
+      fullResync: false, // must NOT report a real resync happened
+      snapshotSize: 603, // obj 1 + obj 2 (preserved!) + 601 debris
+    });
+    const cacheWrite = mockedRedis.set.mock.calls.find(
+      (c) => c[0] === 'tle:combined'
+    );
+    // The critical assertion: object 2 must survive even though it's
+    // missing from this cycle's (deliberately CelesTrak) primary fetch.
+    expect(cacheWrite![1]).toContain('OBJ-2');
+    expect(mockedRedis.set).not.toHaveBeenCalledWith(
+      'tle:last_full_resync',
+      expect.any(String)
+    );
+  });
+
+  it('skips pruning entirely when the debris fetch looks unhealthy, even on an otherwise-eligible resync (finding 2)', async () => {
+    mockedRedis.get.mockImplementation(async (key: string) => {
+      if (key === 'tle:last_full_resync') return null; // resync due
+      if (key === 'tle:combined') return tle(1) + tle(2) + tle(99, 'DEBRIS');
+      return null;
+    });
+    spacetrackFetch.mockResolvedValue(fetchResult(tle(1), 'spacetrack')); // object 2 legitimately gone
+    // CelesTrak having a bad day -- only 1 of ~2,600 real debris objects
+    // came back, well under MIN_HEALTHY_DEBRIS_COUNT. Without the guard,
+    // object 99 (missing from this degraded fetch) would incorrectly be
+    // pruned since it's also absent from the Space-Track-scoped freshIds.
+    mockedDebrisFetch.mockResolvedValue(
+      fetchResult(tle(50, 'LONE-DEBRIS'), 'celestrak')
+    );
+
+    const result = await runIngestionCycle();
+
+    expect(result).toMatchObject({ fullResync: false });
+    const cacheWrite = mockedRedis.set.mock.calls.find(
+      (c) => c[0] === 'tle:combined'
+    );
+    // object 2 and the original debris object 99 both survive -- pruning
+    // never ran this cycle at all, despite doFullResync/spacetrack/no
+    // fallback all otherwise lining up.
+    expect(cacheWrite![1]).toContain('OBJ-2');
+    expect(cacheWrite![1]).toContain('DEBRIS');
+    expect(mockedRedis.set).not.toHaveBeenCalledWith(
+      'tle:last_full_resync',
+      expect.any(String)
+    );
+  });
+
+  it('never marks a resync as done if a write after the prune decision fails (finding 4)', async () => {
+    mockedRedis.get.mockImplementation(async (key: string) => {
+      if (key === 'tle:last_full_resync') return null; // resync due
+      if (key === 'tle:combined') return tle(1);
+      return null;
+    });
+    spacetrackFetch.mockResolvedValue(fetchResult(tle(1), 'spacetrack'));
+    mockedDebrisFetch.mockResolvedValue(
+      fetchResult(healthyDebrisRaw(), 'celestrak')
+    );
+    // Everything up through the Redis snapshot writes succeeds; the
+    // primary ingestTleHistory call is what fails, simulating a Postgres
+    // hiccup mid-cycle.
+    mockedIngest.mockRejectedValueOnce(new Error('db hiccup'));
+
+    await expect(runIngestionCycle()).rejects.toThrow('db hiccup');
+
+    // The whole point: even though canPrune was true for this cycle, the
+    // marker must never be written if the cycle didn't actually finish --
+    // otherwise the next 24h would skip full resyncs believing this one
+    // succeeded.
+    expect(mockedRedis.set).not.toHaveBeenCalledWith(
+      'tle:last_full_resync',
+      expect.any(String)
+    );
+    // Lock still released despite the failure.
+    expect(mockedRedis.del).toHaveBeenCalledWith('tle:ingestion:lock');
   });
 });
