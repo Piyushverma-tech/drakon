@@ -1,6 +1,10 @@
 'use client';
 import React, { useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import DisclaimerTooltip from './DisclaimerTooltip';
+
+const densityDisclaimer =
+  'Satellites in denser regions are colored from cool to warm based on collision risk';
 
 function getCategoryForT(t: number) {
   if (t < 0.1667) {
@@ -105,9 +109,10 @@ export default function DensityLegend() {
       : null;
 
   return (
-    <div className="my-3 pt-2 border-t border-gray-700/40 relative">
-      <div className="text-[10px] text-gray-400 mb-2 uppercase tracking-wider">
-        Density Colors
+    <div className="my-3 pt-2 border-t border-gray-700/40 relative z-10">
+      <div className="mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-gray-400">
+        <span>Density Colors</span>
+        <DisclaimerTooltip text={densityDisclaimer} />
       </div>
 
       <div className="flex items-center gap-2 mb-1.5">
@@ -139,11 +144,6 @@ export default function DensityLegend() {
           />
           <span className="text-[10px] text-gray-300 font-medium">High</span>
         </div>
-      </div>
-
-      <div className="text-[9.5px] text-gray-400">
-        Satellites in denser regions are colored from cool to warm based on
-        collision risk
       </div>
 
       {tooltipEl}

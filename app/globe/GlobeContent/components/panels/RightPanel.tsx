@@ -14,6 +14,7 @@ import { ArrowBigDown, ArrowBigLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { memo } from 'react';
 import DensityLegend from '../DensityLegend';
+import DisclaimerTooltip from '../DisclaimerTooltip';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 
 type Props = {
@@ -38,6 +39,13 @@ type Props = {
   onFocusSatellite: (sat: TleEntry) => void;
 };
 
+const reentryDisclaimer =
+  'Debris: single-epoch BSTAR + N-dot. Active satellites: multi-epoch only when all signals agree. Decay rates scale with NOAA F10.7 solar flux';
+const inclinationDisclaimer =
+  'Visualizes orbital planes / inclination shells to spot constellations (e.g. Starlink ~53°), analyze orbital shells, and see spatial clustering.';
+const collisionDensityDisclaimer =
+  'Real-time visualization of crowded orbital regions + candidate close-approach pairs. Treat close approaches as triage candidates, not operational conjunction assessments.';
+
 function RightPanel({
   stats,
   bandCount,
@@ -61,6 +69,8 @@ function RightPanel({
     bandTolerance,
     showDensity,
     densityRadiusKm,
+    selectedSatelliteIds,
+    focusedSatelliteId,
   } = useAppSelector((state) => state.visualization);
   const { data: tleData } = useTleEntriesQuery();
   const entries = tleData?.entries ?? [];
@@ -143,7 +153,13 @@ function RightPanel({
             <div className="mt-2 pt-2 border-t border-gray-700/60 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-medium text-cyan-300 text-xs uppercase tracking-wider">
-                  Inclination Bands
+                  <span className="inline-flex items-center gap-1.5">
+                    Inclination Bands
+                    <DisclaimerTooltip
+                      label="Inclination Bands"
+                      text={inclinationDisclaimer}
+                    />
+                  </span>
                 </span>
                 <button
                   type="button"
@@ -227,7 +243,15 @@ function RightPanel({
             <div className="mt-2 border-t border-gray-700/60 pt-2">
               <div className="flex items-center justify-between text-xs mb-3">
                 <span className="font-medium text-cyan-300 uppercase tracking-wider">
-                  Re-entry Screening
+                  <span className="inline-flex items-center gap-1.5">
+                    Re-entry Screening
+                    <DisclaimerTooltip
+                      label="Re-entry Screening"
+                      text={`${reentryDisclaimer}${
+                        tleData?.f107 != null ? ` (${tleData.f107} sfu)` : ''
+                      }.`}
+                    />
+                  </span>
                 </span>
                 <button
                   type="button"
@@ -275,19 +299,14 @@ function RightPanel({
                     )}
                   </div>
 
-                  {/* Disclaimer */}
-                  <div className="text-[9.5px] text-gray-500 leading-relaxed">
-                    Debris: single-epoch BSTAR + N-dot. Active satellites:
-                    multi-epoch only when all signals agree. Decay rates scale
-                    with NOAA F10.7 solar flux
-                    {tleData?.f107 != null ? ` (${tleData.f107} sfu)` : ''}.
-                    {trendsFetching && (
-                      <span className="ml-1 inline-flex items-center gap-0.5 text-cyan-400/80">
+                  {trendsFetching && (
+                    <div className="text-[9.5px] text-gray-500 leading-relaxed">
+                      <span className="inline-flex items-center gap-0.5 text-cyan-400/80">
                         <Loader2 className="h-2.5 w-2.5 animate-spin" />
                         refreshing trends
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   {/* Top at-risk list */}
                   {reentryRisks.size > 0 && (
@@ -303,7 +322,7 @@ function RightPanel({
                           View all
                         </Link>
                       </div>
-                      <div className="max-h-52 overflow-auto space-y-1 pr-1">
+                      <div className="max-h-56 overflow-auto space-y-1 pr-1">
                         {[...reentryRisks.values()]
                           .filter((r) => r.estimatedDaysRemaining !== null)
                           .sort(
@@ -316,6 +335,9 @@ function RightPanel({
                             const entry = entries.find(
                               (e) => e.id === risk.satId
                             );
+                            const isSelected = selectedSatelliteIds.includes(
+                              risk.satId
+                            );
                             const tierColor =
                               risk.tier === 'critical'
                                 ? 'text-red-400'
@@ -326,7 +348,11 @@ function RightPanel({
                             return (
                               <div
                                 key={risk.satId}
-                                className="flex items-center justify-between rounded border border-gray-700/60 px-2 py-1 cursor-pointer hover:border-cyan-400/30 hover:bg-cyan-500/10 transition-colors"
+                                className={`flex items-center justify-between rounded border px-2 py-1 cursor-pointer transition-colors ${
+                                  isSelected
+                                    ? 'border-cyan-600/60 bg-cyan-500/10 shadow-[0_0_0_1px_rgba(103,232,249,0.18)]'
+                                    : 'border-gray-700/60 hover:border-cyan-400/30 hover:bg-cyan-500/10'
+                                }`}
                                 onClick={() => entry && onFocusSatellite(entry)}
                               >
                                 <div className="flex flex-col min-w-0">
@@ -371,7 +397,13 @@ function RightPanel({
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs mb-2">
                   <span className="font-medium text-cyan-300 uppercase tracking-wider">
-                    Collision Density Map
+                    <span className="inline-flex items-center gap-1.5">
+                      Collision Density Map
+                      <DisclaimerTooltip
+                        label="Collision Density Map"
+                        text={collisionDensityDisclaimer}
+                      />
+                    </span>
                   </span>
                   <button
                     type="button"
@@ -467,24 +499,68 @@ function RightPanel({
                           <div className="uppercase tracking-wider text-gray-400">
                             Top 50 Close Approaches
                           </div>
-                          <div className="max-h-44 overflow-auto space-y-1 pr-1">
+                          <div className="max-h-56 overflow-auto space-y-1 pr-1">
                             {densityResult.candidatePairs.map((pair) => {
                               const entryA = entries.find(
                                 (e) => e.id === pair.idA
                               );
+                              const entryB = entries.find(
+                                (e) => e.id === pair.idB
+                              );
+                              const selectedInPair =
+                                selectedSatelliteIds.includes(pair.idA) ||
+                                selectedSatelliteIds.includes(pair.idB);
                               return (
                                 <div
                                   key={`${pair.idA}-${pair.idB}`}
                                   onClick={() =>
                                     entryA && onFocusSatellite(entryA)
                                   }
-                                  className="flex items-center justify-between rounded border cursor-pointer border-gray-700/60 px-2 py-1 hover:border-cyan-400/30 hover:bg-cyan-500/10 transition-colors"
+                                  className={`flex items-center justify-between rounded border cursor-pointer px-2 py-1 transition-colors ${
+                                    selectedInPair
+                                      ? 'border-cyan-600/60 bg-cyan-600/10 shadow-[0_0_0_1px_rgba(103,232,249,0.18)]'
+                                      : 'border-gray-700/60 hover:border-cyan-400/20 hover:bg-cyan-500/5'
+                                  }`}
                                 >
                                   <div className="flex flex-col text-[11px] text-gray-200">
-                                    <span>
-                                      #{pair.idA} ↔ #{pair.idB}
-                                    </span>
-                                    <span className="text-[10px] text-gray-400">
+                                    <div className="flex justify-center items-center gap-2">
+                                      <div
+                                        className={`truncate px-2 py-1 rounded-full transition-colors ${
+                                          focusedSatelliteId === pair.idA
+                                            ? 'bg-cyan-400/25 text-cyan-100'
+                                            : selectedSatelliteIds.includes(
+                                                  pair.idA
+                                                )
+                                              ? 'bg-cyan-500/15 text-cyan-100'
+                                              : 'bg-gray-700/30 hover:bg-cyan-400/20'
+                                        }`}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          if (entryA) onFocusSatellite(entryA);
+                                        }}
+                                      >
+                                        #{pair.idA}
+                                      </div>
+                                      ↔
+                                      <div
+                                        className={`truncate px-2 py-1 rounded-full transition-colors ${
+                                          focusedSatelliteId === pair.idB
+                                            ? 'bg-cyan-400/25 text-cyan-100'
+                                            : selectedSatelliteIds.includes(
+                                                  pair.idB
+                                                )
+                                              ? 'bg-cyan-500/15 text-cyan-100'
+                                              : 'bg-gray-700/30 hover:bg-cyan-400/20'
+                                        }`}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          if (entryB) onFocusSatellite(entryB);
+                                        }}
+                                      >
+                                        #{pair.idB}
+                                      </div>
+                                    </div>
+                                    <span className="text-[10px] pt-1 text-gray-400">
                                       Alt {Math.round(pair.altitudeA)} /{' '}
                                       {Math.round(pair.altitudeB)} km
                                     </span>
