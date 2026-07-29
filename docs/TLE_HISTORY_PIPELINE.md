@@ -171,7 +171,7 @@ Append-only log of `object_trends` outcome changes. Written by `upsertTrend()` i
 
 ## Ingest path
 
-**Sole entry point (as of Phase 4 cleanup, 2026-07-26):** `POST /api/internal/ingest-tle` → `runIngestionCycle()` in `lib/ingestion/tleIngestionService.ts` → `ingestTleHistory()` in `lib/jobs/ingestTleHistory.ts`, called twice per cycle (once for the primary/fallback provider's entries, once for the three debris groups, separately labeled). Full design — Space-Track vs. CelesTrak, the merge/prune algorithm, provenance labeling — is in [TLE_PIPELINE_ARCHITECTURE.md](./TLE_PIPELINE_ARCHITECTURE.md); this section only covers what `ingestTleHistory()` itself does once it's called.
+**Sole entry point:** `POST /api/internal/ingest-tle` → `runIngestionCycle()` in `lib/ingestion/tleIngestionService.ts` → `ingestTleHistory()` in `lib/jobs/ingestTleHistory.ts`, called twice per cycle (once for the primary/fallback provider's entries, once for the three debris groups, separately labeled). Full design — Space-Track vs. CelesTrak, the merge/prune algorithm, provenance labeling — is in [TLE_PIPELINE_ARCHITECTURE.md](./TLE_PIPELINE_ARCHITECTURE.md); this section only covers what `ingestTleHistory()` itself does once it's called.
 
 `app/api/tle/route.ts` no longer calls `ingestTleHistory()` at all — its own CelesTrak-fetch-on-miss fallback (kept deliberately through Phases 1-3 as a safety net while the new pipeline proved itself) was removed once it had. `GET /api/tle` is now a pure read path: Redis in, plain text out, no side effects.
 
@@ -286,7 +286,7 @@ Response shape:
 
 ### `GET /api/tle`
 
-Unchanged client contract — plain-text combined TLE. History ingest is a side effect on cache miss only.
+Unchanged client contract — plain-text combined TLE. Pure read path as of Phase 4 of the Space-Track migration: serves the Redis snapshot only, no fetching, writing, or history ingest of its own. History ingest is owned entirely by `POST /api/internal/ingest-tle` (hourly) — see `docs/TLE_PIPELINE_ARCHITECTURE.md`.
 
 ---
 

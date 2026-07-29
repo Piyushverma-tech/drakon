@@ -45,19 +45,19 @@ The platform combines satellite telemetry, orbit propagation, and predictive ana
 
 ## Tech Stack
 
-| Layer                 | Technologies                                                                                                        |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Frontend**          | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, shadcn/ui                                              |
-| **3D Visualization**  | deck.gl (GlobeView) + BitmapLayer day/night Earth texture                                                           |
-| **Charts**            | Apache ECharts (`echarts/core`, tree-shaken -- see `components/Charts/`)                                            |
-| **Orbit Propagation** | satellite.js (SGP4), Comlink Web Workers                                                                            |
-| **State Management**  | Redux Toolkit (visualization state) + TanStack Query v5 (all data fetching)                                         |
-| **Backend / API**     | Next.js API Routes (serverless)                                                                                     |
-| **Database**          | Neon PostgreSQL (serverless HTTP driver) via Drizzle ORM -- `tle_history`, `object_trends`, `trend_snapshots`, etc. |
-| **Cache**             | Upstash Redis (HTTP-based, serverless-compatible) -- 2h TTL + permanent stale fallback                              |
-| **TLE Source**        | Celestrak NORAD GP catalog (active, iridium-33-debris, cosmos-2251-debris, fengyun-1c-debris)                       |
-| **Scheduling**        | GitHub Actions (2h TLE ingest) + cron-job.org (15min trend worker, daily solar flux)                                |
-| **CI/CD**             | GitHub Actions -> Vercel                                                                                            |
+| Layer                 | Technologies                                                                                                                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Frontend**          | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, shadcn/ui                                                                                                                       |
+| **3D Visualization**  | deck.gl (GlobeView) + BitmapLayer day/night Earth texture                                                                                                                                    |
+| **Charts**            | Apache ECharts (`echarts/core`, tree-shaken -- see `components/Charts/`)                                                                                                                     |
+| **Orbit Propagation** | satellite.js (SGP4), Comlink Web Workers                                                                                                                                                     |
+| **State Management**  | Redux Toolkit (visualization state) + TanStack Query v5 (all data fetching)                                                                                                                  |
+| **Backend / API**     | Next.js API Routes (serverless)                                                                                                                                                              |
+| **Database**          | Neon PostgreSQL (serverless HTTP driver) via Drizzle ORM -- `tle_history`, `object_trends`, `trend_snapshots`, etc.                                                                          |
+| **Cache**             | Upstash Redis (HTTP-based, serverless-compatible) -- 2h TTL + permanent stale fallback                                                                                                       |
+| **TLE Source**        | Space-Track `gp` class (primary, payload + rocket-body) with CelesTrak NORAD GP catalog as fallback and as the permanent source for iridium-33-debris, cosmos-2251-debris, fengyun-1c-debris |
+| **Scheduling**        | cron-job.org (hourly TLE ingest via `/api/internal/ingest-tle`, 15min trend worker, monthly partition maintenance, daily solar flux)                                                         |
+| **CI/CD**             | GitHub Actions -> Vercel                                                                                                                                                                     |
 
 ---
 
@@ -69,7 +69,7 @@ drakon/
 |  |- api/
 |  |  |- socket/                # Reserved for realtime socket route(s)
 |  |  |- tle/
-|  |  |  `- route.ts            # TLE proxy: Celestrak -> Upstash Redis -> client; triggers ingest on cache miss
+|  |  |  `- route.ts            # Pure read: Redis (`tle:combined`) -> client. No fetching or writing of its own -- see internal/ingest-tle/route.ts
 |  |  |- solar-flux/route.ts    # GET (read) / POST (refresh from NOAA)
 |  |  |- object-trends/
 |  |  |  |- route.ts            # Bulk read of object_trends
@@ -81,7 +81,7 @@ drakon/
 |  |  `- internal/
 |  |     |- process-trends/route.ts       # Trend worker drain (cron-job.org, 15min)
 |  |     |- requeue-stale/route.ts        # Version-invalidation requeue
-|  |     |- ingest-tle/route.ts           # Space-Track/CelesTrak merge cycle (see DRAKON-SpaceTrack-migration.md §9)
+|  |     |- ingest-tle/route.ts           # Space-Track/CelesTrak merge cycle
 |  |     `- manage-tle-partitions/route.ts # Monthly tle_history partition create-ahead/drop-stale (see §11)
 |  |- dashboard/
 |  |  |- components/
@@ -153,7 +153,7 @@ drakon/
 |  |  |- ingestTleHistory.ts    # History + archive writes, concurrent chunk processing, job enqueue
 |  |  |- computeObjectTrends.ts # Regression, classification, trend worker
 |  |  `- requeueStaleObjects.ts # Version invalidation sweep
-|  |- tle-providers/            # TLEProvider abstraction (Celestrak/Space-Track/Mock) -- see DRAKON-SpaceTrack-migration.md
+|  |- tle-providers/            # TLEProvider abstraction
 |  |  |- types.ts               # ProviderName, TleFetchOptions/Result, TLEProvider interface
 |  |  |- celestrak.ts           # CelesTrakProvider -- extracted from the original app/api/tle/route.ts fetch logic
 |  |  |- spacetrack.ts          # SpaceTrackProvider -- session-cookie auth, predicate-scoped `gp` class query
@@ -181,7 +181,7 @@ drakon/
 
 ### TLE Pipeline
 
-Two sources behind one interface: **Space-Track** (primary, broader payload + rocket-body catalog) and **CelesTrak** (always for the three debris clouds, and the automatic fallback if Space-Track fails). An hourly job (`POST /api/internal/ingest-tle`) merges fresh data into the existing Redis snapshot — never overwrites it — and writes per-source-labeled rows to `tle_history`. The client-facing `GET /api/tle` is a pure read path: Redis in, plain text out, no fetching or writing of its own.
+Two sources behind one interface: **Space-Track** (primary, broader payload + rocket-body catalog) and **CelesTrak** (always for the three debris clouds -- iridium-33-debris, cosmos-2251-debris, fengyun-1c-debris -- and the automatic fallback if Space-Track fails). An hourly job (`POST /api/internal/ingest-tle`) merges fresh data into the existing Redis snapshot — never overwrites it — and writes per-source-labeled rows to `tle_history`. The client-facing `GET /api/tle` is a pure read path: Redis in, plain text out, no fetching or writing of its own.
 
 Full architecture — provider interface, the merge/prune algorithm, Redis key roles, partition maintenance — is in **[docs/TLE_PIPELINE_ARCHITECTURE.md](./docs/TLE_PIPELINE_ARCHITECTURE.md)**. What happens to the data after ingestion (history storage, trend computation, screening) is in [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPELINE.md).
 

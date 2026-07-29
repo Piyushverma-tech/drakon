@@ -41,7 +41,14 @@ async function getSession(): Promise<string> {
 
 // ─── Query ───────────────────────────────────────────────────────────────
 
-const SPACETRACK_SCOPE = 'OBJECT_TYPE/PAYLOAD,ROCKET BODY';
+// Explicitly percent-encode each value (comma stays literal — it's
+// Space-Track's own OR-list separator within one predicate, not something
+// to escape). Built this way rather than a raw 'OBJECT_TYPE/PAYLOAD,ROCKET BODY'
+// string so the space in "ROCKET BODY" doesn't depend on whatever URL
+// parser happens to run this — same explicit-encoding approach celestrak.ts
+// already uses for its own GROUP parameter.
+const SPACETRACK_OBJECT_TYPES = ['PAYLOAD', 'ROCKET BODY'];
+const SPACETRACK_SCOPE = `OBJECT_TYPE/${SPACETRACK_OBJECT_TYPES.map(encodeURIComponent).join(',')}`;
 
 const HOURLY_WINDOW_DAYS = 3;
 const RESYNC_WINDOW_DAYS = 45;

@@ -1,6 +1,7 @@
 import redis from '@/lib/redis';
 import { parseTleText, serializeTleEntries } from '@/lib/tle';
 import { ingestTleHistory } from '@/lib/jobs/ingestTleHistory';
+import type { TleEntry } from '@/lib/types';
 import {
   celestrakProvider,
   getPrimaryProvider,
@@ -23,10 +24,17 @@ const STATIC_DEBRIS_GROUPS = [
   'iridium-33-debris',
   'cosmos-2251-debris',
   'fengyun-1c-debris',
-];
+] as const;
 
-// This is a sanity check to avoid pruning real debris objects if the CelesTrak debris fetch is degraded or partial. The three static debris clouds are small enough that a healthy fetch should always return at least this many rows.
-const MIN_HEALTHY_DEBRIS_COUNT = 500;
+// Minimum healthy counts for each static debris group, below which the ingestion cycle will log a warning and skip pruning. These are based on observed counts from CelesTrak, with a generous floor to avoid false positives from transient fetch issues.
+const DEBRIS_GROUP_MIN_HEALTHY: Record<
+  (typeof STATIC_DEBRIS_GROUPS)[number],
+  number
+> = {
+  'iridium-33-debris': 40, // observed ~110
+  'cosmos-2251-debris': 150, // observed ~599
+  'fengyun-1c-debris': 500, // observed ~1,915
+};
 
 export interface IngestionCycleSummary {
   skipped: false;
@@ -87,16 +95,35 @@ export async function runIngestionCycle(): Promise<IngestionCycleResult> {
       usedFallback = true;
     }
 
-    // Static debris clouds: always CelesTrak, every cycle, ingested and
-    // pruning-exempted separately from whatever the primary/fallback fetch returned.
-    const debrisResult = await celestrakProvider.fetch({
-      groups: STATIC_DEBRIS_GROUPS,
-    });
-
     const primaryEntries = parseTleText(primaryResult.raw);
-    const debrisEntries = parseTleText(debrisResult.raw);
 
-    const debrisIds = new Set(debrisEntries.map((e) => e.id));
+    // Static debris clouds: always CelesTrak, every cycle, ingested and
+    // pruning-exempted separately from whatever the primary/fallback fetch
+    // returned. Fetched and health-checked ONE GROUP AT A TIME (see
+    // DEBRIS_GROUP_MIN_HEALTHY above) -- sequential, not Promise.all, to
+    // keep respecting CelesTrak's rate limit the same way a single
+    // multi-group call's inter-request delay already does.
+    const debrisEntryMap = new Map<number, TleEntry>();
+    const debrisGroupCounts: Record<string, number> = {};
+    let debrisHealthy = true;
+
+    for (const group of STATIC_DEBRIS_GROUPS) {
+      const groupResult = await celestrakProvider.fetch({ groups: [group] });
+      const groupEntries = parseTleText(groupResult.raw);
+      debrisGroupCounts[group] = groupEntries.length;
+
+      if (groupEntries.length < DEBRIS_GROUP_MIN_HEALTHY[group]) {
+        debrisHealthy = false;
+        console.warn(
+          `[TLE] Debris group ${group} looks unhealthy this cycle: ${groupEntries.length} objects (floor ${DEBRIS_GROUP_MIN_HEALTHY[group]})`
+        );
+      }
+
+      for (const entry of groupEntries) debrisEntryMap.set(entry.id, entry);
+    }
+
+    const debrisEntries = [...debrisEntryMap.values()];
+    const debrisIds = new Set(debrisEntryMap.keys());
 
     const existingRaw = normalizeNewlines(
       (await redis.get<string>(CACHE_KEY)) ?? ''
@@ -118,10 +145,12 @@ export async function runIngestionCycle(): Promise<IngestionCycleResult> {
     //  - !usedFallback: an unplanned fallback this cycle is exactly as
     //    untrustworthy for pruning as a deliberate CelesTrak-primary
     //    config would be.
-    //  - debrisHealthy: a degraded/partial debris fetch must not cause
-    //    real debris objects to fall out of both the fresh-fetch set and
-    //    the exemption set simultaneously.
-    const debrisHealthy = debrisEntries.length >= MIN_HEALTHY_DEBRIS_COUNT;
+    //  - debrisHealthy: EVERY static debris group must individually clear
+    //    its own floor this cycle — a degraded/partial fetch of any one of
+    //    them must not cause its real members to fall out of both the
+    //    fresh-fetch set and the exemption set simultaneously. Checked per
+    //    group in the fetch loop above, since a combined total can't tell "one group returned nothing" apart from
+    //    "all groups came back a little light".
     const canPrune =
       doFullResync &&
       primaryProviderUsed === 'spacetrack' &&
@@ -134,7 +163,8 @@ export async function runIngestionCycle(): Promise<IngestionCycleResult> {
         {
           primaryProviderUsed,
           usedFallback,
-          debrisEntryCount: debrisEntries.length,
+          debrisHealthy,
+          debrisGroupCounts,
         }
       );
     }

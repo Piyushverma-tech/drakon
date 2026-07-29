@@ -73,7 +73,11 @@ describe('spacetrackProvider.fetch', () => {
     );
 
     const queryUrl = fetchSpy.mock.calls[1][0] as string;
-    expect(queryUrl).toContain('OBJECT_TYPE/PAYLOAD,ROCKET BODY');
+    // Space explicitly percent-encoded rather than left for the URL parser
+    // to handle implicitly -- comma stays literal (Space-Track's own
+    // OR-list separator within the predicate).
+    expect(queryUrl).toContain('OBJECT_TYPE/PAYLOAD,ROCKET%20BODY');
+    expect(queryUrl).not.toContain('ROCKET BODY');
     expect(queryUrl).toContain('decay_date/null-val');
     expect(queryUrl).toContain('epoch/>now-3'); // HOURLY_WINDOW_DAYS
     expect(queryUrl).toContain('format/3le');

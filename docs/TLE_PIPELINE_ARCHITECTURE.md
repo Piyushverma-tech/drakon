@@ -13,8 +13,6 @@ The pipeline now pulls from **both**, behind a common interface, with CelesTrak 
 
 **Stack:** same as [TLE_HISTORY_PIPELINE.md](./TLE_HISTORY_PIPELINE.md) — Drizzle ORM · Neon serverless HTTP driver · Upstash Redis — plus Space-Track's session-cookie auth.
 
-Full design rationale, the rollout phases, and a running incident log live in `DRAKON-SpaceTrack-migration.md` at the repo root. This doc is the "how it works now" reference; that one is the "why, and what happened" history.
-
 ---
 
 ## Architecture
@@ -136,7 +134,7 @@ Returns a fixed two-object fixture (one standard name, one Alpha-5 catalog numbe
 2. **Fetch primary** (`getPrimaryProvider()`, passing `fullResync` if one is due). On failure, fall back to `getFallbackProvider()` with `groups: ['active']` and mark `usedFallback`.
 3. **Always fetch the three static debris clouds** from `celestrakProvider` separately, regardless of how step 2 went.
 4. **Read the existing `tle:combined` snapshot** (with the same Upstash newline-unescaping fix the read path uses — this read didn't exist before the ingestion service, and skipping the fix here would make `parseTleText` silently return zero entries for the existing snapshot, turning "merge" into "overwrite" every cycle).
-5. **If this is a full resync AND not a fallback cycle:** prune snapshot entries that are missing from _both_ this cycle's fresh fetch and the debris fetch. A CelesTrak fallback result is never treated as authoritative enough to prune from — that would reintroduce the exact curation-lag gap this migration exists to close. Only an authoritative Space-Track sweep can drop objects.
+5. **Pruning eligibility — all four must hold:** `doFullResync` (a resync is due), `primaryProviderUsed === 'spacetrack'` specifically (not just "whatever succeeded as primary" — a deliberate `TLE_PROVIDER=celestrak` incident-response flip must never prune using CelesTrak's narrower curation as ground truth), `!usedFallback` (an unplanned fallback is exactly as untrustworthy for pruning), and every static debris group individually clearing its own per-group health floor (`DEBRIS_GROUP_MIN_HEALTHY` in `tleIngestionService.ts` — checked per group, not as a combined total, since a combined total can't tell "one small group returned nothing" apart from "all groups came back a little light"). If eligible, prune snapshot entries missing from _both_ this cycle's fresh fetch and the debris fetch. A CelesTrak fallback result is never treated as authoritative enough to prune from — that would reintroduce the exact curation-lag gap this migration exists to close. Only an authoritative Space-Track sweep, with a healthy debris fetch, can drop objects.
 6. **Merge** (never replace) fresh primary + debris entries into the snapshot map, keyed by NORAD ID.
 7. **Write** the merged snapshot back to both `tle:combined` (2h TTL) and `tle:combined:stale` (no TTL).
 8. **Ingest history in two separate calls** — primary entries labeled with the actual provider used (`spacetrack` or `celestrak`), debris entries labeled `celestrak:debris` — so `tle_history.source_group` never mislabels a mixed batch.
@@ -149,7 +147,7 @@ Returns a fixed two-object fixture (one standard name, one Alpha-5 catalog numbe
 | `HOURLY_WINDOW_DAYS` (spacetrack.ts) | 3     | Normal poll window                                                                        |
 | `RESYNC_WINDOW_DAYS` (spacetrack.ts) | 45    | Full-resync window                                                                        |
 
-**Debris pruning exemption** is by _fetch membership this cycle_ (`debrisIds = new Set(debrisEntries.map(e => e.id))`), never by `TleEntry.isDebris` — that field is a name-pattern heuristic for UI/screening purposes, not a data-source marker, and conflating the two was an early-draft mistake caught before it shipped.
+**Debris pruning exemption** is by _fetch membership this cycle_ (`debrisIds`, built from a `Map<noradId, TleEntry>` keyed across all three groups), never by `TleEntry.isDebris` — that field is a name-pattern heuristic for UI/screening purposes, not a data-source marker, and conflating the two was an early-draft mistake caught before it shipped. The three static debris groups are fetched **one at a time**, not as one combined CelesTrak call, specifically so `DEBRIS_GROUP_MIN_HEALTHY` can check each group's health individually — iridium-33-debris (the smallest, ~110 objects) failing outright wouldn't move a combined total below any reasonable floor once cosmos-2251-debris (~599) and fengyun-1c-debris (~1,915) are added in, so a combined check can't catch a single-group outage the way a per-group one can.
 
 Returns either `{ skipped: true }` (lock contention) or:
 
@@ -220,8 +218,6 @@ A few things worth knowing happened in production that testing alone wouldn't ha
 - **The two-key Redis cache design (`tle:combined` / `tle:combined:stale`) still serves genuinely different purposes** even after the switch to a merge-based ingestion service — this was reconsidered explicitly during the migration and kept as-is; see the Redis keys table above for what each one is actually for.
 - **Phase 4 cleanup (2026-07-26)** removed `GET /api/tle`'s CelesTrak-fetch-on-miss fallback and `shadowDiff.ts` entirely, once the new pipeline had run cleanly long enough to trust as the sole ingestion path. The one thing deliberately _not_ touched: `f107`/`solarFluxMultiplier` response headers (`solarFluxResponseHeaders()`) — unrelated to any of the CelesTrak/Space-Track cleanup, and `hooks/useTleEntriesQuery.ts` depends on reading them off every `/api/tle` response regardless.
 
-Full narrative, including the rollout phase-by-phase reasoning and every fixed mistake, is in `DRAKON-SpaceTrack-migration.md`.
-
 ---
 
 ## File index
@@ -240,7 +236,6 @@ Full narrative, including the rollout phase-by-phase reasoning and every fixed m
 | `app/api/internal/manage-tle-partitions/route.ts` | Monthly partition maintenance trigger                                                     |
 | `app/api/tle/route.ts`                            | Client-facing read path — pure read, no side effects (Phase 4 cleanup complete)           |
 | `lib/tle.ts`                                      | `parseTleText()` / `serializeTleEntries()` — provider-agnostic, handles the `"0 "` marker |
-| `DRAKON-SpaceTrack-migration.md`                  | Full migration plan, rollout phases, and incident log                                     |
 
 ---
 
@@ -249,4 +244,3 @@ Full narrative, including the rollout phase-by-phase reasoning and every fixed m
 - [TLE_HISTORY_PIPELINE.md](./TLE_HISTORY_PIPELINE.md) — what happens after ingestion: history storage, trend computation, screening, client consumption
 - [REENTRY_RISK.md](./REENTRY_RISK.md) — screening physics and tier thresholds
 - [README.md](../README.md) — project overview
-- `DRAKON-SpaceTrack-migration.md` (repo root) — full migration plan and running incident log

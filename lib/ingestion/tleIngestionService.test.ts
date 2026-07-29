@@ -34,10 +34,12 @@ function tle(id: number, name = `OBJ-${id}`): string {
   return `${name}\n1 ${idStr}U 98067A   26199.50000000  .00016717  00000-0  10270-3 0  9994\n2 ${idStr}  51.6400 208.9163 0007540  69.9862  25.2906 15.49560000123456\n`;
 }
 
-// A debris fetch above MIN_HEALTHY_DEBRIS_COUNT (500), for tests that need
-// pruning to actually be eligible rather than skipped for being "unhealthy".
-// Always includes tle(99, 'DEBRIS') specifically so existing assertions
-// checking for that exact id/name keep working.
+// A debris fetch that clears every group's DEBRIS_GROUP_MIN_HEALTHY floor
+// (max 500), for tests that need pruning to actually be eligible rather
+// than skipped for being "unhealthy". Returned for all three group calls
+// via mockResolvedValue, so each group individually sees this same
+// 601-object fixture. Always includes tle(99, 'DEBRIS') specifically so
+// existing assertions checking for that exact id/name keep working.
 function healthyDebrisRaw(): string {
   let raw = tle(99, 'DEBRIS');
   for (let i = 0; i < 600; i++) raw += tle(90000 + i, `DEBRIS-${i}`);
@@ -95,6 +97,25 @@ describe('runIngestionCycle', () => {
     expect(result).toEqual({ skipped: true });
     expect(spacetrackFetch).not.toHaveBeenCalled();
     expect(mockedDebrisFetch).not.toHaveBeenCalled();
+  });
+
+  it('queries all static debris groups every cycle', async () => {
+    mockedRedis.get.mockResolvedValue(null); // cold start
+    spacetrackFetch.mockResolvedValue(fetchResult(tle(1), 'spacetrack'));
+    mockedDebrisFetch.mockResolvedValue(
+      fetchResult(healthyDebrisRaw(), 'celestrak')
+    );
+
+    await runIngestionCycle();
+
+    const groupsQueried = mockedDebrisFetch.mock.calls.map(
+      (c) => c[0].groups[0]
+    );
+    expect(groupsQueried).toEqual([
+      'iridium-33-debris',
+      'cosmos-2251-debris',
+      'fengyun-1c-debris',
+    ]);
   });
 
   it('always releases the lock, even when both primary and fallback fail', async () => {
@@ -277,10 +298,11 @@ describe('runIngestionCycle', () => {
       return null;
     });
     spacetrackFetch.mockResolvedValue(fetchResult(tle(1), 'spacetrack')); // object 2 legitimately gone
-    // CelesTrak having a bad day -- only 1 of ~2,600 real debris objects
-    // came back, well under MIN_HEALTHY_DEBRIS_COUNT. Without the guard,
-    // object 99 (missing from this degraded fetch) would incorrectly be
-    // pruned since it's also absent from the Space-Track-scoped freshIds.
+    // CelesTrak having a bad day across all three groups -- each group's
+    // fetch returns just 1 object, well under its own DEBRIS_GROUP_MIN_HEALTHY
+    // floor. Without the guard, object 99 (missing from this degraded fetch)
+    // would incorrectly be pruned since it's also absent from the
+    // Space-Track-scoped freshIds.
     mockedDebrisFetch.mockResolvedValue(
       fetchResult(tle(50, 'LONE-DEBRIS'), 'celestrak')
     );
@@ -296,6 +318,43 @@ describe('runIngestionCycle', () => {
     // fallback all otherwise lining up.
     expect(cacheWrite![1]).toContain('OBJ-2');
     expect(cacheWrite![1]).toContain('DEBRIS');
+    expect(mockedRedis.set).not.toHaveBeenCalledWith(
+      'tle:last_full_resync',
+      expect.any(String)
+    );
+  });
+
+  it('skips pruning when only ONE debris group fails, even though the combined count would look healthy (audit finding)', async () => {
+    mockedRedis.get.mockImplementation(async (key: string) => {
+      if (key === 'tle:last_full_resync') return null; // resync due
+      if (key === 'tle:combined')
+        return tle(1) + tle(2) + tle(70, 'IRIDIUM-DEBRIS-OLD');
+      return null;
+    });
+    spacetrackFetch.mockResolvedValue(fetchResult(tle(1), 'spacetrack')); // object 2 legitimately gone
+
+    // iridium-33-debris (the smallest group, ~110 in production) returns
+    // nothing this cycle; cosmos-2251-debris and fengyun-1c-debris are both
+    // fully healthy. A combined-total floor (the pre-fix design) would sum
+    // these to well over 500 and call the debris fetch "healthy" -- the
+    // per-group floor must not.
+    mockedDebrisFetch.mockImplementation(async (opts: { groups: string[] }) => {
+      const [group] = opts.groups;
+      if (group === 'iridium-33-debris') return fetchResult('', 'celestrak');
+      return fetchResult(healthyDebrisRaw(), 'celestrak');
+    });
+
+    const result = await runIngestionCycle();
+
+    expect(result).toMatchObject({ fullResync: false });
+    const cacheWrite = mockedRedis.set.mock.calls.find(
+      (c) => c[0] === 'tle:combined'
+    );
+    // object 2 and the pre-existing iridium debris object both survive --
+    // pruning never ran this cycle, even though cosmos+fengyun alone would
+    // have cleared the old combined floor of 500 with room to spare.
+    expect(cacheWrite![1]).toContain('OBJ-2');
+    expect(cacheWrite![1]).toContain('IRIDIUM-DEBRIS-OLD');
     expect(mockedRedis.set).not.toHaveBeenCalledWith(
       'tle:last_full_resync',
       expect.any(String)

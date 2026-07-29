@@ -122,7 +122,7 @@ Not modeled: geomagnetic storms, tumbling/attitude drag variance, full eccentric
 
 ## Trend Pipeline Operations
 
-- **Ingest**: `lib/jobs/ingestTleHistory.ts`, runs as `after()` on every `/api/tle` cache miss. Per 500-entry chunk: insert new epochs (`onConflictDoNothing` on norad_id+epoch), archive raw TLE lines for new epochs, enqueue `trend_jobs`.
+- **Ingest**: `lib/jobs/ingestTleHistory.ts`, called (once per source) by `runIngestionCycle()` in `lib/ingestion/tleIngestionService.ts` on every `POST /api/internal/ingest-tle` (cron-job.org, hourly) -- not tied to `/api/tle` traffic anymore. Per 500-entry chunk: insert new epochs (`onConflictDoNothing` on norad_id+epoch), archive raw TLE lines for new epochs, enqueue `trend_jobs`.
 - Terminal priority requeue: objects below 250km perigee always get a fresh job regardless of epoch change.
 - **Worker**: `POST /api/internal/process-trends?batchSize=200`, cron-job.org every 15min. Stuck `processing` rows deleted at top of each run. Jobs claimed `FOR UPDATE SKIP LOCKED`, processed in slices of 10 via `Promise.allSettled`. 3 retries before `failed`.
 - **Version invalidation**: bump `CURRENT_TREND_VERSION` in `computeObjectTrends.ts` on algorithm changes. `requeueStaleObjects` only requeues where trend_version is stale AND new history epochs exist (prevents full-catalog flood).
