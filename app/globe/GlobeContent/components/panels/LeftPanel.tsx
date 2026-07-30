@@ -7,6 +7,7 @@ import {
   TrainTrack,
   Orbit,
   TrendingDown,
+  FileDown,
 } from 'lucide-react';
 import { ReentryRisk, SatelliteMetadata } from '@/lib/types';
 import { SelectedMeta } from '../../globe-model';
@@ -113,6 +114,40 @@ function formatSignal(signal: string | undefined): string {
   return signal.replace(/_/g, ' ');
 }
 
+type CsvRow = {
+  section: string;
+  label: string;
+  value: string;
+};
+
+function csvEscape(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(filename: string, rows: CsvRow[]) {
+  const header = ['Section', 'Field', 'Value'];
+  const csv = [
+    header.map(csvEscape).join(','),
+    ...rows.map((row) =>
+      [row.section, row.label, row.value].map(csvEscape).join(',')
+    ),
+  ].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function safeFilename(value: string): string {
+  return value.replace(/[^a-z0-9_-]+/gi, '_').replace(/^_+|_+$/g, '');
+}
+
 // Which sections are open by default
 const DEFAULT_OPEN: Record<string, boolean> = {
   mission: false,
@@ -146,9 +181,230 @@ const LeftPanel = memo(function LeftPanel({
   if (!selected) return null;
 
   const hasReentry = reentryRisk && reentryRisk.tier !== 'stable';
+  const exportRows: CsvRow[] = [
+    { section: 'Satellite', label: 'Name', value: selected.name },
+    { section: 'Satellite', label: 'NORAD', value: String(selected.id) },
+
+    { section: 'Position', label: 'Lat', value: `${selected.lat.toFixed(4)}°` },
+    { section: 'Position', label: 'Lon', value: `${selected.lon.toFixed(4)}°` },
+    {
+      section: 'Position',
+      label: 'Alt',
+      value: `${Math.round(selected.alt).toLocaleString()} km`,
+    },
+    {
+      section: 'Dynamics',
+      label: 'Velocity',
+      value: `${selected.vel.toFixed(3)} km/s`,
+    },
+    {
+      section: 'Dynamics',
+      label: 'Incl.',
+      value: `${selected.inclination.toFixed(2)}°`,
+    },
+    { section: 'Orbit', label: 'Type', value: selected.orbitType },
+    { section: 'Orbit', label: 'Ecc.', value: selected.ecc.toFixed(5) },
+    {
+      section: 'Orbit',
+      label: 'Perigee',
+      value: `${Math.round(selected.perigeeKm).toLocaleString()} km`,
+    },
+    {
+      section: 'Orbit',
+      label: 'Apogee',
+      value: `${Math.round(selected.apogeeKm).toLocaleString()} km`,
+    },
+    { section: 'Orbit', label: 'RAAN', value: `${selected.raan.toFixed(2)}°` },
+    {
+      section: 'Orbit',
+      label: 'Arg. Perigee',
+      value: `${selected.argPerigee.toFixed(2)}°`,
+    },
+    {
+      section: 'Orbit',
+      label: 'Mean Motion',
+      value: `${selected.meanMotion.toFixed(2)} rev/day`,
+    },
+  ];
+
+  if (hasReentry) {
+    exportRows.push(
+      { section: 'Re-entry Risk', label: 'Tier', value: reentryRisk.tier },
+      ...(reentryRisk.estimatedDaysRemaining !== null
+        ? [
+            {
+              section: 'Re-entry Detail',
+              label: 'Est. lifetime',
+              value: `~${reentryRisk.estimatedDaysRemaining}d`,
+            },
+          ]
+        : []),
+      {
+        section: 'Re-entry Detail',
+        label: 'Probability',
+        value: formatConfidence(reentryRisk.confidence),
+      },
+      {
+        section: 'Re-entry Detail',
+        label: 'Signal',
+        value: formatSignal(reentryRisk.decaySignal),
+      },
+      ...(reentryRisk.decayConfidence !== undefined
+        ? [
+            {
+              section: 'Re-entry Detail',
+              label: 'Trend conf.',
+              value: `${Math.round((reentryRisk.decayConfidence ?? 0) * 100)}%`,
+            },
+          ]
+        : []),
+      ...(reentryRisk.epochsAvailable !== undefined
+        ? [
+            {
+              section: 'Re-entry Detail',
+              label: 'Epochs',
+              value: `${reentryRisk.epochsAvailable}`,
+            },
+          ]
+        : []),
+      ...(reentryRisk.historyDaysAvailable !== undefined
+        ? [
+            {
+              section: 'Re-entry Detail',
+              label: 'History',
+              value: `${reentryRisk.historyDaysAvailable.toFixed(1)}d`,
+            },
+          ]
+        : []),
+      ...(reentryRisk.estimatedReentryAt
+        ? [
+            {
+              section: 'Re-entry Detail',
+              label: 'Est. date',
+              value: new Date(reentryRisk.estimatedReentryAt)
+                .toISOString()
+                .slice(0, 10),
+            },
+          ]
+        : []),
+      {
+        section: 'Re-entry Detail',
+        label: 'N-dot',
+        value: reentryRisk.signalsAgree ? 'Agrees' : 'Disagrees',
+      },
+      {
+        section: 'Re-entry Detail',
+        label: 'BSTAR',
+        value: reentryRisk.bstar.toExponential(2),
+      },
+      {
+        section: 'Re-entry Detail',
+        label: 'N-dot value',
+        value: reentryRisk.meanMotionDot.toExponential(2),
+      },
+      {
+        section: 'Re-entry Detail',
+        label: 'Decay rate',
+        value: `${reentryRisk.decayRateKmPerDay.toFixed(2)} km/day`,
+      }
+    );
+  }
+
+  if (metadata) {
+    exportRows.push(
+      {
+        section: 'Mission',
+        label: 'Operator',
+        value: formatOptional(metadata.operator),
+      },
+      {
+        section: 'Mission',
+        label: 'Country',
+        value: formatOptional(metadata.country ?? metadata.countryCode),
+      },
+      {
+        section: 'Mission',
+        label: 'Purpose',
+        value: formatOptional(metadata.purpose),
+      },
+      {
+        section: 'Mission',
+        label: 'Users',
+        value: formatOptional(metadata.userType),
+      },
+      {
+        section: 'Catalog',
+        label: 'Object',
+        value: formatOptional(metadata.objectType),
+      },
+      {
+        section: 'Catalog',
+        label: 'COSPAR',
+        value: formatOptional(metadata.cosparId),
+      },
+      {
+        section: 'Catalog',
+        label: 'Period',
+        value: formatUnit(metadata.periodMinutes, 'min'),
+      },
+      {
+        section: 'Catalog',
+        label: 'Source',
+        value: metadata.source.toUpperCase(),
+      },
+      {
+        section: 'Launch',
+        label: 'Date',
+        value: formatOptional(metadata.launchDate),
+      },
+      {
+        section: 'Launch',
+        label: 'Site',
+        value: formatOptional(metadata.launchSite),
+      },
+      {
+        section: 'Launch',
+        label: 'Vehicle',
+        value: formatOptional(metadata.launchVehicle),
+      },
+      {
+        section: 'Launch',
+        label: 'Mass',
+        value: formatMass(metadata.massKg),
+      }
+    );
+  }
+
+  if (selected.tleEpoch) {
+    exportRows.push({
+      section: 'TLE',
+      label: 'Epoch',
+      value: selected.tleEpoch,
+    });
+  }
+
+  if (metadata?.decayDate) {
+    exportRows.push({
+      section: 'TLE',
+      label: 'Decay',
+      value: metadata.decayDate,
+    });
+  }
+
+  exportRows.push(
+    { section: 'TLE', label: 'Line 1', value: selected.l1 },
+    { section: 'TLE', label: 'Line 2', value: selected.l2 }
+  );
+
+  const handleExportCsv = () => {
+    downloadCsv(
+      `${safeFilename(selected.name) || `satellite_${selected.id}`}_${selected.id}_DRAKON.csv`,
+      exportRows
+    );
+  };
 
   return (
-    <div className="absolute left-3 top-3 w-[300px] z-10 select-none">
+    <div className="absolute left-3 top-3 w-[300px] z-10 select-text">
       {/* Outer shell */}
       <div className="relative bg-black/60 backdrop-blur-md border border-white/10 flex flex-col max-h-[calc(97vh-4rem)]">
         {/* Corner accents */}
@@ -168,7 +424,16 @@ const LeftPanel = memo(function LeftPanel({
               {selected.name}
             </span>
           </div>
-          <div className="ml-2 flex shrink-0 items-center gap-1" />
+          <div className="ml-2 flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              title="Export"
+              className="flex items-center justify-center p-1 duration-150 cursor-pointer text-gray-400 hover:text-cyan-400"
+            >
+              <FileDown size={19} />
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center px-3 pt-1 pb-2 gap-2">
@@ -218,8 +483,13 @@ const LeftPanel = memo(function LeftPanel({
               href={`/dashboard/reentry/${selected.id}`}
               type="button"
               title="View Re-entry Analysis"
-              className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer border-red-400/50 bg-red-500/20 text-red-200 hover:bg-red-500/30'
-                `}
+              className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer ${
+                reentryRisk.tier === 'critical'
+                  ? 'border-red-500/40 bg-red-500/10'
+                  : reentryRisk.tier === 'warning'
+                    ? 'border-amber-500/40 bg-amber-500/10'
+                    : 'border-yellow-500/40 bg-yellow-500/10'
+              }`}
             >
               <TrendingDown size={16} />
             </Link>
@@ -522,6 +792,16 @@ const LeftPanel = memo(function LeftPanel({
           </SectionLabel>
           {openSections.tle && (
             <>
+              <div className="mt-2 space-y-1">
+                <div className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">
+                  Raw Data
+                </div>
+                <pre className="whitespace-pre-wrap break-all select-text rounded-sm border border-white/10 bg-white/5 p-2 font-mono text-[9px] leading-relaxed text-gray-300">
+                  {selected.l1}
+                  {'\n'}
+                  {selected.l2}
+                </pre>
+              </div>
               {selected.tleEpoch && (
                 <StatRow label="Epoch" value={selected.tleEpoch} />
               )}

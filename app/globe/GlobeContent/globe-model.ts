@@ -8,6 +8,8 @@ import {
 export type SelectedMeta = {
   id: number;
   name: string;
+  l1: string;
+  l2: string;
   lat: number;
   lon: number;
   alt: number;
@@ -62,6 +64,8 @@ export function buildSelectedMeta(
   return {
     id: selectedPosition.id,
     name: meta.name ?? 'Unknown',
+    l1: meta.l1,
+    l2: meta.l2,
     lat: selectedPosition.lat,
     lon: selectedPosition.lon,
     alt: selectedPosition.alt,

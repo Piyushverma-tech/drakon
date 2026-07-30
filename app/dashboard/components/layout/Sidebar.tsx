@@ -79,9 +79,9 @@ export function Sidebar() {
 
   return (
     <div className="flex h-dvh flex-col overflow-y-auto">
-      <div className="h-14 mt-1 px-4 flex items-center border-b/50">
+      <div className="h-14 mt-1 px-4 pt-1 ml-4 flex items-center border-b/50">
         <Link href="/dashboard" className="font-semibold tracking-tight">
-          <Image alt="logo" src="/drakon.png" width={150} height={150} />
+          <Image alt="logo" src="/drakon.png" width={110} height={110} />
         </Link>
       </div>
 

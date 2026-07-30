@@ -88,7 +88,7 @@ function GlobeContent() {
 
         {/* RIGHT */}
         <div className="flex-1 flex justify-end">
-          <Image alt="logo" src="/drakon.png" width={165} height={165} />
+          <Image alt="logo" src="/drakon.png" width={120} height={120} />
         </div>
       </header>
 
