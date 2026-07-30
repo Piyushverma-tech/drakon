@@ -44,6 +44,15 @@ type Options = {
   orbitPathsById: Record<number, SatelliteOrbitPath>;
   showOrbitPathById: Record<number, boolean>;
   onSatelliteClick: (satId: number) => void;
+  onSatelliteHover?: (
+    hover:
+      | {
+          satellite: SatellitePoint;
+          x: number;
+          y: number;
+        }
+      | null
+  ) => void;
 };
 
 function baseSatelliteColor(
@@ -112,6 +121,7 @@ export function useGlobeLayers({
   orbitPathsById,
   showOrbitPathById,
   onSatelliteClick,
+  onSatelliteHover,
 }: Options) {
   const reentryRisksRef = useRef(reentryRisks);
   useEffect(() => {
@@ -318,6 +328,18 @@ export function useGlobeLayers({
           const satellite = info.object as SatellitePoint | null;
           if (satellite) onSatelliteClick(satellite.id);
         },
+        onHover: (info) => {
+          const satellite = info.object as SatellitePoint | null;
+          onSatelliteHover?.(
+            satellite
+              ? {
+                  satellite,
+                  x: info.x,
+                  y: info.y,
+                }
+              : null
+          );
+        },
       }),
       ...(focusedSelected
         ? [
@@ -358,6 +380,7 @@ export function useGlobeLayers({
       focusedSelected,
       getSatelliteDensity,
       onSatelliteClick,
+      onSatelliteHover,
       orbitPathLayers,
       selectedSatelliteIds,
       showBands,

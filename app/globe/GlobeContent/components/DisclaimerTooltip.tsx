@@ -73,7 +73,7 @@ export default function DisclaimerTooltip({
         tabIndex={0}
       >
         <Info
-          className="h-3.5 w-3.5 text-gray-400 transition-colors hover:text-cyan-300"
+          className="h-3 w-3 text-gray-400 transition-colors hover:text-cyan-300"
           aria-label={label}
         />
       </span>

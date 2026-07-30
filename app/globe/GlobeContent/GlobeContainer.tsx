@@ -1,6 +1,12 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import Globe, { GlobeHandle } from './Globe3D';
 import Map2D from './Map2d';
 import { ReentryRisk, SatellitePoint, TleEntry } from '@/lib/types';
@@ -9,10 +15,7 @@ import {
   resetSimulation,
   setSimulationOffset,
 } from '@/lib/visualization-slice';
-import {
-  formatDistance,
-  getOrbitType,
-} from '@/lib/satelliteHelpers';
+import { formatDistance, getOrbitType } from '@/lib/satelliteHelpers';
 import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from '@/lib/solarFlux';
 import { useSatellitePositions } from '@/hooks/useSatellitePositions';
 import { useInclinationBands } from '@/hooks/useInclinationBands';
@@ -38,12 +41,16 @@ import {
 } from './globe-model';
 import { useGlobeLayers } from './useGlobeLayers';
 import { useGlobeSelectionController } from './useGlobeSelectionController';
-import {
-  buildReentryRiskMap,
-  resolveReentryRisk,
-} from '@/lib/objectTrendRisk';
+import { buildReentryRiskMap, resolveReentryRisk } from '@/lib/objectTrendRisk';
 
 const EMPTY_ENTRIES: TleEntry[] = [];
+
+type HoveredSatellite = {
+  id: number;
+  name: string;
+  x: number;
+  y: number;
+};
 
 type Props = {
   searchQuery?: string;
@@ -56,6 +63,8 @@ export default function SatelliteGlobe({
 }: Props) {
   const dispatch = useAppDispatch();
   const mapRef = useRef<GlobeHandle>(null);
+  const [hoveredSatellite, setHoveredSatellite] =
+    useState<HoveredSatellite | null>(null);
 
   const {
     data: tleData,
@@ -214,7 +223,12 @@ export default function SatelliteGlobe({
     useObjectTrendsQuery(showReentry);
 
   const selectedTagsById = useMemo(
-    () => buildSelectedTagsById(selectedSatelliteIds, selectedPositionsById, entryById),
+    () =>
+      buildSelectedTagsById(
+        selectedSatelliteIds,
+        selectedPositionsById,
+        entryById
+      ),
     [entryById, selectedPositionsById, selectedSatelliteIds]
   );
 
@@ -246,6 +260,28 @@ export default function SatelliteGlobe({
       .slice(0, 20);
   }, [entryById, filteredSatellites, searchQuery]);
 
+  const handleSatelliteHover = useCallback(
+    (
+      hover: {
+        satellite: SatellitePoint;
+        x: number;
+        y: number;
+      } | null
+    ) => {
+      setHoveredSatellite(
+        hover
+          ? {
+              id: hover.satellite.id,
+              name: hover.satellite.name ?? `#${hover.satellite.id}`,
+              x: hover.x,
+              y: hover.y,
+            }
+          : null
+      );
+    },
+    []
+  );
+
   const stats = useMemo(
     () =>
       buildGlobeStats(
@@ -258,11 +294,7 @@ export default function SatelliteGlobe({
 
   const reentryRisks = useMemo(() => {
     if (!showReentry) return new Map<number, ReentryRisk>();
-    return buildReentryRiskMap(
-      entries,
-      objectTrendsById,
-      solarFluxMultiplier
-    );
+    return buildReentryRiskMap(entries, objectTrendsById, solarFluxMultiplier);
   }, [entries, objectTrendsById, showReentry, solarFluxMultiplier]);
 
   const selectedMetadata = focusedSelected
@@ -301,6 +333,7 @@ export default function SatelliteGlobe({
     orbitPathsById,
     showOrbitPathById,
     onSatelliteClick: selectSatelliteById,
+    onSatelliteHover: handleSatelliteHover,
   });
 
   const handleCommitOffset = useCallback(
@@ -337,6 +370,28 @@ export default function SatelliteGlobe({
         <Map2D key="map2d" ref={mapRef} layers={layers} />
       ) : (
         <Globe key="globe3d" ref={mapRef} layers={layers} />
+      )}
+
+      {hoveredSatellite && (
+        <div
+          className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-[calc(100%+10px)] bg-black/5 border text-white shadow-2xl p-2 backdrop-blur-md text-[12px] leading-tight"
+          style={{
+            left: Math.max(hoveredSatellite.x, 96),
+            top: Math.max(hoveredSatellite.y, 36),
+          }}
+        >
+          {/* Corner accents */}
+          <div className="absolute top-0 left-0 w-2 h-2 border-l border-t border-cyan-400 pointer-events-none" />
+          <div className="absolute top-0 right-0 w-2 h-2 border-r border-t border-cyan-400 pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b border-cyan-400 pointer-events-none" />
+          <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b border-cyan-400 pointer-events-none" />
+          <div className="max-w-44 truncate font-medium text-cyan-300">
+            {hoveredSatellite.name}
+          </div>
+          <div className="mt-0.5 text-[11px] text-gray-400">
+            #{hoveredSatellite.id}
+          </div>
+        </div>
       )}
 
       <SearchResultsOverlay
