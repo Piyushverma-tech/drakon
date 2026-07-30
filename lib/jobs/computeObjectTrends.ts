@@ -208,35 +208,27 @@ async function upsertTrend(values: TrendValues): Promise<void> {
 export async function processTrendJobs(batchSize = 100): Promise<number> {
   const claimed = await db.execute<{ norad_id: number; id: number }>(sql`
     WITH claimed AS (
-      SELECT id
-      FROM trend_jobs
+      SELECT id FROM trend_jobs
       WHERE status = 'pending'
       ORDER BY created_at
       LIMIT ${batchSize}
       FOR UPDATE SKIP LOCKED
     )
     UPDATE trend_jobs
-    SET status = 'processing',
-        error_message = NULL
+    SET status = 'processing', error_message = NULL
     WHERE id IN (SELECT id FROM claimed)
     RETURNING id, norad_id
   `);
 
   if (!claimed.rows.length) return 0;
 
-  const doneIds: number[] = [];
-  const failedJobs: { id: number; error: string }[] = [];
-
   const noradIds = claimed.rows.map((job) => job.norad_id);
-
-  // One query for all names
   const archiveRows = await db
     .select({ noradId: tleArchive.noradId, name: tleArchive.name })
     .from(tleArchive)
     .where(inArray(tleArchive.noradId, noradIds))
     .orderBy(asc(tleArchive.noradId), desc(tleArchive.epoch));
 
-  // Keep only the latest name per noradId
   const nameByNoradId = new Map<number, string>();
   for (const row of archiveRows) {
     if (!nameByNoradId.has(row.noradId))
@@ -256,12 +248,15 @@ export async function processTrendJobs(batchSize = 100): Promise<number> {
       })
     );
 
-    for (const result of results) {
+    const sliceDoneIds: number[] = [];
+    const sliceFailed: { id: number; error: string }[] = [];
+
+    results.forEach((result, idx) => {
+      const job = slice[idx];
       if (result.status === 'fulfilled') {
-        doneIds.push(result.value);
+        sliceDoneIds.push(result.value);
       } else {
-        const job = slice[results.indexOf(result)];
-        failedJobs.push({
+        sliceFailed.push({
           id: job.id,
           error:
             result.reason instanceof Error
@@ -269,24 +264,32 @@ export async function processTrendJobs(batchSize = 100): Promise<number> {
               : String(result.reason),
         });
       }
+    });
+
+    // Persist progress immediately — survives a mid-batch timeout.
+    if (sliceDoneIds.length > 0) {
+      await db.delete(trendJobs).where(inArray(trendJobs.id, sliceDoneIds));
     }
-  }
 
-  if (doneIds.length > 0) {
-    await db.delete(trendJobs).where(inArray(trendJobs.id, doneIds));
-  }
+    for (const { id, error } of sliceFailed) {
+      const [updated] = (
+        await db.execute<{ retry_count: number }>(sql`
+          UPDATE trend_jobs
+          SET retry_count = retry_count + 1,
+              status = 'pending',
+              error_message = ${error}
+          WHERE id = ${id}
+          RETURNING retry_count
+        `)
+      ).rows;
 
-  for (const { id, error } of failedJobs) {
-    await db.execute(sql`
-      UPDATE trend_jobs
-      SET retry_count = retry_count + 1,
-          status = CASE
-            WHEN retry_count + 1 >= ${MAX_RETRIES} THEN 'failed'
-            ELSE 'pending'
-          END,
-          error_message = ${error}
-      WHERE id = ${id}
-    `);
+      if (updated && updated.retry_count >= MAX_RETRIES) {
+        console.error(
+          `[trend_jobs] dropping job ${id} after ${MAX_RETRIES} failures: ${error}`
+        );
+        await db.delete(trendJobs).where(eq(trendJobs.id, id));
+      }
+    }
   }
 
   return claimed.rows.length;
