@@ -1,9 +1,6 @@
 import { DensityResult, SatellitePoint, TleEntry } from '@/lib/types';
-import {
-  classifyOrbit,
-  getOrbitType,
-  velocityFromTLE,
-} from '@/lib/satelliteHelpers';
+import { classifyOrbit, getOrbitType } from '@/lib/satelliteHelpers';
+import { computeOrbitalState, OrbitalFrame } from '@/lib/orbitalFrame';
 
 export type SelectedMeta = {
   id: number;
@@ -24,6 +21,11 @@ export type SelectedMeta = {
   perigeeKm: number;
   ecc: number;
   tleEpoch?: string;
+  // Instantaneous LVLH-relevant state (radial/velocity/orbit-normal
+  // vectors + flight-path angle). Null if SGP4 propagation failed for
+  // this TLE at targetDate. Reused by the flight dynamics canvas on
+  // both the globe left panel and the re-entry analysis page.
+  orbitalFrame: OrbitalFrame | null;
 };
 
 export type SelectedTagMeta = {
@@ -58,7 +60,9 @@ export function buildSelectedMeta(
   const targetDate = new Date(
     Date.now() + simulationOffsetHours * 60 * 60 * 1000
   );
-  const vel = velocityFromTLE(meta.l1, meta.l2, targetDate);
+
+  const orbitalFrame = computeOrbitalState(meta.l1, meta.l2, targetDate);
+  const vel = orbitalFrame?.speedKmS ?? 0;
   const orbitType = classifyOrbit(meta.inclination);
 
   return {
@@ -81,6 +85,7 @@ export function buildSelectedMeta(
     perigeeKm: meta.perigeeKm,
     ecc: meta.ecc,
     tleEpoch: meta.tleEpoch,
+    orbitalFrame,
   };
 }
 

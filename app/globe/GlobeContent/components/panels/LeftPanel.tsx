@@ -12,6 +12,8 @@ import {
 import { ReentryRisk, SatelliteMetadata } from '@/lib/types';
 import { SelectedMeta } from '../../globe-model';
 import Link from 'next/link';
+import { FlightDynamicsCanvas } from '@/components/FlightDynamics';
+import { formatFlightPathAngleDeg } from '@/lib/orbitalFrame';
 
 type Props = {
   selected: SelectedMeta | null;
@@ -201,6 +203,11 @@ const LeftPanel = memo(function LeftPanel({
       section: 'Dynamics',
       label: 'Incl.',
       value: `${selected.inclination.toFixed(2)}°`,
+    },
+    {
+      section: 'Dynamics',
+      label: 'Flight-path angle',
+      value: formatFlightPathAngleDeg(selected.orbitalFrame),
     },
     { section: 'Orbit', label: 'Type', value: selected.orbitType },
     { section: 'Orbit', label: 'Ecc.', value: selected.ecc.toFixed(5) },
@@ -429,7 +436,7 @@ const LeftPanel = memo(function LeftPanel({
               type="button"
               onClick={handleExportCsv}
               title="Export"
-              className="flex items-center justify-center p-1 duration-150 cursor-pointer text-gray-400 hover:text-cyan-400"
+              className="flex items-center justify-center p-1 duration-150 cursor-pointer text-gray-400/80 hover:text-cyan-400"
             >
               <FileDown size={19} />
             </button>
@@ -639,6 +646,11 @@ const LeftPanel = memo(function LeftPanel({
           </SectionLabel>
           {openSections.dynamics && (
             <>
+              <FlightDynamicsCanvas
+                orbitalFrame={selected.orbitalFrame}
+                className="mb-2"
+                heightPx={160}
+              />
               <StatRow
                 label="Velocity"
                 value={`${selected.vel.toFixed(3)} km/s`}
@@ -647,6 +659,10 @@ const LeftPanel = memo(function LeftPanel({
               <StatRow
                 label="Incl."
                 value={`${selected.inclination.toFixed(2)}°`}
+              />
+              <StatRow
+                label="Flight-path angle"
+                value={formatFlightPathAngleDeg(selected.orbitalFrame)}
               />
             </>
           )}

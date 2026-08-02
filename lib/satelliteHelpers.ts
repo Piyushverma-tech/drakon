@@ -1,4 +1,3 @@
-import * as satellite from 'satellite.js';
 import { ReentryRisk, TleEntry } from './types';
 import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from './solarFlux';
 
@@ -68,20 +67,9 @@ export function parseTLEMeta(l1: string, l2: string) {
 
 // Calculate velocity from TLE at a given date
 
-export function velocityFromTLE(l1: string, l2: string, date: Date): number {
-  try {
-    const satrec = satellite.twoline2satrec(l1, l2);
-    const pv = satellite.propagate(satrec, date);
-    const vel = pv?.velocity;
-    if (!vel) return 0;
-    return Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2); // km/s
-  } catch (error) {
-    console.warn('Error calculating velocity from TLE:', error);
-    return 0;
-  }
-}
-
 // Classify orbit type based on inclination
+// (velocity-from-TLE moved to lib/orbitalFrame.ts's computeOrbitalState,
+// which derives the full LVLH vector set from the same SGP4 call)
 
 export function classifyOrbit(inclination: number): string {
   if (inclination < 10) return 'Equatorial';

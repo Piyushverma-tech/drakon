@@ -16,6 +16,8 @@ import { useObjectTrendsQuery } from '@/hooks/useObjectTrendsQuery';
 import { useObjectHistoryQuery } from '@/hooks/useObjectHistoryQuery';
 import { useObjectSnapshotsQuery } from '@/hooks/useObjectSnapshotsQuery';
 import { useMetadataForSatellite } from '@/hooks/useSatelliteMetadata';
+import { useOrbitalFrame } from '@/hooks/useOrbitalFrame';
+import { formatFlightPathAngleDeg } from '@/lib/orbitalFrame';
 import { resolveReentryRisk } from '@/lib/objectTrendRisk';
 import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from '@/lib/solarFlux';
 import { useAppDispatch } from '@/lib/store';
@@ -27,6 +29,7 @@ import { getOrbitType } from '@/lib/satelliteHelpers';
 import { DecisionTrace, TraceStep } from '@/components/DecisionTrace';
 import type { TraceStepEmphasis } from '@/components/DecisionTrace';
 import { EChart } from '@/components/Charts/Echart';
+import { FlightDynamicsCanvas } from '@/components/FlightDynamics';
 import { formatAbsoluteUtc, formatRelativeTime } from '../lib/formatTimestamp';
 import { buildReentryTrace } from '../lib/buildReentryTrace';
 import {
@@ -109,6 +112,11 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
   const trend = objectTrendsById?.get(noradId);
   const solarFluxMultiplier =
     tleData?.solarFluxMultiplier ?? DEFAULT_SOLAR_FLUX_MULTIPLIER;
+
+  // Hooks must run unconditionally, before the loading/error early
+  // returns below -- entry may still be undefined here, which
+  // useOrbitalFrame already treats as "nothing to propagate yet".
+  const { orbitalFrame } = useOrbitalFrame({ l1: entry?.l1, l2: entry?.l2 });
 
   const risk = useMemo(
     () =>
@@ -271,14 +279,27 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
         summary={trace.verdict.summary}
         evidence={
           <>
+            <div className="flex-1 min-w-[280px]">
+              <p className="text-xs text-gray-500 mb-2">Altitude decay</p>
+              <EChart
+                option={altitudeOption}
+                height={240}
+                loading={historyQuery.isLoading}
+              />
+            </div>
             <div className="flex flex-wrap my-6 gap-6">
               <div className="flex-1 min-w-[280px]">
-                <p className="text-xs text-gray-500 mb-2">Altitude decay</p>
-                <EChart
-                  option={altitudeOption}
-                  height={240}
-                  loading={historyQuery.isLoading}
+                <p className="text-xs text-gray-500 mb-2">Flight dynamics</p>
+                <FlightDynamicsCanvas
+                  orbitalFrame={orbitalFrame}
+                  heightPx={240}
                 />
+                <p className="text-[11px] text-gray-500 mt-2">
+                  Flight-path angle{' '}
+                  <span className="text-gray-300 font-medium tabular-nums">
+                    {formatFlightPathAngleDeg(orbitalFrame)}
+                  </span>
+                </p>
               </div>
 
               <div className="flex-1 min-w-[280px]">
@@ -294,7 +315,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
             <div className="mt-8 border-t border-white/10 pt-6">
               <p className="text-sm text-gray-500 mb-3 flex items-center gap-1.5">
                 <History className="h-3.5 w-3.5" aria-hidden="true" />
-                Change history
+                Change logs
               </p>
               {snapshotsQuery.isLoading ? (
                 <p className="text-[12px] text-gray-500">Loading…</p>
