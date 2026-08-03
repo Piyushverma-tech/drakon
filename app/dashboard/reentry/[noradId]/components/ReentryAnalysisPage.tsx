@@ -35,6 +35,7 @@ import { buildReentryTrace } from '../lib/buildReentryTrace';
 import {
   buildAltitudeChartOption,
   buildBstarChartOption,
+  buildEccentricityChartOption,
 } from '../lib/buildReentryChartOptions';
 import {
   buildChangeTimeline,
@@ -135,6 +136,10 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
   );
   const bstarOption = useMemo(
     () => buildBstarChartOption(historyQuery.data?.entries ?? []),
+    [historyQuery.data]
+  );
+  const eccentricityOption = useMemo(
+    () => buildEccentricityChartOption(historyQuery.data?.entries ?? []),
     [historyQuery.data]
   );
 
@@ -279,29 +284,15 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
         summary={trace.verdict.summary}
         evidence={
           <>
-            <div className="flex-1 min-w-[280px]">
-              <p className="text-xs text-gray-500 mb-2">Altitude decay</p>
-              <EChart
-                option={altitudeOption}
-                height={240}
-                loading={historyQuery.isLoading}
-              />
-            </div>
             <div className="flex flex-wrap my-6 gap-6">
               <div className="flex-1 min-w-[280px]">
-                <p className="text-xs text-gray-500 mb-2">Flight dynamics</p>
-                <FlightDynamicsCanvas
-                  orbitalFrame={orbitalFrame}
-                  heightPx={240}
+                <p className="text-xs text-gray-500 mb-2">Altitude decay</p>
+                <EChart
+                  option={altitudeOption}
+                  height={240}
+                  loading={historyQuery.isLoading}
                 />
-                <p className="text-[11px] text-gray-500 mt-2">
-                  Flight-path angle{' '}
-                  <span className="text-gray-300 font-medium tabular-nums">
-                    {formatFlightPathAngleDeg(orbitalFrame)}
-                  </span>
-                </p>
               </div>
-
               <div className="flex-1 min-w-[280px]">
                 <p className="text-xs text-gray-500 mb-2">Bstar trend</p>
                 <EChart
@@ -309,6 +300,33 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                   height={240}
                   loading={historyQuery.isLoading}
                 />
+              </div>
+            </div>
+            <div className="flex flex-wrap mt-6 gap-6">
+              <div className="flex-1 min-w-[280px]">
+                <p className="text-xs text-gray-500 mb-2">Eccentricity trend</p>
+                <EChart
+                  option={eccentricityOption}
+                  height={240}
+                  loading={historyQuery.isLoading}
+                />
+                <p className="text-[11px] text-gray-500 mt-6">
+                  Proxy for flight-path-angle growth — climbs as drag increases
+                  orbital asymmetry approaching re-entry.
+                </p>
+              </div>
+              <div className="flex-1 min-w-[280px]">
+                <p className="text-xs text-gray-500 mb-2">Flight dynamics</p>
+                <FlightDynamicsCanvas
+                  orbitalFrame={orbitalFrame}
+                  heightPx={240}
+                />
+                <p className="text-[11px] text-gray-400 mt-2">
+                  Flight-path angle{' '}
+                  <span className="text-gray-300 font-medium tabular-nums">
+                    {formatFlightPathAngleDeg(orbitalFrame)}
+                  </span>
+                </p>
               </div>
             </div>
 

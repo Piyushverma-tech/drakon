@@ -13,24 +13,50 @@ import { CornerAccents } from '@/components/MiniGlobe/CornerAccents';
 import { cn } from '@/lib/utils';
 import type { FlightDynamicsCanvasProps } from './types';
 
-// Visual (not physical) length for every vector arrow, in world units.
-// Radial/velocity/orbit-normal are unit vectors
-const ARROW_LENGTH = 46;
-const PLANE_RADIUS = ARROW_LENGTH * 0.85;
+// Visual (not physical) length budget, in world units, for every vector
+// arrow. H and the plane ring always draw at MAX_ARROW_LENGTH (they're
+// orientation indicators, not magnitude-meaningful for this app). N and
+// V instead scale within [MIN_ARROW_LENGTH, MAX_ARROW_LENGTH] based on
+// the object's real altitude/speed -- see normalizeToArrowLength below.
+const MAX_ARROW_LENGTH = 46;
+const MIN_ARROW_LENGTH = 14;
+const PLANE_RADIUS = MAX_ARROW_LENGTH * 0.85;
 const PLANE_SEGMENTS = 48;
+
+// Reference range for scaling the nadir vector's length by real altitude.
+// Chosen for LEO re-entry triage specifically: below ~120km an object is
+// in its final hours; above ~1000km it's comfortably outside near-term
+// decay risk for this app's purposes, so both ends clamp rather than
+// extrapolate further. A shorter N arrow reads as "closer to Earth."
+const ALTITUDE_MIN_KM = 120;
+const ALTITUDE_MAX_KM = 1000;
+
+// Reference range for scaling the velocity vector's length by real
+// speed. Real LEO circular speeds only span roughly this range (faster
+// at lower altitude)
+const SPEED_MIN_KMS = 6.9;
+const SPEED_MAX_KMS = 7.85;
+
+function normalizeToArrowLength(
+  value: number,
+  min: number,
+  max: number
+): number {
+  const clamped = Math.min(max, Math.max(min, value));
+  const t = (clamped - min) / (max - min);
+  return MIN_ARROW_LENGTH + t * (MAX_ARROW_LENGTH - MIN_ARROW_LENGTH);
+}
 
 type RgbColor = [number, number, number];
 const NADIR_COLOR: RgbColor = [150, 110, 255]; // purple
 const VELOCITY_COLOR: RgbColor = [0, 220, 255]; // cyan
-const ORBIT_NORMAL_COLOR: RgbColor = [180, 190, 200]; //
+const ORBIT_NORMAL_COLOR: RgbColor = [180, 190, 200]; // white/grey
 const ORIGIN_COLOR: RgbColor = [235, 235, 240]; // near-white satellite marker
 
 const TIP_RADIUS_PX = 4;
 
 // Where on the orbital-plane ring to draw the direction-of-motion
-// chevron, in radians. Arbitrary -- just chosen to usually sit clear of
-// where the N/V vectors themselves cross the ring for near-circular
-// orbits, so it doesn't visually collide with them.
+// chevron, in radians.
 const MOTION_ARROW_THETA = -Math.PI / 2;
 
 const INITIAL_VIEW_STATE: OrbitViewState = {
@@ -132,10 +158,20 @@ export function FlightDynamicsCanvas({
   const vectors = useMemo<VectorDatum[]>(() => {
     if (!orbitalFrame) return [];
 
-    // Nadir points toward Earth's center -- the negative of radialUnit,
-    // which is defined (in lib/orbitalFrame.ts) as pointing away from it.
-    const nadirTip = toVec3(orbitalFrame.radialUnit, -ARROW_LENGTH);
-    const velocityTip = toVec3(orbitalFrame.velocityUnit, ARROW_LENGTH);
+    // Nadir points toward Earth's center -- the negative of radialUnit. Length scales with real altitude.
+    const nadirLength = normalizeToArrowLength(
+      orbitalFrame.approxAltitudeKm,
+      ALTITUDE_MIN_KM,
+      ALTITUDE_MAX_KM
+    );
+    // Length scales with real speed.
+    const velocityLength = normalizeToArrowLength(
+      orbitalFrame.speedKmS,
+      SPEED_MIN_KMS,
+      SPEED_MAX_KMS
+    );
+    const nadirTip = toVec3(orbitalFrame.radialUnit, -nadirLength);
+    const velocityTip = toVec3(orbitalFrame.velocityUnit, velocityLength);
 
     const result: VectorDatum[] = [
       { id: 'nadir', label: 'N', tip: nadirTip, color: NADIR_COLOR },
@@ -146,7 +182,7 @@ export function FlightDynamicsCanvas({
       result.push({
         id: 'normal',
         label: 'H',
-        tip: toVec3(orbitalFrame.orbitNormalUnit, ARROW_LENGTH),
+        tip: toVec3(orbitalFrame.orbitNormalUnit, MAX_ARROW_LENGTH),
         color: ORBIT_NORMAL_COLOR,
       });
     }
@@ -293,7 +329,7 @@ export function FlightDynamicsCanvas({
     <div>
       <div
         className={cn(
-          'relative bg-black/60 border border-white/10 overflow-hidden',
+          'relative bg-black/60 border border-white/10 my-3 overflow-hidden',
           className
         )}
         style={{ height: heightPx }}

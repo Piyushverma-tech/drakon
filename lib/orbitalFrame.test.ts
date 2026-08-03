@@ -13,6 +13,8 @@ describe('deriveOrbitalFrame (pure vector math)', () => {
     expect(frame!.radialUnit).toEqual({ x: 1, y: 0, z: 0 });
     expect(frame!.velocityUnit).toEqual({ x: 0, y: 1, z: 0 });
     expect(frame!.orbitNormalUnit).toEqual({ x: 0, y: 0, z: 1 });
+    // 7000 - 6378.137 (Earth radius)
+    expect(frame!.approxAltitudeKm).toBeCloseTo(621.863, 3);
   });
 
   it('computes a known non-zero flight-path angle from an exact 3-4-5 triangle', () => {
@@ -110,6 +112,10 @@ describe('computeOrbitalState (SGP4 integration smoke test)', () => {
     expect(state!.speedKmS).toBeGreaterThan(6.5);
     expect(state!.speedKmS).toBeLessThan(8.5);
     expect(Math.abs(state!.flightPathAngleDeg)).toBeLessThan(2);
+    // ISS orbits roughly 400-430km up -- generous bounds since this is
+    // just a spherical approximation, not the real geodetic altitude.
+    expect(state!.approxAltitudeKm).toBeGreaterThan(300);
+    expect(state!.approxAltitudeKm).toBeLessThan(500);
 
     const mag = (v: { x: number; y: number; z: number }) =>
       Math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2);

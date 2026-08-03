@@ -2,14 +2,12 @@ import * as satellite from 'satellite.js';
 
 export type Vector3 = { x: number; y: number; z: number };
 
+// short: a spherical approximation, used only to give the flight-dynamics visualization a relative sense of scale. not the app's authoritative geodetic altitude (WGS84) used elsewhere.
+const EARTH_RADIUS_KM = 6378.137;
+
 // Instantaneous orbital state expressed in the LVLH-relevant vectors:
 // radial (position) direction, velocity direction, and orbit-normal
 // (angular momentum) direction, plus flight-path angle.
-//
-// Note: this describes translational dynamics only. TLEs/SGP4 do not
-// encode spacecraft attitude (body pointing), so there is deliberately
-// no "orientation" here — only where the satellite is and where it's
-// headed relative to its orbit.
 export type OrbitalFrame = {
   positionEciKm: Vector3;
   velocityEciKmS: Vector3;
@@ -18,6 +16,7 @@ export type OrbitalFrame = {
   velocityUnit: Vector3; // velocity direction, normalized
   orbitNormalUnit: Vector3 | null; // r x v, normalized (angular momentum direction); null if degenerate
   flightPathAngleDeg: number; // angle between velocity and local horizontal; +ve = ascending
+  approxAltitudeKm: number; // r - EARTH_RADIUS_KM, not authoritative geodetic altitude
 };
 
 function magnitude(v: Vector3): number {
@@ -77,6 +76,7 @@ export function deriveOrbitalFrame(
     velocityUnit,
     orbitNormalUnit,
     flightPathAngleDeg,
+    approxAltitudeKm: r - EARTH_RADIUS_KM,
   };
 }
 
