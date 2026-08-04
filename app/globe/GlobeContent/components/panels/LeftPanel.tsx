@@ -647,6 +647,7 @@ const LeftPanel = memo(function LeftPanel({
           {openSections.dynamics && (
             <>
               <FlightDynamicsCanvas
+                key={selected.id}
                 orbitalFrame={selected.orbitalFrame}
                 className="mb-2"
                 heightPx={160}

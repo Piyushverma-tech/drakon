@@ -228,7 +228,7 @@ export function FlightDynamicsCanvas({
           id: 'flight-dynamics-plane',
           data: [{ ring: planeRing }],
           getPolygon: (d: { ring: Vec3[] }) => d.ring,
-          getFillColor: [...ORBIT_NORMAL_COLOR, 18] as [
+          getFillColor: [...ORBIT_NORMAL_COLOR, 15] as [
             number,
             number,
             number,
@@ -255,7 +255,7 @@ export function FlightDynamicsCanvas({
           id: 'flight-dynamics-motion-arrow',
           data: [{ ring: motionArrowhead }],
           getPolygon: (d: { ring: Vec3[] }) => d.ring,
-          getFillColor: [...ORBIT_NORMAL_COLOR, 120] as [
+          getFillColor: [...ORBIT_NORMAL_COLOR, 60] as [
             number,
             number,
             number,
@@ -296,7 +296,7 @@ export function FlightDynamicsCanvas({
       getPosition: (d) => scaleVec(subtract(d.tip, origin), 1.12) as Vec3,
       getText: (d) => d.label,
       getColor: (d) => [...d.color, 255] as [number, number, number, number],
-      getSize: 11,
+      getSize: 12,
       sizeUnits: 'pixels',
       fontFamily: 'monospace',
       fontWeight: 600,
@@ -353,7 +353,7 @@ export function FlightDynamicsCanvas({
         )}
       </div>
       {hasContent && showLegend && (
-        <p className="mt-1 mb-2 flex justify-between text-[9px] font-semibold uppercase tracking-wider text-gray-500">
+        <p className="mt-1 mb-2 flex justify-between text-[9px] font-bold uppercase tracking-wider text-gray-500">
           <span>
             <span style={{ color: `rgb(${NADIR_COLOR.join(',')})` }}>N</span>{' '}
             nadir

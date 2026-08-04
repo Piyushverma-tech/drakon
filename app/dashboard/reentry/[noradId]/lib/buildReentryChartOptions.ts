@@ -104,37 +104,25 @@ export function buildBstarChartOption(
   };
 }
 
-// Spherical approximation of Earth's radius, used to convert perigee/apogee altitudes into orbital radii for eccentricity calculation. This is not the geodetic radius, but it's close enough for the purpose of computing eccentricity from TLE-derived perigee/apogee values.
-const EARTH_RADIUS_KM = 6378.137;
-
 /**
- * Eccentricity is the closest available proxy for "how is this orbit's shape
- * changing over time": it's what actually governs how far gamma swings
- * away from zero over a revolution, and it climbs as drag increases
- * orbital asymmetry in the approach to re-entry.
+ * Orbital period (1440 / meanMotion) in minutes. 1440 = minutes/day, meanMotion = rev/day.
  */
-export function buildEccentricityChartOption(
+export function buildPeriodChartOption(
   entries: ObjectHistoryEntry[]
 ): EvidenceChartOption {
   const points = entries
-    .filter((entry) => entry.perigeeKm !== null && entry.apogeeKm !== null)
-    .map((entry) => {
-      const perigeeRadiusKm = (entry.perigeeKm as number) + EARTH_RADIUS_KM;
-      const apogeeRadiusKm = (entry.apogeeKm as number) + EARTH_RADIUS_KM;
-      const eccentricity =
-        (apogeeRadiusKm - perigeeRadiusKm) / (apogeeRadiusKm + perigeeRadiusKm);
-      return [entry.epochMs, eccentricity];
-    });
+    .filter((entry) => entry.meanMotion !== null && entry.meanMotion > 0)
+    .map((entry) => [entry.epochMs, 1440 / (entry.meanMotion as number)]);
 
   return {
     grid: BASE_GRID,
     tooltip: BASE_TOOLTIP,
     xAxis: { type: 'time' },
-    yAxis: { type: 'value', name: 'e' },
+    yAxis: { type: 'value', name: 'min' },
     dataZoom: BASE_DATA_ZOOM,
     series: [
       {
-        name: 'Eccentricity',
+        name: 'Period',
         type: 'line',
         showSymbol: false,
         data: points,

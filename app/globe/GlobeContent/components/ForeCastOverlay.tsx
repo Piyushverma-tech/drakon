@@ -424,6 +424,7 @@ export const ForecastOverlay = React.memo(function ForecastOverlay(props: {
                   justifyContent: 'center',
                   width: '26px',
                   height: '26px',
+                  marginBottom: '8px',
                   borderRadius: '6px',
                   border: '1px solid rgba(34, 211, 238, 0.3)',
                   background: 'transparent',

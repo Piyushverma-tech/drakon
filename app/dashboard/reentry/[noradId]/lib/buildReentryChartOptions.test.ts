@@ -1,7 +1,7 @@
 import {
   buildAltitudeChartOption,
   buildBstarChartOption,
-  buildEccentricityChartOption,
+  buildPeriodChartOption,
   ObjectHistoryEntry,
 } from './buildReentryChartOptions';
 
@@ -111,60 +111,46 @@ describe('buildBstarChartOption', () => {
   });
 });
 
-describe('buildEccentricityChartOption', () => {
-  it('computes eccentricity from perigee/apogee radii, not raw altitudes', () => {
-    // perigee 400km, apogee 400km -> circular -> e = 0
-    const circular = entry({ epochMs: 1000, perigeeKm: 400, apogeeKm: 400 });
-    const circularOption = buildEccentricityChartOption([circular]);
-    const circularSeries = circularOption.series as Array<{
-      data: [number, number][];
-    }>;
-    expect(circularSeries[0].data[0][1]).toBeCloseTo(0, 6);
-
-    // perigee 200km, apogee 40000km -> clearly eccentric, e should be
-    // well above 0.5 and below 1.
-    const eccentric = entry({
-      epochMs: 2000,
-      perigeeKm: 200,
-      apogeeKm: 40000,
-    });
-    const eccentricOption = buildEccentricityChartOption([eccentric]);
-    const eccentricSeries = eccentricOption.series as Array<{
-      data: [number, number][];
-    }>;
-    expect(eccentricSeries[0].data[0][1]).toBeGreaterThan(0.5);
-    expect(eccentricSeries[0].data[0][1]).toBeLessThan(1);
+describe('buildPeriodChartOption', () => {
+  it('computes period in minutes from mean motion, matching the page metadata row formula', () => {
+    // ISS-like: 15.5 rev/day -> period = 1440 / 15.5 minutes
+    const option = buildPeriodChartOption([
+      entry({ epochMs: 1000, meanMotion: 15.5 }),
+    ]);
+    const series = option.series as Array<{ data: [number, number][] }>;
+    expect(series[0].data[0][1]).toBeCloseTo(1440 / 15.5, 6);
   });
 
-  it('tracks eccentricity increasing over time as an orbit decays toward re-entry', () => {
-    // A drag-driven decay typically circularizes perigee against apogee
-    // early, then both drop together -- but the widening gap in the
-    // approach to re-entry should still read as an upward eccentricity
-    // trend here.
+  it('tracks period decreasing as an orbit decays -- mean motion rises as altitude drops', () => {
+    // Kepler: lower semi-major axis -> faster orbit -> higher mean
+    // motion -> shorter period. This keeps moving right up to
+    // re-entry, unlike eccentricity which flattens out once the orbit
+    // is already near-circular.
     const entries = [
-      entry({ epochMs: 1000, perigeeKm: 400, apogeeKm: 410 }),
-      entry({ epochMs: 2000, perigeeKm: 250, apogeeKm: 380 }),
-      entry({ epochMs: 3000, perigeeKm: 120, apogeeKm: 350 }),
+      entry({ epochMs: 1000, meanMotion: 15.5 }),
+      entry({ epochMs: 2000, meanMotion: 15.62 }),
+      entry({ epochMs: 3000, meanMotion: 15.9 }),
     ];
 
-    const option = buildEccentricityChartOption(entries);
+    const option = buildPeriodChartOption(entries);
     const series = option.series as Array<{ data: [number, number][] }>;
-    const values = series[0].data.map(([, e]) => e);
+    const values = series[0].data.map(([, period]) => period);
 
-    expect(values[1]).toBeGreaterThan(values[0]);
-    expect(values[2]).toBeGreaterThan(values[1]);
+    expect(values[1]).toBeLessThan(values[0]);
+    expect(values[2]).toBeLessThan(values[1]);
   });
 
-  it('omits entries missing perigee or apogee instead of computing garbage', () => {
+  it('omits entries with null or non-positive mean motion instead of dividing by it', () => {
     const entries = [
-      entry({ epochMs: 1000, perigeeKm: 400, apogeeKm: 410 }),
-      entry({ epochMs: 2000, perigeeKm: null, apogeeKm: 410 }),
-      entry({ epochMs: 3000, perigeeKm: 400, apogeeKm: null }),
-      entry({ epochMs: 4000, perigeeKm: 395, apogeeKm: 405 }),
+      entry({ epochMs: 1000, meanMotion: 15.5 }),
+      entry({ epochMs: 2000, meanMotion: null }),
+      entry({ epochMs: 3000, meanMotion: 0 }),
+      entry({ epochMs: 4000, meanMotion: -1 }),
+      entry({ epochMs: 5000, meanMotion: 15.6 }),
     ];
 
-    const option = buildEccentricityChartOption(entries);
+    const option = buildPeriodChartOption(entries);
     const series = option.series as Array<{ data: [number, number][] }>;
-    expect(series[0].data.map(([epochMs]) => epochMs)).toEqual([1000, 4000]);
+    expect(series[0].data.map(([epochMs]) => epochMs)).toEqual([1000, 5000]);
   });
 });
