@@ -8,6 +8,16 @@ const CHUNK_SIZE = 500;
 
 const CHUNK_CONCURRENCY = 4;
 
+function isStableGeometry(
+  perigeeKm: number,
+  apogeeKm: number,
+  meanMotion: number
+): boolean {
+  const periodMin = 1440 / Math.max(meanMotion, 0.001);
+  const isHEO = apogeeKm > perigeeKm * 10 && apogeeKm > 2000;
+  return periodMin > 600 || perigeeKm > 2000 || isHEO;
+}
+
 interface ChunkResult {
   inserted: number;
   skipped: number;
@@ -19,8 +29,9 @@ async function processChunk(
   sourceGroup: string
 ): Promise<ChunkResult> {
   let invalid = 0;
+  let stableGeometrySkipped = 0;
 
-  // ── Write parsed parameters to tle_history ──────────────────────────────
+  // Write parsed parameters to tle_history -------------------------
   const validChunk = chunk.filter((entry) => {
     const epoch = new Date(entry.tleEpoch);
     const valid =
@@ -28,11 +39,18 @@ async function processChunk(
       Number.isFinite(entry.meanMotion) &&
       entry.meanMotion > 0;
     if (!valid) invalid += 1;
+    if (
+      valid &&
+      isStableGeometry(entry.perigeeKm, entry.apogeeKm, entry.meanMotion)
+    ) {
+      stableGeometrySkipped += 1;
+      return false;
+    }
     return valid;
   });
 
   if (!validChunk.length) {
-    return { inserted: 0, skipped: 0, invalid };
+    return { inserted: 0, skipped: stableGeometrySkipped, invalid };
   }
 
   const historyRows = validChunk.map((e) => ({
@@ -60,7 +78,7 @@ async function processChunk(
 
   const insertedIds = historyResult.map((r) => r.noradId);
 
-  // ── Write raw TLE lines to tle_archive ───────────────────────────────────
+  // Write raw TLE lines to tle_archive --------------------------------
   // Only for rows that were actually new (don't re-archive known epochs)
   const insertedSet = new Set(insertedIds);
   const archiveRows = validChunk
@@ -103,7 +121,7 @@ async function processChunk(
     }
   }
 
-  // ── Enqueue trend jobs for this chunk only ──────────────────────────────
+  // Enqueue trend jobs for this chunk only ------------------------
   if (insertedIds.length > 0) {
     const jobRows = insertedIds.map((id) => ({ noradId: id }));
     await db.insert(trendJobs).values(jobRows).onConflictDoNothing();
@@ -131,7 +149,7 @@ async function processChunk(
 
   return {
     inserted: insertedIds.length,
-    skipped: validChunk.length - insertedIds.length,
+    skipped: stableGeometrySkipped + validChunk.length - insertedIds.length,
     invalid,
   };
 }
