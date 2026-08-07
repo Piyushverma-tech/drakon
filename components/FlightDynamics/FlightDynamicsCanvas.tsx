@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DeckGL, OrbitView } from 'deck.gl';
 import type { OrbitViewState } from '@deck.gl/core';
 import {
@@ -12,6 +12,7 @@ import {
 import { CornerAccents } from '@/components/MiniGlobe/CornerAccents';
 import { cn } from '@/lib/utils';
 import type { FlightDynamicsCanvasProps } from './types';
+import { computeInitialViewState } from '@/lib/flightDynamicsViewState';
 
 // Visual (not physical) length budget, in world units, for every vector
 // arrow. H and the plane ring always draw at MAX_ARROW_LENGTH (they're
@@ -21,12 +22,14 @@ import type { FlightDynamicsCanvasProps } from './types';
 const MAX_ARROW_LENGTH = 46;
 const MIN_ARROW_LENGTH = 14;
 const PLANE_RADIUS = MAX_ARROW_LENGTH * 0.85;
+const EQUATOR_RADIUS = PLANE_RADIUS * 1.08;
+const NORTH_AXIS_LENGTH = MAX_ARROW_LENGTH * 0.7;
 const PLANE_SEGMENTS = 48;
 
 // Reference range for scaling the nadir vector's length by real altitude.
 // Chosen for LEO re-entry triage specifically: below ~120km an object is
 // in its final hours; above ~1000km it's comfortably outside near-term
-// decay risk for this app's purposes, so both ends clamp rather than
+// decay risk, so both ends clamp rather than
 // extrapolate further. A shorter N arrow reads as "closer to Earth."
 const ALTITUDE_MIN_KM = 120;
 const ALTITUDE_MAX_KM = 1000;
@@ -51,6 +54,9 @@ type RgbColor = [number, number, number];
 const NADIR_COLOR: RgbColor = [150, 110, 255]; // purple
 const VELOCITY_COLOR: RgbColor = [0, 220, 255]; // cyan
 const ORBIT_NORMAL_COLOR: RgbColor = [180, 190, 200]; // white/grey
+const EQUATOR_COLOR: RgbColor = [70, 130, 190]; // muted blue — ECI XY plane
+const NORTH_COLOR: RgbColor = [210, 170, 90]; // muted gold — ECI +Z
+const EARTH_COLOR: RgbColor = [70, 140, 200]; // Earth-direction cue on nadir tip
 const ORIGIN_COLOR: RgbColor = [235, 235, 240]; // near-white satellite marker
 
 const TIP_RADIUS_PX = 4;
@@ -59,11 +65,14 @@ const TIP_RADIUS_PX = 4;
 // chevron, in radians.
 const MOTION_ARROW_THETA = -Math.PI / 2;
 
-const INITIAL_VIEW_STATE: OrbitViewState = {
+// Fallback only used before the first orbital frame arrives. Real framing
+// comes from computeInitialViewState (zenith-side camera so N points into
+// the scene). orbitAxis is 'Z' so celestial north stays the up/orbit axis.
+const FALLBACK_VIEW_STATE: OrbitViewState = {
   target: [0, 0, 0],
-  zoom: 1.35,
-  rotationX: 22,
-  rotationOrbit: -35,
+  zoom: 1.15,
+  rotationX: 40,
+  rotationOrbit: 0,
 };
 
 type Vec3 = [number, number, number];
@@ -121,6 +130,18 @@ function buildPlaneRing(
   return ring;
 }
 
+/** ECI equatorial plane = XY (Z = celestial north). Same frame as
+ * satellite.js SGP4 position/velocity, so inclination is literally the
+ * dihedral angle between this disc and the orbital-plane disc. */
+function buildEquatorRing(radius: number, segments: number): Vec3[] {
+  const ring: Vec3[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const theta = (i / segments) * Math.PI * 2;
+    ring.push([Math.cos(theta) * radius, Math.sin(theta) * radius, 0]);
+  }
+  return ring;
+}
+
 /** Small filled chevron sitting on the ring, pointing toward increasing
  * theta -- i.e. the satellite's actual direction of travel. */
 function buildMotionArrowhead(
@@ -152,8 +173,19 @@ export function FlightDynamicsCanvas({
   heightPx = 160,
   showLegend = true,
 }: FlightDynamicsCanvasProps) {
-  const [viewState, setViewState] =
-    useState<OrbitViewState>(INITIAL_VIEW_STATE);
+  const [viewState, setViewState] = useState<OrbitViewState>(() =>
+    orbitalFrame ? computeInitialViewState(orbitalFrame) : FALLBACK_VIEW_STATE
+  );
+
+  // Auto-frame once when the first frame arrives. Do
+  // not re-frame on later propagations — that would fight free-rotate.
+  // Satellite switches remount via key={id}, which resets this ref.
+  const didAutoFrame = useRef(orbitalFrame != null);
+  useEffect(() => {
+    if (!orbitalFrame || didAutoFrame.current) return;
+    didAutoFrame.current = true;
+    setViewState(computeInitialViewState(orbitalFrame));
+  }, [orbitalFrame]);
 
   const vectors = useMemo<VectorDatum[]>(() => {
     if (!orbitalFrame) return [];
@@ -190,6 +222,10 @@ export function FlightDynamicsCanvas({
     return result;
   }, [orbitalFrame]);
 
+  const nadirTip = useMemo(() => {
+    return vectors.find((v) => v.id === 'nadir')?.tip ?? null;
+  }, [vectors]);
+
   const planeBasis = useMemo(() => {
     if (!orbitalFrame?.orbitNormalUnit) return null;
     return buildOrbitPlaneBasis(
@@ -208,6 +244,11 @@ export function FlightDynamicsCanvas({
     );
   }, [planeBasis]);
 
+  const equatorRing = useMemo(
+    () => buildEquatorRing(EQUATOR_RADIUS, PLANE_SEGMENTS),
+    []
+  );
+
   const motionArrowhead = useMemo(() => {
     if (!planeBasis) return null;
     return buildMotionArrowhead(
@@ -222,26 +263,66 @@ export function FlightDynamicsCanvas({
     if (vectors.length === 0) return [];
 
     const origin: Vec3 = [0, 0, 0];
+    const northTip: Vec3 = [0, 0, NORTH_AXIS_LENGTH];
+
+    // Absolute ECI reference: celestial equator (XY). Inclination is the
+    // angle between this disc and the orbital-plane disc below.
+    const equatorLayer = new PolygonLayer({
+      id: 'flight-dynamics-equator',
+      data: [{ ring: equatorRing }],
+      getPolygon: (d: { ring: Vec3[] }) => d.ring,
+      getFillColor: [...EQUATOR_COLOR, 18] as [number, number, number, number],
+      getLineColor: [...EQUATOR_COLOR, 90] as [number, number, number, number],
+      lineWidthUnits: 'pixels',
+      getLineWidth: 1,
+      stroked: true,
+      filled: true,
+      pickable: false,
+    });
+
+    const northAxisLayer = new LineLayer<{ tip: Vec3 }>({
+      id: 'flight-dynamics-north-axis',
+      data: [{ tip: northTip }],
+      getSourcePosition: () => origin,
+      getTargetPosition: (d) => d.tip,
+      getColor: [...NORTH_COLOR, 200] as [number, number, number, number],
+      getWidth: 1.5,
+      widthUnits: 'pixels',
+      pickable: false,
+    });
+
+    const northLabelLayer = new TextLayer<{ tip: Vec3; label: string }>({
+      id: 'flight-dynamics-north-label',
+      data: [{ tip: northTip, label: 'Z' }],
+      getPosition: (d) => scaleVec(d.tip, 1.12) as Vec3,
+      getText: (d) => d.label,
+      getColor: [...NORTH_COLOR, 255] as [number, number, number, number],
+      getSize: 11,
+      sizeUnits: 'pixels',
+      fontFamily: 'monospace',
+      fontWeight: 600,
+      pickable: false,
+    });
 
     const planeLayer = planeRing
       ? new PolygonLayer({
           id: 'flight-dynamics-plane',
           data: [{ ring: planeRing }],
           getPolygon: (d: { ring: Vec3[] }) => d.ring,
-          getFillColor: [...ORBIT_NORMAL_COLOR, 15] as [
+          getFillColor: [...ORBIT_NORMAL_COLOR, 20] as [
             number,
             number,
             number,
             number,
           ],
-          getLineColor: [...ORBIT_NORMAL_COLOR, 60] as [
+          getLineColor: [...ORBIT_NORMAL_COLOR, 70] as [
             number,
             number,
             number,
             number,
           ],
           lineWidthUnits: 'pixels',
-          getLineWidth: 1,
+          getLineWidth: 1.25,
           stroked: true,
           filled: true,
           pickable: false,
@@ -255,7 +336,7 @@ export function FlightDynamicsCanvas({
           id: 'flight-dynamics-motion-arrow',
           data: [{ ring: motionArrowhead }],
           getPolygon: (d: { ring: Vec3[] }) => d.ring,
-          getFillColor: [...ORBIT_NORMAL_COLOR, 60] as [
+          getFillColor: [...ORBIT_NORMAL_COLOR, 70] as [
             number,
             number,
             number,
@@ -277,6 +358,33 @@ export function FlightDynamicsCanvas({
       widthUnits: 'pixels',
       pickable: false,
     });
+
+    // Soft halo under the nadir tip: N still reads purple, blue ring marks toward Earth's center
+    const earthCueLayer = nadirTip
+      ? new ScatterplotLayer<Vec3>({
+          id: 'flight-dynamics-earth-cue',
+          data: [nadirTip],
+          getPosition: (d) => d,
+          getFillColor: [...EARTH_COLOR, 55] as [
+            number,
+            number,
+            number,
+            number,
+          ],
+          getLineColor: [...EARTH_COLOR, 200] as [
+            number,
+            number,
+            number,
+            number,
+          ],
+          getRadius: 9,
+          radiusUnits: 'pixels',
+          stroked: true,
+          getLineWidth: 1.5,
+          lineWidthUnits: 'pixels',
+          pickable: false,
+        })
+      : null;
 
     const tipLayer = new ScatterplotLayer<VectorDatum>({
       id: 'flight-dynamics-tips',
@@ -314,14 +422,18 @@ export function FlightDynamicsCanvas({
     });
 
     return [
+      equatorLayer,
+      northAxisLayer,
       ...(planeLayer ? [planeLayer] : []),
       ...(motionArrowLayer ? [motionArrowLayer] : []),
+      northLabelLayer,
       lineLayer,
+      ...(earthCueLayer ? [earthCueLayer] : []),
       tipLayer,
       labelLayer,
       originLayer,
     ];
-  }, [vectors, planeRing, motionArrowhead]);
+  }, [vectors, planeRing, motionArrowhead, equatorRing, nadirTip]);
 
   const hasContent = vectors.length > 0;
 
@@ -341,7 +453,7 @@ export function FlightDynamicsCanvas({
           </div>
         ) : (
           <DeckGL
-            views={new OrbitView({ orbitAxis: 'Y', orthographic: true })}
+            views={new OrbitView({ orbitAxis: 'Z', orthographic: true })}
             viewState={viewState}
             onViewStateChange={({ viewState: vs }) =>
               setViewState(vs as OrbitViewState)
@@ -353,22 +465,33 @@ export function FlightDynamicsCanvas({
         )}
       </div>
       {hasContent && showLegend && (
-        <p className="mt-1 mb-2 flex justify-between text-[9px] font-bold uppercase tracking-wider text-gray-500">
-          <span>
-            <span style={{ color: `rgb(${NADIR_COLOR.join(',')})` }}>N</span>{' '}
-            nadir
-          </span>
-          <span>
-            <span style={{ color: `rgb(${VELOCITY_COLOR.join(',')})` }}>V</span>{' '}
-            velocity
-          </span>
-          <span>
-            <span style={{ color: `rgb(${ORBIT_NORMAL_COLOR.join(',')})` }}>
-              H
-            </span>{' '}
-            orbit normal
-          </span>
-        </p>
+        <div className="mt-1 mb-2 space-y-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-500">
+          <p className="flex justify-between gap-2">
+            <span>
+              <span style={{ color: `rgb(${NADIR_COLOR.join(',')})` }}>N</span>{' '}
+              nadir
+            </span>
+            <span>
+              <span style={{ color: `rgb(${VELOCITY_COLOR.join(',')})` }}>
+                V
+              </span>{' '}
+              velocity
+            </span>
+            <span>
+              <span style={{ color: `rgb(${ORBIT_NORMAL_COLOR.join(',')})` }}>
+                H
+              </span>{' '}
+              orbit normal
+            </span>
+          </p>
+          <p className="flex justify-between gap-2">
+            <span>
+              <span style={{ color: `rgb(${NORTH_COLOR.join(',')})` }}>Z</span>{' '}
+              celestial n
+            </span>
+            <span className="text-gray-500">tilt = incl.</span>
+          </p>
+        </div>
       )}
     </div>
   );

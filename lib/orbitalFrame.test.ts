@@ -124,6 +124,26 @@ describe('computeOrbitalState (SGP4 integration smoke test)', () => {
     expect(mag(state!.orbitNormalUnit!)).toBeCloseTo(1, 4);
   });
 
+  it('orbit-normal tilt from ECI +Z matches the TLE inclination', () => {
+    // i = acos(h · Z) for a unit angular-momentum vector. This is the
+    // same angle the canvas shows between the orbital disc and equator.
+    const state = computeOrbitalState(
+      issL1,
+      issL2,
+      new Date('2026-01-30T12:00:00Z')
+    );
+
+    expect(state).not.toBeNull();
+    expect(state!.orbitNormalUnit).not.toBeNull();
+    const inclFromH =
+      (Math.acos(
+        Math.min(1, Math.max(-1, state!.orbitNormalUnit!.z))
+      ) *
+        180) /
+      Math.PI;
+    expect(inclFromH).toBeCloseTo(51.64, 1);
+  });
+
   it('returns null for garbage TLE lines instead of throwing', () => {
     const state = computeOrbitalState('not a tle', 'also not a tle');
     expect(state).toBeNull();
