@@ -82,7 +82,7 @@ drakon/
 |  |     |- process-trends/route.ts       # Trend worker drain (cron-job.org, 15min)
 |  |     |- requeue-stale/route.ts        # Version-invalidation requeue
 |  |     |- ingest-tle/route.ts           # Space-Track/CelesTrak merge cycle
-|  |     `- manage-tle-partitions/route.ts # Monthly tle_history partition create-ahead/drop-stale (see §11)
+|  |     `- manage-tle-partitions/route.ts # Monthly tle_history partition create-ahead/drop-stale
 |  |- dashboard/
 |  |  |- components/
 |  |  |  |- layout/
@@ -406,4 +406,4 @@ Jest configured via `jest.config.js` with `ts-jest`; `roots` covers both `lib/` 
 
 **License**
 
-MIT License (c) 2026 DRAKON
+DRAKON is source-available under the **[DRAKON Source-Available License v1.0](./DRAKON-Source-Available-License.md)**
