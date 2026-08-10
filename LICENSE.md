@@ -1,292 +1,131 @@
-# DRAKON Source-Available License
-## Version 1.0 — August 2026
+# PolyForm Noncommercial License 1.0.0
 
-**Copyright © 2026 Piyush Verma. All rights reserved.**
+<https://polyformproject.org/licenses/noncommercial/1.0.0>
 
-This license governs the use, reproduction, modification, and distribution of the DRAKON software and associated source code.
+## Acceptance
 
-DRAKON is made available as a source-available project for learning, research, education, experimentation, personal use, and non-commercial development. The purpose of this license is to encourage technical exploration and collaboration while protecting the project from unauthorized commercial exploitation or incorporation into competing commercial products and services.
+In order to get any license under these terms, you must agree
+to them as both strict obligations and conditions to all
+your licenses.
 
----
+## Copyright License
 
-## 1. Definitions
+The licensor grants you a copyright license for the
+software to do everything you might do with the software
+that would otherwise infringe the licensor's copyright
+in it for any permitted purpose. However, you may
+only distribute the software according to [Distribution
+License](#distribution-license) and make changes or new works
+based on the software according to [Changes and New Works
+License](#changes-and-new-works-license).
 
-For the purposes of this License:
+## Distribution License
 
-**“Software”** means the DRAKON source code, object code, documentation, configuration, scripts, and other software components distributed by the Copyright Holder under this License.
+The licensor grants you an additional copyright license
+to distribute copies of the software. Your license
+to distribute covers distributing the software with
+changes and new works permitted by [Changes and New Works
+License](#changes-and-new-works-license).
 
-**“DRAKON”** means the Software and the associated project, including its distinctive name, branding, logos, and official project identity.
+## Notices
 
-**“Derivative Work”** means a work based upon, incorporating, or substantially modifying the Software or a substantial portion of its source code.
+You must ensure that anyone who gets a copy of any part of
+the software from you also gets a copy of these terms or the
+URL for them above, as well as copies of any plain-text lines
+beginning with `Required Notice:` that the licensor provided
+with the software. For example:
 
-**“Commercial Use”** means any use primarily intended for commercial advantage, monetary compensation, revenue generation, or provision of a paid product or service.
+> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
 
-**“Competing Product or Service”** means a commercial software product, platform, service, or system whose primary purpose substantially overlaps with the core capabilities of DRAKON, including, but not limited to:
+## Changes and New Works License
 
-- space situational awareness;
-- orbital object monitoring or tracking;
-- orbital analysis or visualization;
-- orbital risk analysis;
-- collision-risk analysis;
-- conjunction or proximity analysis;
-- orbital decay or re-entry analysis;
-- space traffic monitoring or management;
-- orbital operations decision support; or
-- substantially similar operational or analytical capabilities.
+The licensor grants you an additional copyright license to
+make changes and new works based on the software for any
+permitted purpose.
 
-The determination of whether a product or service constitutes a Competing Product or Service shall be based on its overall purpose and functionality rather than on the use of any particular individual feature.
+## Patent License
 
----
+The licensor grants you a patent license for the software that
+covers patent claims the licensor can license, or becomes able
+to license, that you would infringe by using the software.
 
-## 2. Copyright
+## Noncommercial Purposes
 
-The Software and all associated original materials are protected by applicable copyright laws and international copyright treaties.
+Any noncommercial purpose is a permitted purpose.
 
-Copyright in the Software remains with the Copyright Holder unless expressly stated otherwise.
+## Personal Uses
 
-Nothing in this License transfers ownership of the Software or any intellectual property rights to another person or organization.
+Personal use for research, experiment, and testing for
+the benefit of public knowledge, personal study, private
+entertainment, hobby projects, amateur pursuits, or religious
+observance, without any anticipated commercial application,
+is use for a permitted purpose.
 
----
+## Noncommercial Organizations
 
-## 3. Permitted Use
+Use by any charitable organization, educational institution,
+public research organization, public safety or health
+organization, environmental protection organization,
+or government institution is use for a permitted purpose
+regardless of the source of funding or obligations resulting
+from the funding.
 
-Subject to the restrictions in this License, permission is granted to any person or organization to:
+## Fair Use
 
-1. use the Software for personal purposes;
-2. study and inspect the source code;
-3. copy and fork the Software;
-4. modify the Software;
-5. create Derivative Works for permitted purposes;
-6. use the Software for educational purposes;
-7. use the Software for academic or scientific research;
-8. conduct non-commercial experiments and demonstrations;
-9. evaluate the Software and its architecture;
-10. publish technical analysis, research, benchmarks, or educational material concerning the Software.
+You may have "fair use" rights for the software under the
+law. These terms do not limit them.
 
-These permissions are granted free of charge and do not require prior written permission from the Copyright Holder, provided that the applicable restrictions of this License are observed.
+## No Other Rights
 
----
+These terms do not allow you to sublicense or transfer any of
+your licenses to anyone else, or prevent the licensor from
+granting licenses to anyone else. These terms do not imply
+any other licenses.
 
-## 4. Non-Commercial Use
+## Patent Defense
 
-The Software may be used, modified, forked, and incorporated into other projects for non-commercial purposes.
+If you make any written claim that the software infringes or
+contributes to infringement of any patent, your patent license
+for the software granted under these terms ends immediately. If
+your company makes such a claim, your patent license ends
+immediately for work on behalf of your company.
 
-Examples of permitted non-commercial use include:
+## Violations
 
-- personal projects;
-- university and academic projects;
-- scientific research;
-- educational demonstrations;
-- open research;
-- technical experimentation;
-- portfolio projects;
-- non-commercial prototypes;
-- internal learning and development;
-- independent benchmarking and analysis.
+The first time you are notified in writing that you have
+violated any of these terms, or done anything with the software
+not covered by your licenses, your licenses can nonetheless
+continue if you come into full compliance with these terms,
+and take practical steps to correct past violations, within
+32 days of receiving notice. Otherwise, all your licenses
+end immediately.
 
-A non-commercial project may use or modify DRAKON provided that it complies with the attribution and branding requirements of this License.
+## No Liability
 
----
+**_As far as the law allows, the software comes as is, without
+any warranty or condition, and the licensor will not be liable
+to you for any damages arising out of these terms or the use
+or nature of the software, under any kind of legal claim._**
 
-## 5. Commercial and Competing Use
+## Definitions
 
-Without a separate written commercial license from the Copyright Holder, you may **not**:
+The **licensor** is the individual or entity offering these
+terms, and the **software** is the software the licensor makes
+available under these terms.
 
-1. sell the Software or a Derivative Work;
-2. license the Software or a Derivative Work for commercial use;
-3. offer the Software or a Derivative Work as a paid service;
-4. operate the Software as part of a commercial service whose primary functionality substantially derives from DRAKON;
-5. use the Software or a Derivative Work to create or operate a Competing Product or Service;
-6. incorporate substantial portions of the Software into a commercial Competing Product or Service;
-7. provide hosted, cloud-based, SaaS, API-based, or managed access to a Competing Product or Service substantially derived from the Software; or
-8. otherwise commercially exploit substantial portions of the Software in a manner that circumvents the purpose of this License.
+**You** refers to the individual or entity agreeing to these
+terms.
 
-This restriction applies regardless of whether the Software itself is distributed to customers or remains entirely on a server operated by the user.
+**Your company** is any legal entity, sole proprietorship,
+or other kind of organization that you work for, plus all
+organizations that have control over, are under the control of,
+or are under common control with that organization. **Control**
+means ownership of substantially all the assets of an entity,
+or the power to direct its management and policies by vote,
+contract, or otherwise. Control can be direct or indirect.
 
----
+**Your licenses** are all the licenses granted to you for the
+software under these terms.
 
-## 6. Internal Commercial Evaluation
-
-Commercial organizations may obtain, inspect, build, test, benchmark, and evaluate the Software internally.
-
-Such internal use is permitted provided that it is genuinely limited to evaluation, research, testing, or development assessment and does not constitute the operation or provision of a commercial Competing Product or Service.
-
-Internal evaluation does not grant permission to deploy DRAKON or a Derivative Work as a commercial customer-facing product or service.
-
----
-
-## 7. Commercial Licensing
-
-The restrictions in Section 5 may be waived through a separate written commercial license issued by the Copyright Holder.
-
-A commercial license may grant additional rights, including rights to:
-
-- deploy DRAKON commercially;
-- integrate DRAKON into commercial software;
-- provide DRAKON-powered services;
-- operate DRAKON as a SaaS or hosted service;
-- create commercial Derivative Works; or
-- use DRAKON within a Competing Product or Service.
-
-No commercial rights are granted merely because the Software is publicly available, hosted on a public repository, or otherwise accessible without charge.
-
----
-
-## 8. Attribution
-
-Any redistribution of the Software, substantial portions of the Software, or permitted Derivative Works must retain:
-
-1. the original copyright notice;
-2. this License; and
-3. appropriate attribution to the DRAKON project and Copyright Holder.
-
-Where technically and reasonably possible, attribution should identify the project as:
-
-> DRAKON — Space Situational Awareness & Orbital Analysis System  
-> Copyright © 2026 Piyush Verma
-
-Attribution does not imply endorsement by the Copyright Holder.
-
----
-
-## 9. Source Code and Derivative Works
-
-When distributing a permitted Derivative Work containing substantial portions of DRAKON source code, the distributor must clearly identify the modifications made to the original Software.
-
-A Derivative Work must not be represented as an official release of DRAKON unless expressly authorized by the Copyright Holder.
-
-Nothing in this section requires a non-commercial project to publish unrelated source code that does not contain or derive from the Software.
-
----
-
-## 10. DRAKON Name, Logo, and Branding
-
-This License does not grant permission to use the DRAKON name, logo, visual identity, trademarks, or other distinctive branding for purposes of commercial promotion, endorsement, or affiliation.
-
-Modified versions may refer to DRAKON for attribution and technical description, but must not imply that they are official DRAKON releases.
-
-For example, a modified project may state:
-
-> “Based on DRAKON”
-
-or
-
-> “A non-commercial fork of DRAKON”
-
-but must not present itself as:
-
-> “Official DRAKON”
-
-without written authorization.
-
----
-
-## 11. Third-Party Components
-
-DRAKON may contain or depend upon third-party software, libraries, datasets, APIs, or other materials that are subject to separate licenses or terms.
-
-Nothing in this License supersedes or modifies the licenses governing third-party components.
-
-Users are responsible for complying with all applicable third-party licenses and terms.
-
-Where a third-party component is distributed with DRAKON under a separate license, that component remains subject to its applicable license.
-
----
-
-## 12. Data and External Services
-
-The Software may interact with external datasets, APIs, satellite catalogs, orbital data providers, or other services.
-
-This License applies to the DRAKON Software itself and does not grant rights to third-party data or services.
-
-Users are responsible for complying with the terms, usage restrictions, attribution requirements, and licenses applicable to any external data or service they access through or alongside DRAKON.
-
----
-
-## 13. Contributions
-
-Unless otherwise agreed in writing, any contribution intentionally submitted to the DRAKON project for inclusion in the Software shall be provided under the same license terms applicable to the portion of the project to which the contribution is submitted.
-
-By submitting a contribution, the contributor represents that they have the necessary rights to submit that contribution under these terms.
-
-The Copyright Holder may choose whether and how contributions are incorporated into the project.
-
----
-
-## 14. No Warranty
-
-THE SOFTWARE IS PROVIDED **“AS IS”**, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, ACCURACY, RELIABILITY, OR AVAILABILITY.
-
-THE COPYRIGHT HOLDER DOES NOT WARRANT THAT THE SOFTWARE WILL OPERATE WITHOUT INTERRUPTION, ERROR, OR DEFECT, OR THAT ITS RESULTS WILL BE ACCURATE, COMPLETE, OR SUITABLE FOR ANY PARTICULAR PURPOSE.
-
----
-
-## 15. Operational and Safety Disclaimer
-
-DRAKON may process orbital data and generate analytical outputs relating to satellites, debris, orbital decay, re-entry, collision risk, or other space operations.
-
-Such outputs are provided for informational, research, analytical, and software-development purposes only.
-
-DRAKON is **not** represented as a certified flight-safety system, authoritative space-traffic-management system, or substitute for operational data, official warnings, professional analysis, or decisions made by qualified personnel.
-
-Users are solely responsible for evaluating the accuracy, limitations, uncertainty, and suitability of any output produced by the Software before relying upon it.
-
----
-
-## 16. Limitation of Liability
-
-TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR OTHER DAMAGES ARISING OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR INABILITY TO USE THE SOFTWARE.
-
-THIS INCLUDES, WITHOUT LIMITATION, LOSS OF DATA, LOSS OF PROFITS, BUSINESS INTERRUPTION, OPERATIONAL LOSS, OR ANY DECISION OR ACTION TAKEN IN RELIANCE UPON OUTPUT PRODUCED BY THE SOFTWARE.
-
----
-
-## 17. Termination
-
-The rights granted under this License automatically terminate if you materially violate its terms.
-
-Upon termination, you must cease the use, distribution, and deployment of the Software to the extent required by applicable law.
-
-Termination does not affect rights that were validly exercised before the violation occurred.
-
-Sections concerning copyright, attribution, branding, disclaimer, limitation of liability, and any other provisions that by their nature should survive termination shall remain effective.
-
----
-
-## 18. Reservation of Rights
-
-All rights not expressly granted under this License are reserved by the Copyright Holder.
-
-In particular, this License does not grant any right to:
-
-- commercially exploit DRAKON;
-- create a commercial Competing Product or Service;
-- use DRAKON branding to imply endorsement;
-- sublicense prohibited rights; or
-- claim ownership of the original DRAKON Software.
-
----
-
-## 19. Changes to This License
-
-The Copyright Holder may publish future versions of this License for future releases of DRAKON.
-
-Unless explicitly stated otherwise, a particular version of DRAKON remains governed by the version of this License distributed with that release.
-
-The Copyright Holder may also release future versions of DRAKON under different licensing terms.
-
----
-
-## 20. Acceptance
-
-By exercising any rights granted under this License, you acknowledge that you have read, understood, and agreed to be bound by its terms.
-
-If you do not agree to these terms, you may not use, reproduce, modify, distribute, or otherwise exercise rights in the Software beyond those permitted by applicable copyright law.
-
----
-
-**DRAKON Source-Available License v1.0**
-
-Copyright © 2026 Piyush Verma. All rights reserved.
-
-DRAKON is an independent software project and is not affiliated with, endorsed by, or sponsored by any government agency, space agency, satellite operator, or third-party data provider unless explicitly stated otherwise.
+**Use** means anything you do with the software requiring one
+of your licenses.

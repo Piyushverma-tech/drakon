@@ -406,4 +406,4 @@ Jest configured via `jest.config.js` with `ts-jest`; `roots` covers both `lib/` 
 
 **License**
 
-DRAKON is source-available under the **[DRAKON Source-Available License v1.0](./LICENSE.md)**
+DRAKON is source-available under the **[PolyForm Noncommercial License 1.0.0](./LICENSE.md)**
