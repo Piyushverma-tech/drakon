@@ -5,7 +5,8 @@ import type { TLEProvider } from './types';
 
 export * from './types';
 export { celestrakProvider } from './celestrak';
-export { spacetrackProvider, extractSessionCookie } from './spacetrack';
+export { spacetrackProvider } from './spacetrack';
+export { extractSessionCookie } from '@/lib/spacetrack/session';
 export { mockProvider } from './mock';
 
 // Default to Space-Track as primary, CelesTrak as fallback

@@ -131,6 +131,19 @@ export interface FilterOptions {
   requireVelocityCheck?: boolean;
 }
 
+/** Active Space-Track TIP (Tracking and Impact Prediction) message. */
+export type TipPrediction = {
+  noradId: number;
+  decayEpoch: string; // ISO — center of predicted decay window
+  windowMinutes: number; // ± uncertainty around decayEpoch, minutes
+  msgEpoch: string | null;
+  insertEpoch: string | null;
+  direction: 'ascending' | 'descending' | null;
+  lat: number | null;
+  lon: number | null;
+  highInterest: boolean;
+};
+
 export type ReentryRisk = {
   satId: number;
   bstar: number;
