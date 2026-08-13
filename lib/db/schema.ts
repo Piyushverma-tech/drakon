@@ -2,6 +2,7 @@ import {
   pgTable,
   integer,
   doublePrecision,
+  real,
   smallint,
   text,
   timestamp,
@@ -22,20 +23,19 @@ export const tleHistory = pgTable(
     epoch: timestamp('epoch', { withTimezone: true }).notNull(),
 
     // Core decay signals
-    bstar: doublePrecision('bstar').notNull(),
-    meanMotion: doublePrecision('mean_motion').notNull(),
-    meanMotionDot: doublePrecision('mean_motion_dot').notNull(),
-    eccentricity: doublePrecision('eccentricity').notNull(),
+    bstar: real('bstar').notNull(),
+    meanMotion: real('mean_motion').notNull(),
+    meanMotionDot: real('mean_motion_dot').notNull(),
+    eccentricity: real('eccentricity').notNull(),
 
     // Orbital geometry — derived at ingest, never recomputed
-    inclination: doublePrecision('inclination').notNull(),
-    raan: doublePrecision('raan').notNull(), // right ascension of ascending node, deg
-    argPerigee: doublePrecision('arg_perigee').notNull(), // argument of perigee, deg
-    meanAnomaly: doublePrecision('mean_anomaly').notNull(), // mean anomaly at epoch, deg
-    perigeeKm: doublePrecision('perigee_km').notNull(),
-    apogeeKm: doublePrecision('apogee_km').notNull(),
-    semiMajorAxisKm: doublePrecision('semi_major_axis_km').notNull(),
-
+    inclination: real('inclination').notNull(),
+    raan: real('raan').notNull(), // right ascension of ascending node, deg
+    argPerigee: real('arg_perigee').notNull(), // argument of perigee, deg
+    meanAnomaly: real('mean_anomaly').notNull(), // mean anomaly at epoch, deg
+    perigeeKm: real('perigee_km').notNull(),
+    apogeeKm: real('apogee_km').notNull(),
+    semiMajorAxisKm: real('semi_major_axis_km').notNull(),
     // Provenance
     ingestedAt: timestamp('ingested_at', { withTimezone: true })
       .notNull()
