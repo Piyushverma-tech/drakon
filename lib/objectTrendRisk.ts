@@ -3,13 +3,48 @@ import {
   isDebrisEntry,
   trendSignalsAgree,
 } from './reentrySignals';
-import type { ObjectTrend, ReentryRisk, TleEntry } from './types';
+import type {
+  ObjectTrend,
+  ReentryRisk,
+  TipPrediction,
+  TleEntry,
+} from './types';
 import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from '@/lib/solarFlux';
 import {
   altitudeBasedReentryEstimate,
   getReentryRisk,
   parseBSTAR,
 } from './satelliteHelpers';
+
+const TIP_AGREEMENT_THRESHOLD_DAYS = 5;
+
+function tipDaysRemaining(tip: TipPrediction, nowMs: number): number {
+  return (new Date(tip.decayEpoch).getTime() - nowMs) / 86_400_000;
+}
+
+/** Attach TIP comparison fields without mutating DRAKON's own resolution. */
+export function attachTipData(
+  risk: ReentryRisk,
+  tip: TipPrediction | undefined,
+  nowMs: number = Date.now()
+): ReentryRisk {
+  if (!tip) return risk;
+
+  const tipDays = tipDaysRemaining(tip, nowMs);
+  const tipDeltaDays =
+    risk.estimatedDaysRemaining === null
+      ? null
+      : Math.round((risk.estimatedDaysRemaining - tipDays) * 10) / 10;
+
+  const tipAgreement: ReentryRisk['tipAgreement'] =
+    tipDeltaDays === null
+      ? null
+      : Math.abs(tipDeltaDays) <= TIP_AGREEMENT_THRESHOLD_DAYS
+        ? 'aligned'
+        : 'diverges';
+
+  return { ...risk, tip, tipDeltaDays, tipAgreement };
+}
 
 function confidenceLabel(confidence: number | null): ReentryRisk['confidence'] {
   if ((confidence ?? 0) >= 0.75) return 'high';
@@ -202,16 +237,19 @@ export function objectTrendToReentryRisk(
 export function buildReentryRiskMap(
   entries: TleEntry[],
   objectTrendsById: Map<number, ObjectTrend> | undefined,
-  solarFluxMultiplier: number = DEFAULT_SOLAR_FLUX_MULTIPLIER
+  solarFluxMultiplier: number = DEFAULT_SOLAR_FLUX_MULTIPLIER,
+  tipByNoradId?: Map<number, TipPrediction>
 ): Map<number, ReentryRisk> {
   const map = new Map<number, ReentryRisk>();
   for (const entry of entries) {
-    const risk = resolveReentryRisk(
+    let risk = resolveReentryRisk(
       entry,
       objectTrendsById?.get(entry.id),
       solarFluxMultiplier
     );
-    if (risk.tier !== 'stable') map.set(entry.id, risk);
+    const tip = tipByNoradId?.get(entry.id);
+    risk = attachTipData(risk, tip);
+    if (risk.tier !== 'stable' || tip) map.set(entry.id, risk);
   }
   return map;
 }

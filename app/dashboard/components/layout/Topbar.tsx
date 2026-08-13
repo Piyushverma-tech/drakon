@@ -8,7 +8,7 @@ export function Topbar() {
   const { query, setQuery, placeholder } = useDashboardSearchContext();
 
   return (
-    <header className="sticky top-0 z-10 h-14 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-40 h-14 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="h-full text-sm text-muted-foreground flex items-center justify-between gap-3 px-6">
         <UtcClock />
         <div className="relative flex-1 max-w-xl ml-4">

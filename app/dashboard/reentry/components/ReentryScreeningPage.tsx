@@ -50,6 +50,7 @@ export function ReentryScreeningPage() {
     selectedEntry,
     selectedRisk,
     changesByNoradId,
+    tipRefreshedAt,
 
     tierFilter,
     sourceFilter,
@@ -70,10 +71,13 @@ export function ReentryScreeningPage() {
       filteredRows.filter((risk) => {
         const matchesTier = tierFilter === 'all' || risk.tier === tierFilter;
         const matchesSource =
-          sourceFilter === 'all' ||
-          (sourceFilter === 'trend'
-            ? risk.source === 'multi_epoch'
-            : risk.source !== 'multi_epoch');
+          sourceFilter === 'all'
+            ? true
+            : sourceFilter === 'tip'
+              ? risk.tip != null
+              : sourceFilter === 'trend'
+                ? risk.source === 'multi_epoch'
+                : risk.source !== 'multi_epoch';
 
         return matchesTier && matchesSource;
       }),
@@ -191,6 +195,7 @@ export function ReentryScreeningPage() {
           <ReentryDetailPanel
             entry={selectedEntry}
             risk={selectedRisk}
+            tipRefreshedAt={tipRefreshedAt}
             className="flex-1 h-full bg-black/50 border border-white/10"
           />
         </div>

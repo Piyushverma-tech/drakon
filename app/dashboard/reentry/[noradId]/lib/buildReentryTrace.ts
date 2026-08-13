@@ -287,6 +287,41 @@ function buildSummary(
   return `${characterize(risk, signals)}. ${evidenceClause(risk, trend)}`;
 }
 
+function tipComparisonStep(risk: ReentryRisk): ReentryTraceStep | null {
+  if (!risk.tip) return null;
+
+  const tipDays = Math.round(
+    (new Date(risk.tip.decayEpoch).getTime() - Date.now()) / 86_400_000
+  );
+
+  if (risk.tier === 'stable') {
+    return {
+      id: 'tip-comparison',
+      stage: 'External validation',
+      icon: 'alert-triangle',
+      status: 'disagree',
+      claim: 'USSPACECOM TIP predicts near-term decay',
+      detail: `~${tipDays}d per TIP, window ±${risk.tip.windowMinutes}min — DRAKON's own model currently reports stable`,
+    };
+  }
+
+  return {
+    id: 'tip-comparison',
+    stage: 'External validation',
+    icon: risk.tipAgreement === 'aligned' ? 'shield-check' : 'shield-x',
+    status: risk.tipAgreement === 'aligned' ? 'agree' : 'disagree',
+    claim:
+      risk.tipAgreement === 'aligned'
+        ? 'Agrees with USSPACECOM TIP prediction'
+        : 'Diverges from USSPACECOM TIP prediction',
+    detail: `TIP: ~${tipDays}d (±${risk.tip.windowMinutes}min) vs DRAKON: ${
+      risk.estimatedDaysRemaining === null
+        ? 'no estimate'
+        : `~${risk.estimatedDaysRemaining}d`
+    }`,
+  };
+}
+
 export function buildReentryTrace({
   risk,
   trend,
@@ -312,6 +347,9 @@ export function buildReentryTrace({
     const override = overrideStep(risk, trend);
     if (override) steps.push(override);
   }
+
+  const tipComparison = tipComparisonStep(risk);
+  if (tipComparison) steps.push(tipComparison);
 
   steps.push(tierStep(risk));
 

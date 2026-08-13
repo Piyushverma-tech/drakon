@@ -1,7 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 export type ReentryTierFilter = 'all' | 'critical' | 'warning' | 'nominal';
-export type ReentrySourceFilter = 'all' | 'trend' | 'single';
+export type ReentrySourceFilter = 'all' | 'trend' | 'single' | 'tip';
 export type ReentryTriageFilter = 'new_escalated' | 'active' | 'watching';
 
 export type ReentryScreeningState = {

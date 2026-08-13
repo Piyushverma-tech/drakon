@@ -4,8 +4,6 @@ import {
 } from '@/lib/spacetrack/session';
 import type { TipPrediction } from '@/lib/types';
 
-const TIP_QUERY_WINDOW_DAYS = 30; // insert_epoch lookback; dedup below keeps only the latest per object
-
 /** Space-Track JSON returns naive "YYYY-MM-DD HH:MM:SS" (UTC). Normalize to ISO. */
 function toIsoUtc(value: string): string {
   return new Date(value.replace(' ', 'T') + 'Z').toISOString();
@@ -14,7 +12,7 @@ function toIsoUtc(value: string): string {
 async function fetchRawTip(): Promise<unknown[]> {
   const cookie = await getSpaceTrackSession();
   const predicates = [
-    `insert_epoch/>now-${TIP_QUERY_WINDOW_DAYS}`,
+    'decay_epoch/>now',
     'orderby/INSERT_EPOCH desc',
     'format/json',
   ];

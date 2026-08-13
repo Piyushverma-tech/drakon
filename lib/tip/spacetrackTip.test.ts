@@ -124,7 +124,8 @@ describe('fetchTipPredictions', () => {
     expect(result).toEqual([]);
     const url = fetchSpy.mock.calls[0][0] as string;
     expect(url).toContain('/class/tip/');
-    expect(url).toContain('insert_epoch/>now-30');
+    expect(url).toContain('decay_epoch/>now');
+    expect(url).not.toContain('insert_epoch/>now');
     expect(url).toContain('orderby/INSERT_EPOCH desc');
     expect(url).toContain('format/json');
   });

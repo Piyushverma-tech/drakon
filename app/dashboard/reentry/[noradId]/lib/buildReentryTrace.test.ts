@@ -146,8 +146,8 @@ describe('buildReentryTrace', () => {
       'signal-ndot',
       'signal-altitude',
       'consensus',
-      'tier',
       'override',
+      'tier',
     ]);
   });
 

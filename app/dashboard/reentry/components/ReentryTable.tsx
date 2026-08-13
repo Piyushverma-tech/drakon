@@ -94,10 +94,10 @@ export function ReentryTable({
   return (
     <div className="relative overflow-hidden rounded-lg border border-white/10 bg-black/40 backdrop-blur-md">
       <div className="overflow-x-auto overflow-y-auto max-h-[280px] no-scrollbar">
-        <table className="w-full min-w-[1020px] text-left border-collapse">
+        <table className="w-full min-w-[1120px] text-left border-collapse">
           <thead className="sticky top-0 z-10">
             <tr>
-              <th colSpan={11} className="p-0">
+              <th colSpan={12} className="p-0">
                 <div className="h-px bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
               </th>
             </tr>
@@ -119,6 +119,7 @@ export function ReentryTable({
                 dir={sortDir}
                 onSort={onSort}
               />
+              <th className="px-3 py-2.5 font-medium">TIP Δ</th>
               <SortHeader
                 label="Decay"
                 sortKey="decayRateKmPerDay"
@@ -139,7 +140,7 @@ export function ReentryTable({
               <th className="px-3 py-2.5 font-medium">BSTAR</th>
             </tr>
             <tr>
-              <th colSpan={11} className="p-0">
+              <th colSpan={12} className="p-0">
                 <div className="h-px bg-white/5" />
               </th>
             </tr>
@@ -159,7 +160,7 @@ export function ReentryTable({
             ) : (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={12}
                   className="px-4 py-12 text-center text-sm text-gray-500"
                 >
                   No re-entry objects match the current navigation.

@@ -165,6 +165,10 @@ export type ReentryRisk = {
   // critical = < 30 days
   // warning/nominal = altitude- and confidence-adjusted longer horizons
   // stable = beyond horizon, invalid signal, or GEO/deep-space
+  tip?: TipPrediction | null;
+  /** risk.estimatedDaysRemaining − TIP days-remaining. Positive = DRAKON later. Null when no DRAKON estimate. */
+  tipDeltaDays?: number | null;
+  tipAgreement?: 'aligned' | 'diverges' | null;
 };
 
 export type ObjectTrend = {

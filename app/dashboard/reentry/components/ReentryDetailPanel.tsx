@@ -6,8 +6,9 @@ import { useMetadataForSatellite } from '@/hooks/useSatelliteMetadata';
 import { CornerAccents } from '@/components/MiniGlobe';
 import { cn } from '@/lib/utils';
 import { classifyOrbit, getOrbitType } from '@/lib/satelliteHelpers';
+import { classifyTipFreshness } from '@/lib/tip/tipFreshness';
 import type { ReentryRisk, TleEntry } from '@/lib/types';
-import { type ReentryTier, TIER_BADGE } from '../lib/constants';
+import { TIER_BADGE } from '../lib/constants';
 import { formatConfidence, formatEstimatedDays } from '../lib/formatters';
 import { ReentryCountdown } from './ReentryCountdown';
 
@@ -39,10 +40,16 @@ function DetailRow({
 type Props = {
   entry: TleEntry | null;
   risk: ReentryRisk | null;
+  tipRefreshedAt?: string | null;
   className?: string;
 };
 
-export function ReentryDetailPanel({ entry, risk, className }: Props) {
+export function ReentryDetailPanel({
+  entry,
+  risk,
+  tipRefreshedAt = null,
+  className,
+}: Props) {
   const metadata = useMetadataForSatellite(entry?.id ?? null);
 
   if (!entry || !risk) {
@@ -61,7 +68,7 @@ export function ReentryDetailPanel({ entry, risk, className }: Props) {
     );
   }
 
-  const tier = risk.tier as ReentryTier;
+  const tier = risk.tier;
   const displayName = entry.name ?? metadata?.name ?? metadata?.objectName;
   const objectType =
     metadata?.objectType ??
@@ -70,6 +77,7 @@ export function ReentryDetailPanel({ entry, risk, className }: Props) {
       : getOrbitType(entry.meanMotion, entry.isDebris));
   const showTrendCountdown =
     risk.source === 'multi_epoch' && Boolean(risk.estimatedReentryAt);
+  const showTipCountdown = !showTrendCountdown && Boolean(risk.tip);
 
   return (
     <div
@@ -99,10 +107,37 @@ export function ReentryDetailPanel({ entry, risk, className }: Props) {
 
       <div className="flex-1 overflow-y-auto px-4 py-2 no-scrollbar min-h-0">
         <DetailRow
-          label="Est. re-entry"
+          label="DRAKON est. re-entry"
           value={formatEstimatedDays(risk.estimatedDaysRemaining)}
           accent={tier === 'critical'}
         />
+        {risk.tip && (
+          <>
+            <DetailRow
+              label="TIP est. re-entry"
+              value={`${new Date(risk.tip.decayEpoch).toUTCString()} ± ${risk.tip.windowMinutes}min`}
+            />
+            {classifyTipFreshness(tipRefreshedAt) === 'stale' &&
+              tipRefreshedAt && (
+                <DetailRow
+                  label="TIP data"
+                  value={`Stale — last refreshed ${new Date(tipRefreshedAt).toUTCString()}`}
+                />
+              )}
+            <DetailRow
+              label="TIP vs DRAKON"
+              value={
+                risk.tipDeltaDays == null
+                  ? 'No comparable estimate'
+                  : `${Math.abs(risk.tipDeltaDays)}d ${risk.tipDeltaDays > 0 ? 'later' : 'earlier'} than TIP`
+              }
+              accent={risk.tipAgreement === 'diverges'}
+            />
+            {risk.tip.highInterest && (
+              <DetailRow label="TIP flag" value="High interest" accent />
+            )}
+          </>
+        )}
         <DetailRow
           label="Decay rate"
           value={`${risk.decayRateKmPerDay.toFixed(2)} km/day`}
@@ -161,6 +196,12 @@ export function ReentryDetailPanel({ entry, risk, className }: Props) {
       <div className="px-4 py-3 border-t border-white/10 flex items-center justify-between gap-2 shrink-0">
         {showTrendCountdown && risk.estimatedReentryAt ? (
           <ReentryCountdown targetIso={risk.estimatedReentryAt} />
+        ) : showTipCountdown && risk.tip ? (
+          <ReentryCountdown
+            targetIso={risk.tip.decayEpoch}
+            label="TIP predicted re-entry in"
+            accentClassName="text-red-400/70"
+          />
         ) : (
           <span className="text-[11px] text-gray-500">
             Single-epoch estimate

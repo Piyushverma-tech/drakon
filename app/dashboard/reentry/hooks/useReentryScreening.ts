@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useModuleSearch } from '@/app/dashboard/context/DashboardSearchContext';
 import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 import { useObjectTrendsQuery } from '@/hooks/useObjectTrendsQuery';
+import { useTipQuery } from '@/hooks/useTipQuery';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { buildReentryRiskMap } from '@/lib/objectTrendRisk';
 import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from '@/lib/solarFlux';
@@ -38,6 +39,7 @@ export function useReentryScreening() {
   } = useTleEntriesQuery();
   const { data: objectTrendsById, isFetching: trendsFetching } =
     useObjectTrendsQuery(true);
+  const { data: tip } = useTipQuery(true); // data only -- TIP must never gate render
   const { changesByNoradId } = useRecentTrendChangesQuery(true);
 
   const { query: searchQuery } = useModuleSearch(
@@ -62,13 +64,19 @@ export function useReentryScreening() {
   );
 
   const riskById = useMemo(
-    () => buildReentryRiskMap(entries, objectTrendsById, solarFluxMultiplier),
-    [entries, objectTrendsById, solarFluxMultiplier]
+    () =>
+      buildReentryRiskMap(
+        entries,
+        objectTrendsById,
+        solarFluxMultiplier,
+        tip?.byNoradId
+      ),
+    [entries, objectTrendsById, solarFluxMultiplier, tip?.byNoradId]
   );
 
   const rows = useMemo(() => {
     const list = [...riskById.values()].filter(
-      (risk) => risk.estimatedDaysRemaining !== null
+      (risk) => risk.estimatedDaysRemaining !== null || risk.tip != null
     );
 
     list.sort((a, b) => {
@@ -161,6 +169,7 @@ export function useReentryScreening() {
     selectedEntry,
     selectedRisk,
     changesByNoradId,
+    tipRefreshedAt: tip?.refreshedAt ?? null,
     tierFilter,
     sourceFilter,
     triageFilter,

@@ -1,12 +1,7 @@
 import { memo } from 'react';
 import { cn } from '@/lib/utils';
 import type { ReentryRisk, TleEntry } from '@/lib/types';
-import {
-  type ReentryTier,
-  TIER_BADGE,
-  TIER_COLOR,
-  TIER_ROW_BG,
-} from '../lib/constants';
+import { TIER_BADGE, TIER_COLOR, TIER_ROW_BG } from '../lib/constants';
 import { formatEstimatedDays } from '../lib/formatters';
 
 type Props = {
@@ -24,7 +19,7 @@ export const ReentryTableRow = memo(function ReentryTableRow({
   selected,
   onSelect,
 }: Props) {
-  const tier = risk.tier as ReentryTier;
+  const tier = risk.tier;
 
   return (
     <tr
@@ -74,6 +69,25 @@ export const ReentryTableRow = memo(function ReentryTableRow({
         className={`px-3 py-2.5 font-mono tabular-nums text-[13px] font-medium ${TIER_COLOR[tier]}`}
       >
         {formatEstimatedDays(risk.estimatedDaysRemaining)}
+      </td>
+      <td className="px-3 py-2.5 font-mono tabular-nums text-[11px]">
+        {risk.tip ? (
+          <span
+            className={cn(
+              risk.tipAgreement === 'aligned'
+                ? 'text-cyan-300'
+                : risk.tipAgreement === 'diverges'
+                  ? 'text-amber-400'
+                  : 'text-violet-300/80'
+            )}
+          >
+            {risk.tipDeltaDays == null
+              ? 'TIP'
+              : `${risk.tipDeltaDays > 0 ? '+' : ''}${risk.tipDeltaDays}d`}
+          </span>
+        ) : (
+          <span className="text-gray-600">—</span>
+        )}
       </td>
       <td className="px-3 py-2.5 font-mono tabular-nums text-[12px] text-gray-300">
         {risk.decayRateKmPerDay.toFixed(2)}

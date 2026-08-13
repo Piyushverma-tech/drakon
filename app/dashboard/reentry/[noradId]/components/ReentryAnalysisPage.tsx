@@ -16,9 +16,10 @@ import { useObjectTrendsQuery } from '@/hooks/useObjectTrendsQuery';
 import { useObjectHistoryQuery } from '@/hooks/useObjectHistoryQuery';
 import { useObjectSnapshotsQuery } from '@/hooks/useObjectSnapshotsQuery';
 import { useMetadataForSatellite } from '@/hooks/useSatelliteMetadata';
+import { useTipQuery } from '@/hooks/useTipQuery';
 import { useOrbitalFrame } from '@/hooks/useOrbitalFrame';
 import { formatFlightPathAngleDeg } from '@/lib/orbitalFrame';
-import { resolveReentryRisk } from '@/lib/objectTrendRisk';
+import { attachTipData, resolveReentryRisk } from '@/lib/objectTrendRisk';
 import { DEFAULT_SOLAR_FLUX_MULTIPLIER } from '@/lib/solarFlux';
 import { useAppDispatch } from '@/lib/store';
 import {
@@ -41,6 +42,7 @@ import {
   buildChangeTimeline,
   type ChangeDirection,
 } from '../lib/buildChangeTimeline';
+import { ReentryCountdown } from '../../components/ReentryCountdown';
 
 const TIER_BADGE: Record<string, string> = {
   critical: 'border-red-500/40 bg-red-500/10 text-red-400',
@@ -102,6 +104,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
   } = useTleEntriesQuery();
   const { data: objectTrendsById, isFetching: trendsFetching } =
     useObjectTrendsQuery(true);
+  const { data: tip } = useTipQuery(true); // data only -- never gate render on TIP
   const historyQuery = useObjectHistoryQuery(noradId, 30);
   const snapshotsQuery = useObjectSnapshotsQuery(noradId);
   const metadata = useMetadataForSatellite(noradId);
@@ -119,11 +122,11 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
   // useOrbitalFrame already treats as "nothing to propagate yet".
   const { orbitalFrame } = useOrbitalFrame({ l1: entry?.l1, l2: entry?.l2 });
 
-  const risk = useMemo(
-    () =>
-      entry ? resolveReentryRisk(entry, trend, solarFluxMultiplier) : null,
-    [entry, trend, solarFluxMultiplier]
-  );
+  const risk = useMemo(() => {
+    if (!entry) return null;
+    const base = resolveReentryRisk(entry, trend, solarFluxMultiplier);
+    return attachTipData(base, tip?.byNoradId.get(noradId));
+  }, [entry, trend, solarFluxMultiplier, tip, noradId]);
 
   const trace = useMemo(
     () => (risk ? buildReentryTrace({ risk, trend }) : null),
@@ -194,6 +197,10 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
   const periodMinutes =
     metadata?.periodMinutes ??
     (entry.meanMotion > 0 ? 1440 / entry.meanMotion : null);
+
+  const showTrendCountdown =
+    risk.source === 'multi_epoch' && Boolean(risk.estimatedReentryAt);
+  const showTipCountdown = !showTrendCountdown && Boolean(risk.tip);
 
   const ObjectMetaData: MetadataRow[] = [
     { label: 'Type', value: objectType },
@@ -266,7 +273,25 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                   · recomputing under a newer model
                 </span>
               )}
+              <div className="ml-auto">
+                {(showTrendCountdown || showTipCountdown) && (
+                  <div className="pt-1">
+                    {showTrendCountdown && risk.estimatedReentryAt ? (
+                      <ReentryCountdown targetIso={risk.estimatedReentryAt} />
+                    ) : (
+                      risk.tip && (
+                        <ReentryCountdown
+                          targetIso={risk.tip.decayEpoch}
+                          label="TIP predicted re-entry in"
+                          accentClassName="text-red-400/70"
+                        />
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
+
             <span className="flex flex-wrap gap-6 py-4 text-[12px] text-gray-400 border-t border-white/15">
               {ObjectMetaData.map((field) => (
                 <span key={field.label} className="whitespace-nowrap space-x-1">

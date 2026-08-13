@@ -22,6 +22,7 @@ const SOURCE_FILTERS: Array<{ value: ReentrySourceFilter; label: string }> = [
   { value: 'all', label: 'All sources' },
   { value: 'trend', label: 'Trend' },
   { value: 'single', label: 'Single epoch' },
+  { value: 'tip', label: 'TIP' },
 ];
 
 type Props = {

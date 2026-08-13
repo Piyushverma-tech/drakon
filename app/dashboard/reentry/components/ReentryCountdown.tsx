@@ -26,13 +26,20 @@ function formatCountdown(targetIso: string): string {
 type Props = {
   targetIso: string;
   className?: string;
+  label?: string;
+  accentClassName?: string;
 };
 
-export function ReentryCountdown({ targetIso, className }: Props) {
-  const [label, setLabel] = useState('—');
+export function ReentryCountdown({
+  targetIso,
+  className,
+  label = 'Predicted Re-entry in',
+  accentClassName = 'text-cyan-300/90',
+}: Props) {
+  const [countdown, setCountdown] = useState('—');
 
   useEffect(() => {
-    const tick = () => setLabel(formatCountdown(targetIso));
+    const tick = () => setCountdown(formatCountdown(targetIso));
     tick();
     const intervalId = window.setInterval(tick, 1000);
     return () => window.clearInterval(intervalId);
@@ -41,10 +48,10 @@ export function ReentryCountdown({ targetIso, className }: Props) {
   return (
     <div className={className}>
       <div className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">
-        Predicted Re-entry in
-      </div>
-      <div className="font-mono text-[13px] tabular-nums text-cyan-300/90">
         {label}
+      </div>
+      <div className={`font-mono text-[13px] tabular-nums ${accentClassName}`}>
+        {countdown}
       </div>
     </div>
   );
