@@ -39,9 +39,14 @@ import {
   buildSelectedTagsById,
   getLoadErrorMessage,
 } from './globe-model';
+import { useTipQuery } from '@/hooks/useTipQuery';
 import { useGlobeLayers } from './useGlobeLayers';
 import { useGlobeSelectionController } from './useGlobeSelectionController';
-import { buildReentryRiskMap, resolveReentryRisk } from '@/lib/objectTrendRisk';
+import {
+  attachTipData,
+  buildReentryRiskMap,
+  resolveReentryRisk,
+} from '@/lib/objectTrendRisk';
 
 const EMPTY_ENTRIES: TleEntry[] = [];
 
@@ -219,8 +224,6 @@ export default function SatelliteGlobe({
     });
 
   const { data: satelliteMetadata } = useSatelliteMetadata();
-  const { data: objectTrendsById, isFetching: trendsFetching } =
-    useObjectTrendsQuery(showReentry);
 
   const selectedTagsById = useMemo(
     () =>
@@ -292,10 +295,25 @@ export default function SatelliteGlobe({
     [activeSatellites.length, entries, filteredSatellites.length]
   );
 
+  const { data: objectTrendsById, isFetching: trendsFetching } =
+    useObjectTrendsQuery(showReentry);
+  const { data: tip } = useTipQuery(true);
+
   const reentryRisks = useMemo(() => {
     if (!showReentry) return new Map<number, ReentryRisk>();
-    return buildReentryRiskMap(entries, objectTrendsById, solarFluxMultiplier);
-  }, [entries, objectTrendsById, showReentry, solarFluxMultiplier]);
+    return buildReentryRiskMap(
+      entries,
+      objectTrendsById,
+      solarFluxMultiplier,
+      tip?.byNoradId
+    );
+  }, [
+    entries,
+    objectTrendsById,
+    showReentry,
+    solarFluxMultiplier,
+    tip?.byNoradId,
+  ]);
 
   const selectedMetadata = focusedSelected
     ? (satelliteMetadata?.[String(focusedSelected.id)] ?? null)
@@ -306,11 +324,12 @@ export default function SatelliteGlobe({
       (() => {
         const entry = entryById.get(focusedSelected.id);
         if (!entry) return null;
-        return resolveReentryRisk(
+        const base = resolveReentryRisk(
           entry,
           objectTrendsById?.get(entry.id),
           solarFluxMultiplier
         );
+        return attachTipData(base, tip?.byNoradId.get(entry.id));
       })())
     : null;
 

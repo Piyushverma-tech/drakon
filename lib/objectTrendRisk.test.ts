@@ -1,5 +1,9 @@
-import { resolveReentryRisk } from './objectTrendRisk';
-import type { ObjectTrend, TleEntry } from './types';
+import {
+  attachTipData,
+  buildReentryRiskMap,
+  resolveReentryRisk,
+} from './objectTrendRisk';
+import type { ObjectTrend, TipPrediction, TleEntry } from './types';
 
 function makeEntry(overrides: Partial<TleEntry> = {}): TleEntry {
   return {
@@ -156,5 +160,141 @@ describe('resolveReentryRisk — altitude-driven fallback below 240km', () => {
 
     expect(risk.tier).toBe('stable');
     expect(risk.estimatedDaysRemaining).toBeNull();
+  });
+});
+
+// TIP tests
+
+function makeTip(overrides: Partial<TipPrediction> = {}): TipPrediction {
+  return {
+    noradId: 25544,
+    decayEpoch: '2026-01-04T00:00:00.000Z', // 3 days after makeEntry's tleEpoch
+    windowMinutes: 60,
+    msgEpoch: '2026-01-01T00:00:00.000Z',
+    insertEpoch: '2026-01-01T00:06:00.000Z',
+    direction: 'descending',
+    lat: 0,
+    lon: 0,
+    highInterest: false,
+    ...overrides,
+  };
+}
+
+describe('attachTipData', () => {
+  const nowMs = Date.parse('2026-01-01T00:00:00.000Z');
+
+  it('returns the risk unchanged when there is no TIP prediction', () => {
+    const risk = resolveReentryRisk(makeEntry(), undefined, 1);
+    expect(attachTipData(risk, undefined, nowMs)).toBe(risk); // same reference, not just equal
+  });
+
+  it('computes a positive delta when DRAKON is later than TIP', () => {
+    const risk = {
+      ...resolveReentryRisk(makeEntry(), undefined, 1),
+      estimatedDaysRemaining: 10,
+    };
+    const tip = makeTip({ decayEpoch: '2026-01-04T00:00:00.000Z' }); // 3 days out
+    const result = attachTipData(risk, tip, nowMs);
+    expect(result.tipDeltaDays).toBe(7);
+    expect(result.tipAgreement).toBe('diverges');
+  });
+
+  it('computes a negative delta when DRAKON is earlier than TIP', () => {
+    const risk = {
+      ...resolveReentryRisk(makeEntry(), undefined, 1),
+      estimatedDaysRemaining: 2,
+    };
+    const tip = makeTip({ decayEpoch: '2026-01-09T00:00:00.000Z' }); // 8 days out
+    const result = attachTipData(risk, tip, nowMs);
+    expect(result.tipDeltaDays).toBe(-6);
+    expect(result.tipAgreement).toBe('diverges');
+  });
+
+  it('classifies as aligned within the 5-day threshold, inclusive', () => {
+    const risk = {
+      ...resolveReentryRisk(makeEntry(), undefined, 1),
+      estimatedDaysRemaining: 8,
+    };
+    const tip = makeTip({ decayEpoch: '2026-01-04T00:00:00.000Z' }); // 3 days out -> delta 5
+    expect(attachTipData(risk, tip, nowMs).tipAgreement).toBe('aligned');
+  });
+
+  it('classifies as diverges once past the threshold', () => {
+    const risk = {
+      ...resolveReentryRisk(makeEntry(), undefined, 1),
+      estimatedDaysRemaining: 9,
+    };
+    const tip = makeTip({ decayEpoch: '2026-01-03T00:00:00.000Z' }); // 2 days out -> delta 7, past the 5-day threshold
+    expect(attachTipData(risk, tip, nowMs).tipAgreement).toBe('diverges');
+  });
+
+  it('leaves tipDeltaDays and tipAgreement null when DRAKON has no estimate', () => {
+    // perigee above the 240km threshold, no trend, not debris -> falls through to stableReentryRisk()
+    const risk = resolveReentryRisk(
+      makeEntry({ perigeeKm: 500, apogeeKm: 520 }),
+      undefined,
+      1
+    );
+    expect(risk.estimatedDaysRemaining).toBeNull();
+    const tip = makeTip();
+    const result = attachTipData(risk, tip, nowMs);
+    expect(result.tipDeltaDays).toBeNull();
+    expect(result.tipAgreement).toBeNull();
+    expect(result.tip).toBe(tip); // tip itself still attached even with no delta
+  });
+});
+
+describe('buildReentryRiskMap — TIP inclusion override', () => {
+  it('excludes a stable-tier object when there is no TIP data (unchanged baseline behavior)', () => {
+    const entry = makeEntry({ id: 99001, perigeeKm: 500, apogeeKm: 520 }); // above threshold, no trend -> stable
+    const map = buildReentryRiskMap([entry], undefined, 1);
+    expect(map.has(99001)).toBe(false);
+  });
+
+  it('includes a stable-tier object when it has an active TIP prediction', () => {
+    const entry = makeEntry({ id: 99002, perigeeKm: 500, apogeeKm: 520 });
+    const tipByNoradId = new Map([[99002, makeTip({ noradId: 99002 })]]);
+    const map = buildReentryRiskMap([entry], undefined, 1, tipByNoradId);
+    const risk = map.get(99002);
+    expect(risk).toBeDefined();
+    expect(risk!.tier).toBe('stable');
+    expect(risk!.tip).toBeDefined();
+  });
+
+  it('is identical to the 3-argument call when tipByNoradId is undefined', () => {
+    const entries = [
+      makeEntry({ id: 1 }),
+      makeEntry({ id: 2, perigeeKm: 500, apogeeKm: 520 }),
+    ];
+    const withoutTip = buildReentryRiskMap(entries, undefined, 1);
+    const withUndefinedTip = buildReentryRiskMap(
+      entries,
+      undefined,
+      1,
+      undefined
+    );
+    expect(withUndefinedTip).toEqual(withoutTip);
+  });
+
+  it('does not change tier or estimatedDaysRemaining for a critical object, even when TIP disagrees sharply', () => {
+    const entry = makeEntry({ id: 99003 }); // critical, single-epoch, per the existing suite's baseline case
+    const tipByNoradId = new Map([
+      [
+        99003,
+        makeTip({ noradId: 99003, decayEpoch: '2026-06-01T00:00:00.000Z' }),
+      ], // months out
+    ]);
+    const withoutTip = buildReentryRiskMap([entry], undefined, 1).get(99003)!;
+    const withTip = buildReentryRiskMap(
+      [entry],
+      undefined,
+      1,
+      tipByNoradId
+    ).get(99003)!;
+    expect(withTip.tier).toBe(withoutTip.tier);
+    expect(withTip.estimatedDaysRemaining).toBe(
+      withoutTip.estimatedDaysRemaining
+    );
+    expect(withTip.tipAgreement).toBe('diverges');
   });
 });

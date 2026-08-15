@@ -1,5 +1,5 @@
 import { buildReentryTrace } from './buildReentryTrace';
-import { ObjectTrend, ReentryRisk } from '@/lib/types';
+import { ObjectTrend, ReentryRisk, TipPrediction } from '@/lib/types';
 
 function makeTrend(overrides: Partial<ObjectTrend> = {}): ObjectTrend {
   return {
@@ -220,5 +220,74 @@ describe('buildReentryTrace', () => {
     // load-history is real and shown -- only the per-signal breakdown is
     // withheld, not fabricated as zeros
     expect(trace.steps.map((s) => s.id)).toEqual(['load-history', 'tier']);
+  });
+});
+
+// TIP comparison step tests
+function makeTip(overrides: Partial<TipPrediction> = {}): TipPrediction {
+  return {
+    noradId: 46347,
+    decayEpoch: '2026-07-17T00:00:00.000Z',
+    windowMinutes: 120,
+    msgEpoch: '2026-07-16T00:00:00.000Z',
+    insertEpoch: '2026-07-16T00:06:00.000Z',
+    direction: 'descending',
+    lat: 0,
+    lon: 0,
+    highInterest: false,
+    ...overrides,
+  };
+}
+
+describe('buildReentryTrace — TIP comparison step', () => {
+  it('omits the step entirely when there is no TIP prediction', () => {
+    const risk = makeRisk({ tip: undefined });
+    const trace = buildReentryTrace({ risk, trend: makeTrend() });
+    expect(trace.steps.find((s) => s.id === 'tip-comparison')).toBeUndefined();
+  });
+
+  it('flags disagreement with an alert-triangle when DRAKON reports stable despite an active TIP prediction', () => {
+    const risk = makeRisk({
+      tier: 'stable',
+      estimatedDaysRemaining: null,
+      tip: makeTip(),
+      tipDeltaDays: null,
+      tipAgreement: null,
+    });
+    const trace = buildReentryTrace({ risk, trend: undefined });
+    const step = trace.steps.find((s) => s.id === 'tip-comparison');
+    expect(step?.icon).toBe('alert-triangle');
+    expect(step?.status).toBe('disagree');
+    expect(step?.claim).toBe('USSPACECOM TIP predicts near-term decay');
+  });
+
+  it('shows shield-check / agree when DRAKON and TIP align', () => {
+    const risk = makeRisk({
+      tier: 'warning',
+      estimatedDaysRemaining: 9,
+      tip: makeTip(),
+      tipDeltaDays: 2,
+      tipAgreement: 'aligned',
+    });
+    const trace = buildReentryTrace({ risk, trend: makeTrend() });
+    const step = trace.steps.find((s) => s.id === 'tip-comparison');
+    expect(step?.icon).toBe('shield-check');
+    expect(step?.status).toBe('agree');
+  });
+
+  it('shows shield-x / disagree when DRAKON and TIP diverge, and is positioned before the tier step', () => {
+    const risk = makeRisk({
+      tier: 'warning',
+      estimatedDaysRemaining: 9,
+      tip: makeTip(),
+      tipDeltaDays: 20,
+      tipAgreement: 'diverges',
+    });
+    const trace = buildReentryTrace({ risk, trend: makeTrend() });
+    const ids = trace.steps.map((s) => s.id);
+    const step = trace.steps.find((s) => s.id === 'tip-comparison');
+    expect(step?.icon).toBe('shield-x');
+    expect(step?.status).toBe('disagree');
+    expect(ids.indexOf('tip-comparison')).toBeLessThan(ids.indexOf('tier'));
   });
 });

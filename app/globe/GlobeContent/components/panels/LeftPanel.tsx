@@ -13,7 +13,11 @@ import { ReentryRisk, SatelliteMetadata } from '@/lib/types';
 import { SelectedMeta } from '../../globe-model';
 import Link from 'next/link';
 import { FlightDynamicsCanvas } from '@/components/FlightDynamics';
+import { ReentryCountdown } from '@/components/ReentryCountdown';
 import { formatFlightPathAngleDeg } from '@/lib/orbitalFrame';
+import { TIER_BADGE, TIER_COLOR } from '@/lib/reentryTierStyles';
+import { resolveCountdownTarget } from '@/lib/tip/countdownTarget';
+import { getTipDetailFields } from '@/lib/tip/tipDetailFields';
 
 type Props = {
   selected: SelectedMeta | null;
@@ -182,7 +186,8 @@ const LeftPanel = memo(function LeftPanel({
 
   if (!selected) return null;
 
-  const hasReentry = reentryRisk && reentryRisk.tier !== 'stable';
+  const hasReentry =
+    reentryRisk && (reentryRisk.tier !== 'stable' || Boolean(reentryRisk.tip));
   const exportRows: CsvRow[] = [
     { section: 'Satellite', label: 'Name', value: selected.name },
     { section: 'Satellite', label: 'NORAD', value: String(selected.id) },
@@ -313,7 +318,14 @@ const LeftPanel = memo(function LeftPanel({
         section: 'Re-entry Detail',
         label: 'Decay rate',
         value: `${reentryRisk.decayRateKmPerDay.toFixed(2)} km/day`,
-      }
+      },
+      ...(reentryRisk.tip
+        ? getTipDetailFields(reentryRisk).map((field) => ({
+            section: 'Re-entry Detail',
+            label: field.label,
+            value: field.value,
+          }))
+        : [])
     );
   }
 
@@ -490,13 +502,7 @@ const LeftPanel = memo(function LeftPanel({
               href={`/dashboard/reentry/${selected.id}`}
               type="button"
               title="View Re-entry Analysis"
-              className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer ${
-                reentryRisk.tier === 'critical'
-                  ? 'border-red-500/40 bg-red-500/10'
-                  : reentryRisk.tier === 'warning'
-                    ? 'border-amber-500/40 bg-amber-500/10'
-                    : 'border-yellow-500/40 bg-yellow-500/10'
-              }`}
+              className={`flex h-6 w-8 items-center justify-center border rounded-sm transition-colors duration-150 cursor-pointer ${TIER_BADGE[reentryRisk.tier]}`}
             >
               <TrendingDown size={16} />
             </Link>
@@ -517,30 +523,26 @@ const LeftPanel = memo(function LeftPanel({
         {/* Re-entry risk badge — always visible if present */}
         {hasReentry && (
           <div
-            className={`shrink-0 px-2 py-2 border ${
-              reentryRisk.tier === 'critical'
-                ? 'border-red-500/40 bg-red-500/10'
-                : reentryRisk.tier === 'warning'
-                  ? 'border-amber-500/40 bg-amber-500/10'
-                  : 'border-yellow-500/40 bg-yellow-500/10'
-            }`}
+            className={`shrink-0 px-2 py-2 border ${TIER_BADGE[reentryRisk.tier]}`}
           >
-            <div className={`flex items-center justify-between  `}>
+            <div className="flex items-center justify-between  ">
               <span className="text-[9px] uppercase tracking-widest text-gray-400">
                 Re-entry Risk
               </span>
               <span
-                className={`text-[11px] font-semibold uppercase tracking-wider ${
-                  reentryRisk.tier === 'critical'
-                    ? 'text-red-400'
-                    : reentryRisk.tier === 'warning'
-                      ? 'text-amber-400'
-                      : 'text-yellow-300'
-                }`}
+                className={`text-[11px] font-semibold uppercase tracking-wider ${TIER_COLOR[reentryRisk.tier]}`}
               >
                 {reentryRisk.tier}
               </span>
             </div>
+            {(() => {
+              const countdown = resolveCountdownTarget(reentryRisk);
+              return countdown ? (
+                <div className="pt-1.5">
+                  <ReentryCountdown {...countdown} />
+                </div>
+              ) : null;
+            })()}
             <SectionLabel
               collapsible
               open={openSections.reentry}
@@ -609,6 +611,9 @@ const LeftPanel = memo(function LeftPanel({
                   label="Decay rate"
                   value={`${reentryRisk.decayRateKmPerDay.toFixed(2)} km/day`}
                 />
+                {getTipDetailFields(reentryRisk).map((field) => (
+                  <StatRow key={field.label} {...field} />
+                ))}
               </>
             )}
           </div>

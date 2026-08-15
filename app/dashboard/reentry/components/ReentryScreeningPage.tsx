@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { MiniGlobe, type RgbaColor } from '@/components/MiniGlobe';
 import { useReentryScreening } from '../hooks/useReentryScreening';
-import { TIER_GLOBE_COLOR, type ReentryTier } from '../lib/constants';
+import { TIER_GLOBE_COLOR } from '../lib/constants';
 import { ReentryDetailPanel } from './ReentryDetailPanel';
 import { ReentryStatsBar } from './ReentryStatsBar';
 import { ReentryTable } from './ReentryTable';
@@ -100,7 +100,7 @@ export function ReentryScreeningPage() {
     return result;
   }, [rows]);
 
-  const tier = selectedRisk?.tier as ReentryTier | undefined;
+  const tier = selectedRisk?.tier;
   const satelliteColor: RgbaColor | undefined = tier
     ? TIER_GLOBE_COLOR[tier]
     : undefined;

@@ -46,6 +46,18 @@ export function attachTipData(
   return { ...risk, tip, tipDeltaDays, tipAgreement };
 }
 
+/** DRAKON's own estimate if it has one; otherwise TIP's, if available. Display/sort only -- never write this back onto risk.estimatedDaysRemaining. */
+export function effectiveDaysRemaining(
+  risk: ReentryRisk,
+  nowMs: number = Date.now()
+): number | null {
+  if (risk.estimatedDaysRemaining !== null) return risk.estimatedDaysRemaining;
+  if (!risk.tip) return null;
+  return Math.round(
+    (new Date(risk.tip.decayEpoch).getTime() - nowMs) / 86_400_000
+  );
+}
+
 function confidenceLabel(confidence: number | null): ReentryRisk['confidence'] {
   if ((confidence ?? 0) >= 0.75) return 'high';
   if ((confidence ?? 0) >= 0.4) return 'medium';

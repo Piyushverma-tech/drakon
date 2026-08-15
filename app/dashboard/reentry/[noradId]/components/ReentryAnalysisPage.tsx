@@ -42,7 +42,8 @@ import {
   buildChangeTimeline,
   type ChangeDirection,
 } from '../lib/buildChangeTimeline';
-import { ReentryCountdown } from '../../components/ReentryCountdown';
+import { ReentryCountdown } from '@/components/ReentryCountdown';
+import { resolveCountdownTarget } from '@/lib/tip/countdownTarget';
 
 const TIER_BADGE: Record<string, string> = {
   critical: 'border-red-500/40 bg-red-500/10 text-red-400',
@@ -198,9 +199,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
     metadata?.periodMinutes ??
     (entry.meanMotion > 0 ? 1440 / entry.meanMotion : null);
 
-  const showTrendCountdown =
-    risk.source === 'multi_epoch' && Boolean(risk.estimatedReentryAt);
-  const showTipCountdown = !showTrendCountdown && Boolean(risk.tip);
+  const countdown = resolveCountdownTarget(risk);
 
   const ObjectMetaData: MetadataRow[] = [
     { label: 'Type', value: objectType },
@@ -274,20 +273,14 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                 </span>
               )}
               <div className="ml-auto">
-                {(showTrendCountdown || showTipCountdown) && (
+                {countdown ? (
                   <div className="pt-1">
-                    {showTrendCountdown && risk.estimatedReentryAt ? (
-                      <ReentryCountdown targetIso={risk.estimatedReentryAt} />
-                    ) : (
-                      risk.tip && (
-                        <ReentryCountdown
-                          targetIso={risk.tip.decayEpoch}
-                          label="TIP predicted re-entry in"
-                          accentClassName="text-red-400/70"
-                        />
-                      )
-                    )}
+                    <ReentryCountdown {...countdown} />
                   </div>
+                ) : (
+                  <span className="text-[11px] text-gray-500">
+                    Single-epoch estimate
+                  </span>
                 )}
               </div>
             </div>

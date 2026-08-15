@@ -441,7 +441,7 @@ export function FlightDynamicsCanvas({
     <div>
       <div
         className={cn(
-          'relative bg-black/60 border border-white/10 my-3 overflow-hidden',
+          'relative bg-black/20 border border-white/10 my-3 overflow-hidden',
           className
         )}
         style={{ height: heightPx }}

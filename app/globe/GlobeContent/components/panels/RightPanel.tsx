@@ -1,5 +1,8 @@
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { DensityResult, ReentryRisk, TleEntry } from '@/lib/types';
+import { effectiveDaysRemaining } from '@/lib/objectTrendRisk';
+import { TIER_COLOR } from '@/lib/reentryTierStyles';
+import { cn } from '@/lib/utils';
 import {
   setBandInclination,
   setBandTolerance,
@@ -275,18 +278,13 @@ function RightPanel({
                         const count = [...reentryRisks.values()].filter(
                           (r) => r.tier === tier
                         ).length;
-                        const colors = {
-                          critical: 'text-red-400',
-                          warning: 'text-amber-400',
-                          nominal: 'text-yellow-300',
-                        };
                         return (
                           <div
                             key={tier}
                             className="rounded border border-gray-700/60 px-1 py-1.5"
                           >
                             <div
-                              className={`text-sm font-semibold ${colors[tier]}`}
+                              className={`text-sm font-semibold ${TIER_COLOR[tier]}`}
                             >
                               {count}
                             </div>
@@ -310,7 +308,7 @@ function RightPanel({
 
                   {/* Top at-risk list */}
                   {reentryRisks.size > 0 && (
-                    <div className="mt-2 space-y-1">
+                    <div className="mt-4 space-y-1">
                       <div className="flex items-center justify-between gap-2">
                         <div className="uppercase tracking-wider text-gray-400 text-[10px]">
                           Top 50 Soonest re-entry
@@ -322,13 +320,13 @@ function RightPanel({
                           View all
                         </Link>
                       </div>
-                      <div className="max-h-56 overflow-auto space-y-1 pr-1">
+                      <div className="max-h-56 overflow-auto space-y-1.5 pr-1">
                         {[...reentryRisks.values()]
-                          .filter((r) => r.estimatedDaysRemaining !== null)
+                          .filter((r) => effectiveDaysRemaining(r) !== null)
                           .sort(
                             (a, b) =>
-                              (a.estimatedDaysRemaining ?? Infinity) -
-                              (b.estimatedDaysRemaining ?? Infinity)
+                              (effectiveDaysRemaining(a) ?? Infinity) -
+                              (effectiveDaysRemaining(b) ?? Infinity)
                           )
                           .slice(0, 50)
                           .map((risk) => {
@@ -338,12 +336,7 @@ function RightPanel({
                             const isSelected = selectedSatelliteIds.includes(
                               risk.satId
                             );
-                            const tierColor =
-                              risk.tier === 'critical'
-                                ? 'text-red-400'
-                                : risk.tier === 'warning'
-                                  ? 'text-amber-400'
-                                  : 'text-yellow-300';
+                            const days = effectiveDaysRemaining(risk);
 
                             return (
                               <div
@@ -358,6 +351,20 @@ function RightPanel({
                                 <div className="flex flex-col min-w-0">
                                   <span className="text-gray-200 truncate text-[10px]">
                                     {entry?.name ?? `#${risk.satId}`}
+                                    {risk.tip && (
+                                      <span
+                                        className={cn(
+                                          'ml-1.5 text-[8px] uppercase tracking-wider',
+                                          risk.tipAgreement === 'aligned'
+                                            ? 'text-emerald-400'
+                                            : risk.tipAgreement === 'diverges'
+                                              ? 'text-amber-400'
+                                              : 'text-violet-300/80'
+                                        )}
+                                      >
+                                        TIP
+                                      </span>
+                                    )}
                                   </span>
                                   <span className="text-[9px] text-gray-400">
                                     {risk.source === 'multi_epoch'
@@ -367,12 +374,10 @@ function RightPanel({
                                 </div>
 
                                 <div
-                                  className={`text-right shrink-0 ml-2 ${tierColor}`}
+                                  className={`text-right shrink-0 ml-2 ${TIER_COLOR[risk.tier]}`}
                                 >
                                   <div>
-                                    {risk.estimatedDaysRemaining === 0
-                                      ? '<1d'
-                                      : `~${risk.estimatedDaysRemaining}d`}
+                                    {days === 0 ? '<1d' : `~${days}d`}
                                   </div>
                                   {risk.source === 'multi_epoch' && (
                                     <div className="text-[9px] text-gray-400">
