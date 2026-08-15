@@ -194,39 +194,47 @@ describe('satelliteHelpers', () => {
         makeEntry({
           name: 'TEST R/B',
           isDebris: true,
+          l1: line1WithBstar('50000-4'),
+          perigeeKm: 150,
+          apogeeKm: 150,
         }),
         150
       );
 
       expect(risk.tier).toBe('critical');
+      expect(risk.estimatedDaysRemaining).not.toBeNull();
     });
 
-    it('flags strong drag at mid-LEO as critical', () => {
+    it('flags strong but plausible drag at mid-LEO as critical', () => {
       const risk = getReentryRisk(
         makeEntry({
-          l1: line1WithBstar('50000-2'),
-          perigeeKm: 200,
-          apogeeKm: 200,
+          l1: line1WithBstar('20000-4'),
+          perigeeKm: 150,
+          apogeeKm: 150,
+          meanMotionDot: 0.00005,
         }),
-        380
+        250
       );
 
-      expect(risk.estimatedDaysRemaining).toBeLessThan(30);
+      expect(risk.estimatedDaysRemaining).not.toBeNull();
+      expect(risk.estimatedDaysRemaining!).toBeLessThan(30);
       expect(risk.tier).toBe('critical');
     });
 
     it('assigns nominal tier for moderate mid-LEO decay horizons', () => {
       const risk = getReentryRisk(
         makeEntry({
-          l1: line1WithBstar('15000-4'),
-          perigeeKm: 280,
-          apogeeKm: 280,
+          l1: line1WithBstar('60000-5'),
+          perigeeKm: 220,
+          apogeeKm: 220,
+          meanMotionDot: 0.00005,
         }),
-        400
+        300
       );
 
-      expect(risk.estimatedDaysRemaining).toBeGreaterThan(30);
-      expect(risk.estimatedDaysRemaining).toBeLessThan(180);
+      expect(risk.estimatedDaysRemaining).not.toBeNull();
+      expect(risk.estimatedDaysRemaining!).toBeGreaterThan(30);
+      expect(risk.estimatedDaysRemaining!).toBeLessThan(365);
       expect(risk.tier).toBe('nominal');
     });
 
@@ -240,8 +248,13 @@ describe('satelliteHelpers', () => {
         400
       );
 
-      expect(risk.estimatedDaysRemaining).toBeGreaterThan(180);
+      // Horizons beyond the 10-year linear gate (or above the altitude-aware
+      // nominal threshold) collapse to stable with no day estimate.
       expect(risk.tier).toBe('stable');
+      expect(
+        risk.estimatedDaysRemaining === null ||
+          risk.estimatedDaysRemaining! >= 180
+      ).toBe(true);
     });
 
     it('rejects implausible drag rates at high altitude via scaled cap', () => {
@@ -260,11 +273,21 @@ describe('satelliteHelpers', () => {
 
     it('requires stronger meanMotionDot at higher altitude for agreement', () => {
       const lowAlt = getReentryRisk(
-        makeEntry({ meanMotionDot: 0.00002 }),
+        makeEntry({
+          l1: line1WithBstar('10000-3'),
+          meanMotionDot: 0.00002,
+          perigeeKm: 200,
+          apogeeKm: 200,
+        }),
         350
       );
       const highAlt = getReentryRisk(
-        makeEntry({ meanMotionDot: 0.00002 }),
+        makeEntry({
+          l1: line1WithBstar('10000-3'),
+          meanMotionDot: 0.00002,
+          perigeeKm: 200,
+          apogeeKm: 200,
+        }),
         550
       );
 

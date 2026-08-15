@@ -5,7 +5,6 @@ jest.mock('@/lib/db', () => ({
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { db } from '@/lib/db';
 import {
-  monthRange,
   ensureUpcomingPartitions,
   dropStalePartitions,
   runPartitionMaintenance,
@@ -19,58 +18,43 @@ function renderedSql(call: unknown): string {
   return dialect.sqlToQuery(call[0]).sql;
 }
 
-describe('monthRange', () => {
-  it('computes the correct name and [start, end) for a normal month', () => {
-    const { name, start, end } = monthRange(2026, 8); // September (0-indexed)
-    expect(name).toBe('tle_history_2026_09');
-    expect(start.toISOString()).toBe('2026-09-01T00:00:00.000Z');
-    expect(end.toISOString()).toBe('2026-10-01T00:00:00.000Z');
+function expectedDailyNames(startIsoDate: string, count: number): string[] {
+  const start = new Date(`${startIsoDate}T00:00:00.000Z`);
+  return Array.from({ length: count }, (_, i) => {
+    const day = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
+    return `tle_history_${day.toISOString().slice(0, 10).replace(/-/g, '_')}`;
   });
-
-  it('rolls over into the next year across a December boundary', () => {
-    const { name, start, end } = monthRange(2026, 12); // December + 1
-    expect(name).toBe('tle_history_2027_01');
-    expect(start.toISOString()).toBe('2027-01-01T00:00:00.000Z');
-    expect(end.toISOString()).toBe('2027-02-01T00:00:00.000Z');
-  });
-});
+}
 
 describe('ensureUpcomingPartitions', () => {
   beforeEach(() => mockedExecute.mockReset());
   afterEach(() => jest.restoreAllMocks());
 
-  it('creates the current month plus 2 months of forward buffer', async () => {
-    mockedExecute.mockResolvedValue({ rows: [] });
-    const now = new Date('2026-07-25T12:00:00Z');
-
-    const created = await ensureUpcomingPartitions(now);
-
-    expect(created).toEqual([
-      'tle_history_2026_07',
-      'tle_history_2026_08',
-      'tle_history_2026_09',
-    ]);
-    expect(mockedExecute).toHaveBeenCalledTimes(3);
-
-    const sqlTexts = mockedExecute.mock.calls.map(renderedSql);
-    expect(sqlTexts[2]).toContain('CREATE TABLE IF NOT EXISTS');
-    expect(sqlTexts[2]).toContain('"tle_history_2026_09"');
-    expect(sqlTexts[2]).toContain(
-      "FOR VALUES FROM ('2026-09-01') TO ('2026-10-01')"
-    );
-  });
-
-  it('crosses a year boundary correctly when run in November/December', async () => {
+  it('creates today plus 7 days of forward buffer after the daily cutover', async () => {
     mockedExecute.mockResolvedValue({ rows: [] });
     const now = new Date('2026-12-15T00:00:00Z');
 
     const created = await ensureUpcomingPartitions(now);
 
-    expect(created).toEqual([
-      'tle_history_2026_12',
-      'tle_history_2027_01',
-      'tle_history_2027_02',
-    ]);
+    expect(created).toEqual(expectedDailyNames('2026-12-15', 8));
+    expect(mockedExecute).toHaveBeenCalledTimes(8);
+
+    const sqlTexts = mockedExecute.mock.calls.map(renderedSql);
+    expect(sqlTexts[0]).toContain('CREATE TABLE IF NOT EXISTS');
+    expect(sqlTexts[0]).toContain('"tle_history_2026_12_15"');
+    expect(sqlTexts[0]).toContain(
+      "FOR VALUES FROM ('2026-12-15') TO ('2026-12-16')"
+    );
+  });
+
+  it('starts at the Sept 1 cutover when now is still before daily partitions begin', async () => {
+    mockedExecute.mockResolvedValue({ rows: [] });
+    const now = new Date('2026-07-25T12:00:00Z');
+
+    const created = await ensureUpcomingPartitions(now);
+
+    // Cutover is 2026-09-01; pre-cutover runs still create the first 8 daily partitions.
+    expect(created).toEqual(expectedDailyNames('2026-09-01', 8));
   });
 });
 
@@ -78,7 +62,7 @@ describe('dropStalePartitions', () => {
   beforeEach(() => mockedExecute.mockReset());
   afterEach(() => jest.restoreAllMocks());
 
-  it('drops only partitions whose entire range is more than 35 days stale, and never touches the default partition', async () => {
+  it('drops stale legacy monthly partitions and never touches the default partition', async () => {
     mockedExecute.mockImplementation(async (query: unknown) => {
       const text = renderedSql([query]);
       if (text.includes('pg_inherits')) {
@@ -111,15 +95,36 @@ describe('dropStalePartitions', () => {
     expect(dropCalls[0]).toContain('"tle_history_2026_06"');
   });
 
+  it('drops stale daily partitions whose exclusive end is past the retention window', async () => {
+    mockedExecute.mockImplementation(async (query: unknown) => {
+      const text = renderedSql([query]);
+      if (text.includes('pg_inherits')) {
+        return {
+          rows: [
+            { relname: 'tle_history_2026_09_01' }, // end 09-02 -- stale
+            { relname: 'tle_history_2026_10_10' }, // end 10-11 -- still within 35d
+            { relname: 'tle_history_default' },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    // now = 2026-10-20 -> cutoff = 2026-09-15
+    const dropped = await dropStalePartitions(new Date('2026-10-20T00:00:00Z'));
+
+    expect(dropped).toEqual(['tle_history_2026_09_01']);
+  });
+
   it('drops nothing when no partition is old enough yet', async () => {
     mockedExecute.mockResolvedValue({
       rows: [
-        { relname: 'tle_history_2026_07' },
-        { relname: 'tle_history_2026_08' },
+        { relname: 'tle_history_2026_09_01' },
+        { relname: 'tle_history_2026_09_02' },
       ],
     });
 
-    const dropped = await dropStalePartitions(new Date('2026-07-25T00:00:00Z'));
+    const dropped = await dropStalePartitions(new Date('2026-09-10T00:00:00Z'));
 
     expect(dropped).toEqual([]);
   });
@@ -135,15 +140,12 @@ describe('runPartitionMaintenance', () => {
       return { rows: [] };
     });
 
+    // 2026-08-10 is before cutover, so ensure starts at 2026-09-01.
     const result = await runPartitionMaintenance(
       new Date('2026-08-10T00:00:00Z')
     );
 
-    expect(result.created).toEqual([
-      'tle_history_2026_08',
-      'tle_history_2026_09',
-      'tle_history_2026_10',
-    ]);
+    expect(result.created).toEqual(expectedDailyNames('2026-09-01', 8));
     expect(result.dropped).toEqual(['tle_history_2026_06']);
   });
 });

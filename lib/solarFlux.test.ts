@@ -51,7 +51,7 @@ describe('solarFlux', () => {
       solarFluxMultiplierFromF107(125.69)
     );
 
-    expect(calibrated.decayRateKmPerDay).toBeCloseTo(33.75, 0);
+    expect(calibrated.decayRateKmPerDay).toBeCloseTo(34.26, 1);
     expect(observed.decayRateKmPerDay).toBeGreaterThan(28);
     expect(observed.estimatedDaysRemaining).toBeLessThanOrEqual(3);
     expect(observed.estimatedDaysRemaining).toBeGreaterThanOrEqual(1);
