@@ -1,246 +1,532 @@
 # TLE Pipeline Architecture
 
-## Overview
+## 1. Purpose and scope
 
-This covers **how TLE data gets fetched and into the combined snapshot and `tle_history`** — the provider layer, the ingestion service, and partition maintenance. For what happens to that data afterward (trend computation, screening, the client-facing read path in detail), see [TLE_HISTORY_PIPELINE.md](./TLE_HISTORY_PIPELINE.md).
+The DRAKON TLE pipeline acquires current two-line element data from external providers, normalizes it into a common representation, maintains a merged current catalog, and persists accepted observations to PostgreSQL for downstream orbital trend analysis.
 
-Originally this was CelesTrak-only: `GET /api/tle` fetched four named groups on a Redis cache miss and that was the entire data source. That has a structural limit CelesTrak can't fix — its public groups (like `active`) are a **curated subset**, not the full catalog, so objects that are still in orbit but not in that curation never show up. Space-Track's own `gp` class query is the underlying catalog those groups are drawn from, with a real-time curation lag CelesTrak's public files don't have.
+The pipeline separates three concerns: provider acquisition, current-catalog assembly, and historical persistence. Trend regression, re-entry screening, and client-side interpretation of historical data are downstream consumers documented separately.
 
-The pipeline now pulls from **both**, behind a common interface, with CelesTrak never fully retired:
+The current architecture is ingestion-first: `GET /api/tle` is a pure read endpoint. It no longer performs provider fetching, history writes, cache population, or shadow validation.
 
-- **Space-Track** — primary source, broader payload + rocket-body catalog
-- **CelesTrak** — always the source for the three static debris clouds (Space-Track's `gp` class isn't a good fit for tracking specific debris-collision fragments the same way), and the automatic fallback if Space-Track's auth or query fails
+## 2. Architectural principles
 
-**Stack:** same as [TLE_HISTORY_PIPELINE.md](./TLE_HISTORY_PIPELINE.md) — Drizzle ORM · Neon serverless HTTP driver · Upstash Redis — plus Space-Track's session-cookie auth.
+The pipeline is built around several invariants:
 
----
+- Provider failure must not replace the current catalog with an incomplete dataset.
+- CelesTrak remains authoritative for the three explicitly tracked static debris clouds.
+- Only an authoritative Space-Track full resynchronization may remove objects from the merged catalog.
+- Provider provenance must survive into `tle_history`.
+- Redis is the serving layer for the current catalog; PostgreSQL is the historical system of record.
+- Ingestion is serialized because snapshot assembly is a read-modify-write operation.
+- The client read path is side-effect free.
+- Partition maintenance is independent from ingestion and safe to run repeatedly.
+- Historical retention is enforced at the partition level rather than through large row-deletion jobs.
 
-## Architecture
+## 3. High-level architecture
 
 ```mermaid
 flowchart TB
-  subgraph external [External APIs]
-    ST[Space-Track basicspacedata gp class]
-    CT[CelesTrak NORAD GP API]
-  end
+    subgraph providers [External Providers]
+        ST[Space-Track GP]
+        CT[CelesTrak GP API]
+    end
 
-  subgraph sched [cron-job.org]
-    HourlyCron[Hourly]
-    MonthlyCron[Monthly]
-  end
+    subgraph scheduler [External Scheduling]
+        INGEST[Hourly ingestion trigger]
+        PART[Partition maintenance trigger]
+    end
 
-  subgraph ingest [Ingestion — lib/ingestion/tleIngestionService.ts]
-    IngestRoute["POST /api/internal/ingest-tle"]
-    Lock{{tle:ingestion:lock}}
-    Primary["getPrimaryProvider · Space-Track by default"]
-    Fallback["getFallbackProvider · CelesTrak active group"]
-    Debris["celestrakProvider · 3 static debris groups, always"]
-    Merge["Merge into existing snapshot — never overwrite"]
-    HourlyCron -->|x-internal-secret| IngestRoute
-    IngestRoute --> Lock --> Primary
-    Primary -->|fails| Fallback
-    Primary -->|ok| Merge
-    Fallback --> Merge
-    Debris --> Merge
-  end
+    subgraph service [TLE Ingestion Service]
+        ROUTE[POST /api/internal/ingest-tle]
+        LOCK[tle:ingestion:lock]
+        PRIMARY[getPrimaryProvider]
+        FALLBACK[getFallbackProvider]
+        DEBRIS[CelesTrak static debris groups]
+        MERGE[Validate + merge snapshot]
+    end
 
-  subgraph store [Storage]
-    Redis[("Redis · tle:combined + tle:combined:stale")]
-    TH[("tle_history · per-source labeled")]
-  end
+    subgraph storage [Storage]
+        REDIS[tle:combined + tle:combined:stale]
+        HISTORY[(PostgreSQL tle_history)]
+        ARCHIVE[(PostgreSQL tle_archive)]
+    end
 
-  subgraph partmaint [Partitions — lib/db/tlePartitions.ts]
-    PartRoute["POST /api/internal/manage-tle-partitions"]
-    MonthlyCron -->|x-internal-secret| PartRoute
-    PartRoute --> EnsureP["Create current + 2 months ahead"]
-    PartRoute --> DropP["Drop partitions >35 days stale"]
-  end
+    subgraph maintenance [Partition Maintenance]
+        PROUTE[POST /api/internal/manage-tle-partitions]
+        ENSURE[Create upcoming daily partitions]
+        DROP[Drop partitions beyond retention cutoff]
+    end
 
-  subgraph readpath [Client read path — pure read, no side effects]
-    GetTle["GET /api/tle"]
-    Client["Dashboard / Globe"]
-  end
+    subgraph read [Serving]
+        API[GET /api/tle]
+        CLIENT[Dashboard / Globe]
+    end
 
-  ST --> Primary
-  CT --> Fallback
-  CT --> Debris
-  Merge --> Redis
-  Merge --> TH
-  DropP -.-> TH
-  Redis --> GetTle --> Client
+    INGEST -->|internal secret| ROUTE --> LOCK
+    LOCK --> PRIMARY
+    PRIMARY -->|success| MERGE
+    PRIMARY -->|failure| FALLBACK --> MERGE
+    CT --> DEBRIS --> MERGE
+    ST --> PRIMARY
+    CT --> FALLBACK
+    MERGE --> REDIS
+    MERGE --> HISTORY
+
+    PART -->|internal secret| PROUTE --> ENSURE
+    PROUTE --> DROP
+    ENSURE -.-> HISTORY
+    DROP -.-> HISTORY
+
+    REDIS --> API --> CLIENT
 ```
 
-**`GET /api/tle` is a pure read path, as of Phase 4 (2026-07-26).** It reads `tle:combined` from Redis, falls back to the permanent `tle:combined:stale` key if that's empty, and returns `503` if both are empty (only possible on a fresh deploy before the first ingestion cycle, or an actual Redis data-loss event) — it does not fetch from CelesTrak, write to Redis, call `ingestTleHistory`, or run any shadow diff anymore. That was all pre-migration behavior, deliberately kept alive through Phases 1-3 as a safety net while the new pipeline proved itself; it's proven itself, so it's gone now. `logSpaceTrackShadowDiff`/`shadowDiff.ts` was removed entirely in the same cleanup — its only job was validating Space-Track before trusting it as primary, and it had no remaining caller once this route stopped fetching on its own.
+The external scheduler is outside the application. The repository exposes authenticated internal endpoints; deployment configuration determines how frequently those endpoints are invoked.
 
----
+## 4. Provider model
 
-## Provider interface
+All providers implement the common `TLEProvider` contract in `lib/tle-providers/types.ts`. The provider result contains raw response data, provider identity, fetch timestamp, and object count. Downstream parsing and ingestion therefore remain independent of provider-specific authentication and transport details.
 
-`lib/tle-providers/types.ts` — every provider implements the same contract, so nothing downstream (parsing, ingestion, history writes) knows or cares which one produced a given fetch:
+`lib/tle-providers/index.ts` selects primary and fallback implementations from `TLE_PROVIDER`. By default, Space-Track is primary. Setting `TLE_PROVIDER=celestrak` deliberately switches the primary source to CelesTrak and is an operational override, not an automatically entered failover state.
 
-```typescript
-interface TLEProvider {
-  readonly name: 'celestrak' | 'spacetrack' | 'mock';
-  fetch(options?: TleFetchOptions): Promise<TleFetchResult>;
-}
+### 4.1 Space-Track
 
-interface TleFetchOptions {
-  groups?: string[]; // CelesTrak-style named groups; ignored by Space-Track
-  fullResync?: boolean; // widen the query window enough to prune from
-  format?: 'tle' | '3le'; // always request '3le' explicitly — see below
-}
+`lib/tle-providers/spacetrack.ts` uses Space-Track's `gp` class for payload and rocket-body data.
 
-interface TleFetchResult {
-  raw: string;
-  provider: ProviderName;
-  fetchedAt: Date;
-  objectCount: number;
-}
+Authentication uses Space-Track's session-cookie flow. The `chocolatechip` cookie is cached in Redis as `spacetrack:session_cookie` with a two-hour TTL, avoiding unnecessary authentication requests during normal polling.
+
+Normal polling uses a three-day epoch window. A full resynchronization widens the query to 45 days. The query is server-side filtered for payload and rocket-body object types and excludes records that cannot be propagated according to the provider query constraints.
+
+The `gp` query returns the latest available element set per object rather than a historical sequence. The wider full-resync window therefore increases the chance of finding slowly refreshed objects; it does not itself create historical duplicates.
+
+Space-Track's documented guidance for `gp` polling is treated as an operational constraint: the pipeline should not poll this class more frequently than once per hour. The codebase does not implement an independent distributed rate limiter; the external scheduler controls endpoint frequency.
+
+Space-Track `format/3le` can include a literal `0 ` prefix on the name line. The common parser strips that provider-specific marker so downstream code receives the same logical TLE representation regardless of provider.
+
+### 4.2 CelesTrak
+
+`lib/tle-providers/celestrak.ts` uses CelesTrak's GP endpoint for named groups.
+
+Requests are made sequentially with a delay between groups to respect provider rate limits. Response content is validated rather than trusting HTTP status alone because CelesTrak can return HTTP 200 with an invalid-query or no-data message.
+
+CelesTrak has two roles:
+
+- fallback provider for the primary payload/rocket-body catalog when Space-Track fails;
+- mandatory provider for the three tracked static debris clouds.
+
+The debris groups are fetched independently so each can be health-checked before a cycle is allowed to perform authoritative pruning.
+
+### 4.3 Mock provider
+
+`lib/tle-providers/mock.ts` supplies deterministic fixtures for tests and does not contact external services. Its fixtures include a normal catalog identifier and an Alpha-5 catalog number so parsing and ingestion can be tested against newer catalog-number formats.
+
+## 5. Ingestion lifecycle
+
+`runIngestionCycle()` in `lib/ingestion/tleIngestionService.ts` is invoked through `POST /api/internal/ingest-tle`.
+
+A cycle performs the following operations:
+
+1. Acquire `tle:ingestion:lock` in Redis. The lock has a 120-second TTL and is released in a `finally` block.
+2. Determine whether the 24-hour full-resync interval has elapsed.
+3. Fetch the configured primary provider, passing the full-resync flag when applicable.
+4. If the primary request fails, invoke the fallback provider using the `active` group and record that fallback was used.
+5. Fetch Iridium 33 debris, Cosmos 2251 debris, and Fengyun-1C debris from CelesTrak independently, regardless of which primary path succeeded.
+6. Read and normalize the existing `tle:combined` snapshot.
+7. Determine whether the cycle is eligible to prune objects from the existing snapshot.
+8. Merge fresh primary and debris entries by NORAD catalog number.
+9. Write the merged snapshot to both live and stale Redis keys.
+10. Persist primary and debris observations to `tle_history` through separate ingestion calls so source provenance remains distinct.
+11. Release the Redis lock.
+
+The cycle returns a summary containing lock-skipped state, provider used, full-resync state, resulting snapshot size, and history-ingestion counters.
+
+## 6. Snapshot assembly and pruning policy
+
+The current snapshot is maintained as a merge, not an unconditional replacement. Provider responses are not guaranteed to represent the entire catalog on every request, so a partial response must not erase previously known objects.
+
+Pruning is a privileged operation. All of the following conditions must hold before objects can be removed:
+
+- a full resynchronization is due;
+- Space-Track was actually used as the primary provider;
+- no unplanned fallback occurred;
+- every static debris group individually passed its configured health floor.
+
+When eligible, the existing snapshot is pruned only for objects absent from both the fresh primary response and the current debris response.
+
+A CelesTrak fallback can populate or refresh the catalog but can never authorize deletion. Likewise, setting `TLE_PROVIDER=celestrak` disables Space-Track-specific pruning authority for that cycle.
+
+This distinction prevents a narrower provider response from being interpreted as authoritative catalog deletion.
+
+## 7. Static debris handling
+
+The following CelesTrak groups are fetched on every ingestion cycle:
+
+- `iridium-33-debris`
+- `cosmos-2251-debris`
+- `fengyun-1c-debris`
+
+They are fetched separately, and each group has an independent minimum-health check represented by `DEBRIS_GROUP_MIN_HEALTHY`.
+
+The health check is deliberately per group. A combined population threshold could allow a complete outage of the smallest group to be hidden by the much larger populations of the other two groups.
+
+Membership in these groups is determined from the current provider fetch, not from `TleEntry.isDebris`. The latter is a classification heuristic and is not a reliable representation of source membership.
+
+## 8. Current catalog storage in Redis
+
+Two Redis keys represent the assembled TLE catalog:
+
+| Key | Lifetime | Purpose |
+| --- | --- | --- |
+| `tle:combined` | 2 hours | Live serving snapshot and dead-man's-switch for ingestion freshness |
+| `tle:combined:stale` | No TTL | Last successfully assembled snapshot used as an emergency read fallback |
+
+Both keys are written during every successful ingestion cycle.
+
+The two-hour TTL on `tle:combined` is not itself the freshness model. The ingestion service rewrites the key every cycle. Its expiry acts as a dead-man's switch: if ingestion stops long enough for the live key to expire, the application can detect that current ingestion is unhealthy instead of indefinitely presenting an apparently live cache.
+
+`tle:combined:stale` deliberately has no TTL so a temporary ingestion outage does not immediately destroy the last known catalog.
+
+Additional Redis state includes:
+
+| Key | TTL | Purpose |
+| --- | --- | --- |
+| `spacetrack:session_cookie` | 2 hours | Cached Space-Track authentication session |
+| `tle:last_full_resync` | none | Timestamp used to determine whether a full resync is due |
+| `tle:ingestion:lock` | 120 seconds | Prevents concurrent ingestion cycles |
+
+## 9. Client read path
+
+`GET /api/tle` is intentionally a pure read endpoint.
+
+```text
+Redis tle:combined
+       |
+       +-- present --> return current snapshot (x-cache: HIT)
+       |
+       +-- missing --> Redis tle:combined:stale
+                          |
+                          +-- present --> return stale snapshot (x-cache: STALE)
+                          |
+                          +-- missing --> HTTP 503
 ```
 
-| Provider             | File                              | Role                                                                                       |
-| -------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
-| `celestrakProvider`  | `lib/tle-providers/celestrak.ts`  | Static debris clouds (always), fallback for payload/rocket-body scope (on primary failure) |
-| `spacetrackProvider` | `lib/tle-providers/spacetrack.ts` | Primary source for payload + rocket-body objects                                           |
-| `mockProvider`       | `lib/tle-providers/mock.ts`       | Deterministic fixture (includes one Alpha-5 object) for tests — no live network needed     |
+The endpoint does not contact either provider, populate Redis, write `tle_history`, perform provider comparison, or perform shadow validation.
 
-`lib/tle-providers/index.ts` exports `getPrimaryProvider()`/`getFallbackProvider()`, keyed off `TLE_PROVIDER`: unset (or anything other than the literal string `celestrak`) means Space-Track primary, CelesTrak fallback. Set `TLE_PROVIDER=celestrak` to flip it — useful for an incident response if Space-Track itself is having problems, though nothing in this pipeline does that automatically.
+It normalizes Redis newline encoding before returning TLE text. This prevents serialized Redis data from being interpreted as malformed TLE records.
 
-### CelesTrak provider
+Returning HTTP 503 when both snapshots are absent is intentional: an empty successful catalog would be indistinguishable from a legitimate zero-object response.
 
-Fetches named groups from `celestrak.org/NORAD/elements/gp.php`, one at a time with a 1.1s delay between requests to respect CelesTrak's rate limits. Validates content rather than trusting HTTP status alone — CelesTrak returns `200 OK` with an error message body for invalid/discontinued groups, so the response text is checked for `Invalid query`/`No GP data` and for actual `1 `/`2 ` TLE-format lines before accepting it.
+## 10. PostgreSQL historical persistence
 
-### Space-Track provider
+Accepted TLE observations are stored in PostgreSQL `tle_history`.
 
-Session-cookie auth, not an API key. `POST /ajaxauth/login` sets a cookie literally named `chocolatechip` (confirmed against Space-Track's own docs — not a typo); the cookie is cached in Redis (`spacetrack:session_cookie`, 2h TTL, since Space-Track doesn't publish an exact idle timeout) so most hourly cycles reuse it instead of re-authenticating every call.
+The parent table contains the NORAD ID, TLE epoch, BSTAR, mean motion, mean-motion derivative, eccentricity, inclination, RAAN, argument of perigee, mean anomaly, perigee altitude, apogee altitude, semi-major axis, ingestion timestamp, and `source_group`.
 
-Query is scoped by predicate, not by a chunked `NORAD_CAT_ID` list — `OBJECT_TYPE/PAYLOAD,ROCKET BODY` plus `decay_date/null-val` (Space-Track's own recommendation for skipping objects that can't be propagated) lets Space-Track filter server-side in one request, rather than ~38 sequential ~500-object batches risking Vercel's timeout. The epoch window widens from 3 days (normal poll) to 45 days (`fullResync`) — the `gp` class returns exactly one row per object (the latest elset, not a history), so a wider window just catches more slow-to-refresh objects, never duplicates.
+Orbital geometry is derived at ingestion time and persisted. Downstream trend computation therefore consumes normalized historical records rather than repeatedly parsing raw TLE lines.
 
-**Rate limit:** poll `gp` data once per hour, full stop — this is Space-Track's own documented guidance for this specific class (distinct from, and stricter than, the general 30/min–300/hour throttle), with an explicit account-suspension warning attached. Nothing in this codebase enforces that on its own; it's enforced by how often `/api/internal/ingest-tle` actually gets triggered externally (cron-job.org).
+The primary historical access index is `(norad_id, epoch)`. A separate index on `ingested_at` supports recent-ingestion sweeps. A uniqueness constraint on `(norad_id, epoch)` prevents repeated observations of the same orbital epoch from creating duplicates.
 
-**The name-line format quirk:** Space-Track's `format/3le` output includes a literal `"0 "` line-type marker on the name line — the strict 3LE spec's line-0 indicator — which CelesTrak's `FORMAT=3le` omits. `parseTleText` (`lib/tle.ts`) strips it when present, provider-agnostic either way. Confirmed in production 2026-07-25 after names started showing up as e.g. `"0 CALSPHERE 1"` in the UI and in Redis; regression-tested.
+### 10.1 Source provenance
 
-### Mock provider
+History ingestion is deliberately split into two calls:
 
-Returns a fixed two-object fixture (one standard name, one Alpha-5 catalog number) — used by tests that need a provider without hitting either live API.
+- primary catalog entries use the provider actually used for the primary fetch (`spacetrack` or `celestrak`);
+- static debris entries use `celestrak:debris`.
 
----
+This prevents mixed provider batches from being stored as though they came entirely from one source.
 
-## Ingestion service
+## 11. Raw TLE archive
 
-`lib/ingestion/tleIngestionService.ts` — `runIngestionCycle()`, triggered by `POST /api/internal/ingest-tle`. One cycle:
+`tle_archive` stores raw TLE data for point lookup and provenance. It contains NORAD ID, epoch, object name, TLE line 1, TLE line 2, and storage timestamp.
 
-1. **Acquire a Redis lock** (`tle:ingestion:lock`, 120s TTL) so an overlapping trigger can't race the read-modify-write merge below.
-2. **Fetch primary** (`getPrimaryProvider()`, passing `fullResync` if one is due). On failure, fall back to `getFallbackProvider()` with `groups: ['active']` and mark `usedFallback`.
-3. **Always fetch the three static debris clouds** from `celestrakProvider` separately, regardless of how step 2 went.
-4. **Read the existing `tle:combined` snapshot** (with the same Upstash newline-unescaping fix the read path uses — this read didn't exist before the ingestion service, and skipping the fix here would make `parseTleText` silently return zero entries for the existing snapshot, turning "merge" into "overwrite" every cycle).
-5. **Pruning eligibility — all four must hold:** `doFullResync` (a resync is due), `primaryProviderUsed === 'spacetrack'` specifically (not just "whatever succeeded as primary" — a deliberate `TLE_PROVIDER=celestrak` incident-response flip must never prune using CelesTrak's narrower curation as ground truth), `!usedFallback` (an unplanned fallback is exactly as untrustworthy for pruning), and every static debris group individually clearing its own per-group health floor (`DEBRIS_GROUP_MIN_HEALTHY` in `tleIngestionService.ts` — checked per group, not as a combined total, since a combined total can't tell "one small group returned nothing" apart from "all groups came back a little light"). If eligible, prune snapshot entries missing from _both_ this cycle's fresh fetch and the debris fetch. A CelesTrak fallback result is never treated as authoritative enough to prune from — that would reintroduce the exact curation-lag gap this migration exists to close. Only an authoritative Space-Track sweep, with a healthy debris fetch, can drop objects.
-6. **Merge** (never replace) fresh primary + debris entries into the snapshot map, keyed by NORAD ID.
-7. **Write** the merged snapshot back to both `tle:combined` (2h TTL) and `tle:combined:stale` (no TTL).
-8. **Ingest history in two separate calls** — primary entries labeled with the actual provider used (`spacetrack` or `celestrak`), debris entries labeled `celestrak:debris` — so `tle_history.source_group` never mislabels a mixed batch.
-9. **Release the lock** (in a `finally`, so it releases even on error).
+`(norad_id, epoch)` is unique. The archive is not the primary source for regression; `tle_history` stores normalized orbital fields specifically so analytics do not have to repeatedly parse raw TLE text.
 
-| Constant                             | Value | Why                                                                                       |
-| ------------------------------------ | ----- | ----------------------------------------------------------------------------------------- |
-| `FULL_RESYNC_INTERVAL_MS`            | 24h   | How often a full (prune-eligible) resync runs, independent of ingestion trigger frequency |
-| `LOCK_TTL_SECONDS`                   | 120   | Generous vs. an expected ~5–15s cycle                                                     |
-| `HOURLY_WINDOW_DAYS` (spacetrack.ts) | 3     | Normal poll window                                                                        |
-| `RESYNC_WINDOW_DAYS` (spacetrack.ts) | 45    | Full-resync window                                                                        |
+## 12. Partitioning strategy
 
-**Debris pruning exemption** is by _fetch membership this cycle_ (`debrisIds`, built from a `Map<noradId, TleEntry>` keyed across all three groups), never by `TleEntry.isDebris` — that field is a name-pattern heuristic for UI/screening purposes, not a data-source marker, and conflating the two was an early-draft mistake caught before it shipped. The three static debris groups are fetched **one at a time**, not as one combined CelesTrak call, specifically so `DEBRIS_GROUP_MIN_HEALTHY` can check each group's health individually — iridium-33-debris (the smallest, ~110 objects) failing outright wouldn't move a combined total below any reasonable floor once cosmos-2251-debris (~599) and fengyun-1c-debris (~1,915) are added in, so a combined check can't catch a single-group outage the way a per-group one can.
+`tle_history` is range-partitioned by the `epoch` column. The implementation is maintained by `lib/db/tlePartitions.ts`.
 
-Returns either `{ skipped: true }` (lock contention) or:
+The system is currently transitioning from legacy monthly partitions to daily partitions. The migration is intentionally incremental rather than rewriting historical rows solely to change partition granularity.
 
-```typescript
-interface IngestionCycleSummary {
-  skipped: false;
-  provider: string; // 'spacetrack' | 'celestrak' | 'celestrak (fallback)'
-  fullResync: boolean;
-  snapshotSize: number;
-  inserted: number;
-  skippedRows: number;
-  invalid: number;
-}
+### 12.1 Daily partitions
+
+The daily-partition cutover is explicitly configured for September 1, 2026. Starting at that boundary, maintenance creates one UTC-calendar-day partition using:
+
+```text
+tle_history_YYYY_MM_DD
 ```
 
----
+Each partition represents a half-open UTC range:
 
-## Routes
+```text
+FROM 'YYYY-MM-DD' TO 'YYYY-MM-DD + 1 day'
+```
 
-| Route                                      | Auth                | Trigger                                                  | Action                                                                                                                                                              |
-| ------------------------------------------ | ------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/internal/ingest-tle`            | `x-internal-secret` | cron-job.org, target hourly (Space-Track's own guidance) | One `runIngestionCycle()`                                                                                                                                           |
-| `POST /api/internal/manage-tle-partitions` | `x-internal-secret` | cron-job.org, monthly                                    | Create upcoming `tle_history` partitions + drop stale ones — see below                                                                                              |
-| `GET /api/tle`                             | none                | Client (globe load)                                      | Pure read: serves `tle:combined` from Redis, falling back to permanent `tle:combined:stale` if empty, `503` if both are empty. No fetch, no write, no side effects. |
+`ensureUpcomingPartitions()` creates the current day plus seven additional days of forward buffer, for eight daily partitions in total. The forward buffer reduces the chance that ingestion reaches a new UTC day before its PostgreSQL partition exists.
 
----
+### 12.2 Legacy monthly partitions
 
-## Redis keys
+The maintenance code still recognizes:
 
-| Key                         | TTL  | Written by                      | Purpose                                                                                                                                                                                                                                                                                                                        |
-| --------------------------- | ---- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tle:combined`              | 2h   | Ingestion service (every cycle) | The live snapshot. TTL is a dead-man's-switch, not a freshness check — the ingestion service overwrites it every cycle regardless of TTL. If it ever expires, `GET /api/tle` falls back to permanent `tle:combined:stale`, and returns `503` if that's empty too (as of Phase 4, there's no live fetch left to self-heal with) |
-| `tle:combined:stale`        | none | Same as above                   | Last-resort fallback for when `tle:combined` has expired or is missing entirely — as of Phase 4, this is the only fallback `GET /api/tle` has left (no live refetch anymore); if this is also empty, the route returns `503`                                                                                                   |
-| `spacetrack:session_cookie` | 2h   | `spacetrack.ts`                 | Cached auth cookie, avoids re-authenticating every cycle                                                                                                                                                                                                                                                                       |
-| `tle:last_full_resync`      | none | Ingestion service               | Timestamp of the last full (prune-eligible) resync                                                                                                                                                                                                                                                                             |
-| `tle:ingestion:lock`        | 120s | Ingestion service               | Prevents overlapping ingestion cycles                                                                                                                                                                                                                                                                                          |
+```text
+tle_history_YYYY_MM
+```
 
----
+because the August 2026 data is already owned by the legacy `tle_history_2026_08` partition.
 
-## Partition maintenance
+The cleanup logic understands both daily and monthly naming schemes and evaluates the actual date range represented by each partition before dropping it. This allows the migration to retire legacy monthly partitions naturally without requiring a historical rewrite.
 
-`lib/db/tlePartitions.ts`, via `POST /api/internal/manage-tle-partitions`:
+### 12.3 Cutover behavior
 
-- **`ensureUpcomingPartitions`** — creates the current month + 2 months of forward buffer (`CREATE TABLE IF NOT EXISTS ... PARTITION OF`), idempotent. The initial migration (`drizzle/0000_clever_titania.sql`) hand-created three months once; nothing created any since, which is what this route now automates.
-- **`dropStalePartitions`** — discovers actual partitions dynamically via `pg_inherits` (never a hardcoded list, so it never touches `tle_history_default`), and drops any whose entire date range is more than 35 days stale (`computeObjectTrends.ts`'s 30-day trend window + a safety margin).
+`DAILY_CUTOVER_MS` is an explicit September 1, 2026 boundary. `ensureUpcomingPartitions()` starts at the later of the current UTC day and this cutover date. Consequently, maintenance will not attempt to create daily partitions over the August monthly range.
 
-Both operations are cheap and metadata-only (`CREATE TABLE IF NOT EXISTS` / `DROP TABLE IF EXISTS` on a range partition) — no `VACUUM` needed, unlike reclaiming space from rows deleted out of a non-partitioned table.
+This explicit cutover is important because PostgreSQL cannot have overlapping partition bounds under the same parent table.
 
----
+### 12.4 Partition cleanup
 
-## Environment variables
+`dropStalePartitions()` discovers child partitions dynamically through PostgreSQL's `pg_inherits` catalog rather than relying on a hardcoded partition list.
 
-| Variable              | Used by                                                                                         |
-| --------------------- | ----------------------------------------------------------------------------------------------- |
-| `SPACETRACK_IDENTITY` | Space-Track account email                                                                       |
-| `SPACETRACK_PASSWORD` | Space-Track account password                                                                    |
-| `TLE_PROVIDER`        | `celestrak` to force CelesTrak primary; anything else (including unset) defaults to Space-Track |
-| `INTERNAL_JOB_SECRET` | All internal routes, including the two added here — `x-internal-secret` header                  |
+A partition is dropped when its entire range ends at or before:
 
----
+```text
+now - 35 days
+```
 
-## Operational history
+The 35-day boundary corresponds to the downstream 30-day trend-analysis window plus a five-day safety margin.
 
-A few things worth knowing happened in production that testing alone wouldn't have caught:
+Daily and legacy monthly partitions are parsed separately. Unknown child relations are ignored, which protects `tle_history_default` and unexpected relations from accidental deletion.
 
-- **The `"0 "` name-line bug** (2026-07-25) — see the Space-Track provider section above. Fixed in `parseTleText`, regression-tested.
-- **Neon's 5GB/month network-transfer allowance, not storage, was the near-term risk during cutover** — the migration's first full-resync queued a large one-time `trend_jobs` backlog (~8,600 jobs from ~16,000 newly-inserted history rows), and `processTrendJobs`'s own cron drained it independently of ingestion cadence. Throttling ingestion frequency didn't meaningfully slow this down; throttling the trends cron did. Worth remembering as a separate lever from ingestion cadence if a similarly large backlog ever gets created again (e.g. a deliberate future re-cutover).
-- **The two-key Redis cache design (`tle:combined` / `tle:combined:stale`) still serves genuinely different purposes** even after the switch to a merge-based ingestion service — this was reconsidered explicitly during the migration and kept as-is; see the Redis keys table above for what each one is actually for.
-- **Phase 4 cleanup (2026-07-26)** removed `GET /api/tle`'s CelesTrak-fetch-on-miss fallback and `shadowDiff.ts` entirely, once the new pipeline had run cleanly long enough to trust as the sole ingestion path. The one thing deliberately _not_ touched: `f107`/`solarFluxMultiplier` response headers (`solarFluxResponseHeaders()`) — unrelated to any of the CelesTrak/Space-Track cleanup, and `hooks/useTleEntriesQuery.ts` depends on reading them off every `/api/tle` response regardless.
+Dropping a complete partition removes its relation and avoids the table-wide bloat and vacuum behavior associated with repeatedly deleting large volumes of historical rows.
 
----
+## 13. Partition-maintenance endpoint
 
-## File index
+`POST /api/internal/manage-tle-partitions` invokes `runPartitionMaintenance()`.
 
-| Path                                              | Role                                                                                      |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `lib/tle-providers/types.ts`                      | `TLEProvider` interface, `TleFetchOptions`/`TleFetchResult`                               |
-| `lib/tle-providers/celestrak.ts`                  | CelesTrak provider — debris (always) + fallback                                           |
-| `lib/tle-providers/spacetrack.ts`                 | Space-Track provider — auth, query construction                                           |
-| `lib/tle-providers/mock.ts`                       | Test fixture provider                                                                     |
-| `lib/tle-providers/index.ts`                      | `getPrimaryProvider()`/`getFallbackProvider()`, keyed off `TLE_PROVIDER`                  |
-| `lib/tleCache.ts`                                 | Shared `CACHE_KEY`/`STALE_CACHE_KEY`/`CACHE_TTL_SECONDS` + `normalizeNewlines`            |
-| `lib/ingestion/tleIngestionService.ts`            | `runIngestionCycle()` — the merge/prune/provenance algorithm                              |
-| `lib/db/tlePartitions.ts`                         | `ensureUpcomingPartitions()` / `dropStalePartitions()`                                    |
-| `app/api/internal/ingest-tle/route.ts`            | Hourly ingestion trigger                                                                  |
-| `app/api/internal/manage-tle-partitions/route.ts` | Monthly partition maintenance trigger                                                     |
-| `app/api/tle/route.ts`                            | Client-facing read path — pure read, no side effects (Phase 4 cleanup complete)           |
-| `lib/tle.ts`                                      | `parseTleText()` / `serializeTleEntries()` — provider-agnostic, handles the `"0 "` marker |
+The endpoint requires `x-internal-secret` to match `INTERNAL_JOB_SECRET` and has a 60-second maximum execution duration.
 
----
+The sequence is:
 
-## Related documentation
+```text
+ensureUpcomingPartitions()
+          |
+          v
+create missing daily partitions
+          |
+          v
+dropStalePartitions()
+          |
+          v
+drop ranges older than 35 days
+```
 
-- [TLE_HISTORY_PIPELINE.md](./TLE_HISTORY_PIPELINE.md) — what happens after ingestion: history storage, trend computation, screening, client consumption
-- [REENTRY_RISK.md](./REENTRY_RISK.md) — screening physics and tier thresholds
-- [README.md](../README.md) — project overview
+Both operations are idempotent. Repeated execution does not recreate existing partitions or affect partitions still inside the retention window.
+
+The endpoint is intended to be invoked externally; it does not define its own cron schedule.
+
+## 14. Full resynchronization
+
+A full resynchronization is a logical ingestion mode, not a separate endpoint.
+
+`FULL_RESYNC_INTERVAL_MS` is 24 hours. Normal ingestion can therefore occur more frequently while only one cycle per 24-hour period is eligible for authoritative pruning.
+
+The Space-Track provider widens its query window from three days to 45 days for a full resync. This compensates for objects whose latest element set may not have been refreshed recently.
+
+The last full-resync timestamp is stored in `tle:last_full_resync`.
+
+A full-resync flag alone is insufficient to permit deletion; the provider, fallback, and debris-health conditions must also be satisfied.
+
+## 15. Concurrency and failure isolation
+
+### Ingestion lock
+
+`tle:ingestion:lock` serializes the complete snapshot read-modify-write sequence. Without it, simultaneous cycles could read the same old snapshot, merge different responses, and race to write final state.
+
+The 120-second expiry provides recovery if an execution is abandoned.
+
+### Provider failure
+
+If Space-Track fails, CelesTrak is used for the primary catalog fallback. Static debris fetching remains independent.
+
+A fallback cycle can refresh the catalog but cannot prune it.
+
+### Redis failure
+
+The ingestion service depends on Redis for locking and current-snapshot assembly. Redis unavailability is therefore treated as an ingestion failure rather than attempting an unsafe stateless replacement.
+
+### PostgreSQL failure
+
+Current-catalog serving and historical persistence are logically separated. A database failure can prevent new history rows from being stored even when the Redis snapshot has been assembled. Trend freshness then degrades independently from current catalog availability.
+
+### Read-path failure
+
+If the live Redis key is absent, the read path serves the permanent stale snapshot. If neither exists, it returns 503 instead of fabricating an empty catalog.
+
+## 16. Operational data flow
+
+```text
+External scheduler
+       |
+       v
+POST /api/internal/ingest-tle
+       |
+       v
+Acquire Redis lock
+       |
+       +----------------------+
+       |                      |
+       v                      v
+Space-Track primary      CelesTrak debris groups
+       |                      |
+       | failure              |
+       v                      |
+CelesTrak fallback            |
+       |                      |
+       +----------+-----------+
+                  |
+                  v
+          Validate + normalize
+                  |
+                  v
+       Read existing Redis snapshot
+                  |
+                  v
+       Authoritative prune check
+                  |
+                  v
+         Merge by NORAD ID
+             /         \
+            v           v
+     Redis snapshot   PostgreSQL history
+            |
+            v
+       GET /api/tle
+            |
+            v
+       Dashboard / Globe
+```
+
+Historical rows then feed the downstream trend pipeline:
+
+```text
+tle_history
+     |
+     v
+trend job queue
+     |
+     v
+historical regression
+     |
+     v
+object_trends
+     |
+     +--> re-entry screening
+     +--> decision trace
+     +--> trend / history UI
+```
+
+## 17. Freshness model
+
+The pipeline has several distinct freshness dimensions.
+
+**Provider freshness** is determined by the age of the latest provider element set and the provider query window.
+
+**Redis snapshot freshness** is controlled operationally by the ingestion schedule and the two-hour live-key TTL. The TTL is a failure detector, not a guarantee that every TLE in the snapshot is less than two hours old.
+
+**Historical freshness** depends on when an object's latest accepted epoch was persisted to `tle_history`.
+
+**Trend freshness** is downstream and depends on the trend worker processing jobs created from historical ingestion.
+
+A current Redis snapshot can therefore contain an object whose latest TLE is older than the latest ingestion cycle, while a current TLE can exist before its corresponding trend result has been recomputed. These are expected asynchronous states.
+
+## 18. Performance characteristics
+
+Provider acquisition occurs only in the internal ingestion endpoint, so client requests do not incur provider latency or external API rate-limit cost.
+
+The Space-Track query uses server-side predicates rather than a large sequence of NORAD-ID requests, reducing network round trips and serverless execution overhead.
+
+Historical ingestion uses conflict-safe epoch insertion so repeated observations do not inflate history with duplicates.
+
+Partition-level retention removes complete date ranges instead of issuing large deletes against the historical parent table, keeping the historical store bounded with substantially less table bloat.
+
+The current snapshot is a single Redis payload, allowing the dashboard and globe to load the catalog without issuing one query per object.
+
+## 19. Data-integrity safeguards
+
+The major safeguards are:
+
+- provider response-content validation;
+- provider abstraction and explicit provenance;
+- Redis ingestion locking;
+- merge-not-replace snapshot semantics;
+- authoritative-pruning gates;
+- independent health checks for all static debris groups;
+- unique `(norad_id, epoch)` historical observations;
+- newline normalization before parsing Redis snapshots;
+- permanent stale-cache fallback;
+- partition cleanup based on actual PostgreSQL child relations;
+- recognition of both legacy monthly and current daily partition naming schemes;
+- seven-day daily forward buffer;
+- 35-day retention cutoff around the downstream 30-day trend window.
+
+These safeguards address different failure classes and should be treated as independent invariants.
+
+## 20. Migration state and compatibility
+
+The daily-partition migration is non-destructive to the existing monthly partition during the transition.
+
+The explicit September 1, 2026 cutover means August data remains under `tle_history_2026_08`, while new daily ranges are created from the cutover onward. The maintenance code can inspect and retire either naming scheme based on its actual range.
+
+No historical row rewrite is required merely to introduce daily partitioning. The existing monthly partition remains until its complete range falls outside the 35-day retention boundary.
+
+## 21. Known limitations
+
+- Provider polling frequency is externally scheduled rather than enforced by an internal distributed rate limiter.
+- Space-Track `gp` supplies the latest element set rather than a complete historical sequence, so historical density comes from repeated ingestion cycles.
+- CelesTrak's fallback catalog is narrower than the Space-Track primary catalog and cannot be used as an authoritative deletion source.
+- Redis is the current-catalog serving layer, so current TLE availability depends on successful ingestion into Redis.
+- The stale Redis key can preserve an old catalog indefinitely if ingestion remains broken; consumers must distinguish stale availability from current freshness.
+- Partition maintenance is externally scheduled.
+- The daily-partition transition temporarily permits both daily and legacy monthly partitions to coexist.
+
+## 22. Engineering invariants
+
+Changes to this pipeline should preserve the following:
+
+1. `GET /api/tle` remains a pure read path.
+2. Current snapshots are merged by NORAD ID rather than blindly replaced.
+3. CelesTrak fallback data can refresh the catalog but cannot authorize pruning.
+4. Only an un-fallbacked Space-Track full resync with healthy debris feeds can authorize catalog deletion.
+5. Static debris feeds remain independently health-checked.
+6. `tle_history.source_group` preserves provider provenance.
+7. `(norad_id, epoch)` remains unique in historical storage.
+8. The ingestion lock covers the complete snapshot read-modify-write sequence.
+9. `tle:combined:stale` remains independent of the live-key TTL.
+10. Partition maintenance must support both legacy monthly and current daily partitions during migration.
+11. The retention boundary remains compatible with the downstream 30-day trend-analysis window.
+12. The daily forward buffer must prevent normal ingestion from reaching an unpartitioned future UTC date.
+13. Unknown child relations discovered through `pg_inherits` must not be dropped by cleanup.
+14. Provider-specific wire-format quirks are normalized at the parser/provider boundary.
+
+## 23. Key implementation files
+
+| Responsibility | Implementation |
+| --- | --- |
+| Provider contract | `lib/tle-providers/types.ts` |
+| Provider selection | `lib/tle-providers/index.ts` |
+| Space-Track provider | `lib/tle-providers/spacetrack.ts` |
+| CelesTrak provider | `lib/tle-providers/celestrak.ts` |
+| Mock provider | `lib/tle-providers/mock.ts` |
+| TLE parser / normalization | `lib/tle.ts` |
+| Ingestion orchestration | `lib/ingestion/tleIngestionService.ts` |
+| TLE read endpoint | `app/api/tle/route.ts` |
+| Ingestion endpoint | `app/api/internal/ingest-tle/route.ts` |
+| Partition maintenance | `lib/db/tlePartitions.ts` |
+| Partition endpoint | `app/api/internal/manage-tle-partitions/route.ts` |
+| Database schema | `lib/db/schema.ts` |
+| Historical ingestion | `lib/jobs/ingestTleHistory.ts` |
+| Historical trend worker | `lib/jobs/computeObjectTrends.ts` |
+
+## 24. Related documentation
+
+- [TLE History Pipeline](./TLE_HISTORY_PIPELINE.md) — historical processing, trend computation, and derived storage.
+- [Re-entry Risk](./REENTRY_RISK.md) — screening architecture and final risk resolution.
+- [Collision Density Map](./COLLISION_DENSITY_MAP.md)
+- [Orbital Plane Visualization](./ORBITAL_PLANE_VISUALIZATION.md)
