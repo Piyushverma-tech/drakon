@@ -2,8 +2,10 @@
 
 ### Orbital Decision Intelligence Platform
 
-**DRAKON** is an interactive satellite operations dashboard that visualizes real-time orbital objects, predicts potential conjunctions, and monitors fleet health.  
-The platform combines satellite telemetry, orbit propagation, and predictive analytics to enhance situational awareness and operational safety.
+**DRAKON** is an interactive satellite operations dashboard that visualizes real-time orbital objects, screens potential close approaches, monitors fleet state, and provides orbital trend and re-entry analysis.
+The platform combines satellite catalog data, SGP4 orbit propagation, spatial screening, historical orbital analysis, and predictive analytics to enhance situational awareness and operational safety.
+
+DRAKON's current collision functionality is a **close-approach density and screening system**, not yet a full conjunction-prediction engine. Advanced conjunction prediction, maneuver planning, and operational alerting remain part of the planned roadmap.
 
 ---
 
@@ -20,14 +22,17 @@ The platform combines satellite telemetry, orbit propagation, and predictive ana
 
 ## Current MVP Features
 
-- **Interactive 3D Globe:** Real-time visualization of satellites using TLEs and SGP4 from `satellite.js`.
-- **Fleet Health Overview:** Orbit breakdown (LEO / MEO / GEO / Debris).
-- **Satellite Details Panel:** Display NORAD ID, velocity, inclination, orbit type, and related data.
-- **Proximity Timeline:** Visualize potential close approaches over the next 24 hours.
-- **Critical Alerts:** List of high-risk conjunctions and anomalies.
-- **Historical Trends:** Analytics on orbit and event data.
-- **Collision Screening:** Trigger on-demand screening jobs for conjunction checks.
-- **Reentry Screening:** Identifies objects that are actively decaying and likely to re-enter Earth's atmosphere within a meaningful time window
+- **Interactive 3D / 2D Globe:** Real-time visualization of orbital objects using TLEs and SGP4 propagation through `satellite.js`.
+- **Fleet Health Overview:** Orbit breakdown across LEO / MEO / GEO / debris classifications.
+- **Satellite Details Panel:** Display NORAD ID, velocity, inclination, orbit type, and related metadata.
+- **Orbital Plane Visualization:** Inclination-band analysis with representative ground-track rendering and satellite highlighting.
+- **Satellite Trajectory Visualization:** Selected-satellite 2D past/future ground tracks and 3D orbital paths.
+- **Collision Density Screening:** On-demand voxel-based close-approach screening with per-satellite density, hotspot statistics, and candidate-pair visualization.
+- **Historical Trends:** Multi-epoch orbital trend analysis backed by `tle_history`, asynchronous trend jobs, and persisted derived state.
+- **Re-entry Screening:** Identifies objects that are actively decaying and estimates whether they may re-enter Earth's atmosphere within a meaningful time window.
+- **Decision Trace:** Object-level re-entry analysis showing the signals, evidence, classification changes, and reasoning behind the derived assessment.
+
+The dashboard also contains **Proximity Timeline**, **Critical Alerts**, and related operational widgets as part of the product scope; these areas are currently scaffolded while the underlying conjunction-prediction and real-time alerting systems remain under development.
 
 ---
 
@@ -54,9 +59,9 @@ The platform combines satellite telemetry, orbit propagation, and predictive ana
 | **State Management**  | Redux Toolkit (visualization state) + TanStack Query v5 (all data fetching)                                                                                                                  |
 | **Backend / API**     | Next.js API Routes (serverless)                                                                                                                                                              |
 | **Database**          | Neon PostgreSQL (serverless HTTP driver) via Drizzle ORM -- `tle_history`, `object_trends`, `trend_snapshots`, etc.                                                                          |
-| **Cache**             | Upstash Redis (HTTP-based, serverless-compatible) -- 2h TTL + permanent stale fallback                                                                                                       |
+| **Cache**             | Upstash Redis (HTTP-based, serverless-compatible) -- 2h live TTL + permanent stale fallback                                                                                                 |
 | **TLE Source**        | Space-Track `gp` class (primary, payload + rocket-body) with CelesTrak NORAD GP catalog as fallback and as the permanent source for iridium-33-debris, cosmos-2251-debris, fengyun-1c-debris |
-| **Scheduling**        | cron-job.org (hourly TLE ingest via `/api/internal/ingest-tle`, 15min trend worker, monthly partition maintenance, daily solar flux)                                                         |
+| **Scheduling**        | cron-job.org (hourly TLE ingest via `/api/internal/ingest-tle`, 15min trend worker, partition maintenance, daily solar flux refresh)                                                          |
 | **CI/CD**             | GitHub Actions -> Vercel                                                                                                                                                                     |
 
 ---
@@ -82,7 +87,7 @@ drakon/
 |  |     |- process-trends/route.ts       # Trend worker drain (cron-job.org, 15min)
 |  |     |- requeue-stale/route.ts        # Version-invalidation requeue
 |  |     |- ingest-tle/route.ts           # Space-Track/CelesTrak merge cycle
-|  |     `- manage-tle-partitions/route.ts # Monthly tle_history partition create-ahead/drop-stale
+|  |     `- manage-tle-partitions/route.ts # Daily partition create-ahead/drop-stale maintenance
 |  |- dashboard/
 |  |  |- components/
 |  |  |  |- layout/
@@ -127,10 +132,11 @@ drakon/
 |  |- useObjectTrendsQuery.ts   # Bulk object_trends fetch
 |  |- useObjectExplainQuery.ts / useObjectHistoryQuery.ts / useObjectSnapshotsQuery.ts / useRecentTrendChangesQuery.ts
 |  |- useSatellitePositions.ts  # Live SGP4 positions, 5s interval
-|  |- useSimulatedPositions.ts  # Projected positions at T+offset (600ms debounce)
-|  |- useSelectedSatelliteTrack.ts  # Past + future ground track for selected sat
-|  |- useInclinationBands.ts    # Orbital plane band membership + ground track
-|  |- useCollisionDensity.ts    # Voxel-based 3D density computation
+|  |- useSimulatedPositions.ts  # Projected positions at T+offset
+|  |- useSelectedSatelliteTracks.ts      # Past + future ground track for selected satellites
+|  |- useSelectedSatelliteOrbitPaths.ts  # 3D orbital path for selected satellites
+|  |- useInclinationBands.ts    # Orbital plane band membership + representative ground track
+|  |- useCollisionDensity.ts    # Voxel-based close-approach density computation
 |  `- useSatelliteMetadata.ts   # Loads precomputed satellite metadata
 |- lib/
 |  |- store.ts                  # Redux store (visualization slice only)
@@ -155,12 +161,12 @@ drakon/
 |  |  `- requeueStaleObjects.ts # Version invalidation sweep
 |  |- tle-providers/            # TLEProvider abstraction
 |  |  |- types.ts               # ProviderName, TleFetchOptions/Result, TLEProvider interface
-|  |  |- celestrak.ts           # CelesTrakProvider -- extracted from the original app/api/tle/route.ts fetch logic
-|  |  |- spacetrack.ts          # SpaceTrackProvider -- session-cookie auth, predicate-scoped `gp` class query
+|  |  |- celestrak.ts           # CelesTrakProvider -- provider implementation
+|  |  |- spacetrack.ts           # SpaceTrackProvider -- session-cookie auth, predicate-scoped `gp` class query
 |  |  |- mock.ts                # MockProvider -- deterministic fixture incl. one Alpha-5 object, for tests/CI
 |  |  `- index.ts                # getPrimaryProvider()/getFallbackProvider(), keyed off TLE_PROVIDER
 |  `- workers/
-|     `- satellite.worker.ts    # Comlink worker: SGP4, density, ground tracks
+|     `- satellite.worker.ts    # Comlink worker: SGP4, density, ground tracks, 3D orbit paths
 |- docs/
 |  |- ORBITAL_PLANE_VISUALIZATION.md
 |  |- COLLISION_DENSITY_MAP.md
@@ -220,28 +226,41 @@ Two separate systems handle different concerns:
 
 #### Orbital Plane Visualization (Inclination Bands)
 
-- Ground track rendering via deck.gl `PathLayer`
+- Inclination-band membership using target inclination ± tolerance
 - Inclination slider (0–120°) + tolerance control (±0.5–10°)
-- Satellite highlighting within band, dimming of everything else
+- Satellite highlighting within the selected band
 - Real-time band membership count + average altitude
-- Worker-backed track generation, 300ms debounced inputs, `Map`-keyed track cache
+- Representative ground track selected by median mean motion and generated over one orbit with 240 samples
+- Worker-backed propagation, 300ms debounced inputs, and in-memory track cache
+- Antimeridian-aware track segmentation
+
+**Selected Satellite Paths**
+
+- **2D ground track:** one orbital period into the past + one orbital period into the future, 120 samples per direction
+- Temporal opacity emphasizes the current position and fades toward older/future portions of the track
+- **3D orbit path:** one complete orbit centered on simulation time, 240 samples with longitude/latitude/altitude
+- 3D orbit altitude is intentionally exaggerated by the renderer for visual readability
+- Both path types are generated through the Comlink satellite worker and update when simulation time or the selected satellite state changes
 
 📖 See [docs/ORBITAL_PLANE_VISUALIZATION.md](./docs/ORBITAL_PLANE_VISUALIZATION.md)
 
 #### Collision Density Map
 
-- Voxel-grid O(N·26) spatial index replacing O(N²) brute force
-- 3D ECEF coordinates, 26-neighbor voxel search
-- Per-satellite density normalization via `satelliteDensities` map (O(1) lookup)
-- Candidate pair filtering: same-launch ID proximity, same-operator separation, relative velocity check via SGP4
+- Near-linear voxel-grid spatial index with 27-cell neighborhood search, replacing O(N²) brute-force pair enumeration
+- 3D ECEF coordinates for spatial candidate generation
+- Configurable detection radius (10–250 km); voxel size follows `max(detectionRadiusKm, 20)`
+- Candidate-pair filtering using launch/metadata heuristics, close separation + altitude similarity, and SGP4 relative-velocity checks
+- Per-satellite close-approach density normalization via `satelliteDensities` map (O(1) lookup)
+- Fixed 2° geographic hotspot grid for aggregate density statistics
+- Up to 50 candidate pairs returned for map/list rendering; aggregate density statistics are computed from the full filtered pair set
 - Line layer for close-approach pairs, color-coded by distance threshold
-- 500ms debounced computation, detection radius slider (10–250 km)
+- 500ms debounced computation and worker-backed execution
 
 📖 See [docs/COLLISION_DENSITY_MAP.md](./docs/COLLISION_DENSITY_MAP.md)
 
 #### Re-Entry Risk Screening
 
-Two-layer screening, resolved together in `lib/objectTrendRisk.ts`: a fast single-epoch BSTAR/N-dot model (`getReentryRisk`, all debris, no backend dependency) and a multi-epoch regression model over 7-30 days of `tle_history` (`recomputeTrends`, required for active payloads -- a single TLE epoch's BSTAR is too maneuver-contaminated to trust alone). For objects below the altitude threshold, the two are resolved by taking whichever estimate is **more pessimistic**, so a stale multi-epoch trend can never mask a live, rapidly-decaying object.
+Two-layer screening, resolved together in `lib/objectTrendRisk.ts`: a fast single-epoch BSTAR/N-dot model (`getReentryRisk`, used for debris/rocket-body screening) and a multi-epoch regression model over 7-30 days of `tle_history` (`recomputeTrends`, required for active payloads -- a single TLE epoch's BSTAR is too maneuver-contaminated to trust alone). For objects below the altitude threshold, the two are resolved by taking whichever estimate is **more pessimistic**, so a stale multi-epoch trend can never mask a live, rapidly-decaying object.
 
 **Risk tiers:** Critical (< 30 days) -> Warning -> Nominal -> Stable, with warning/nominal limits compressing at higher altitudes where single-epoch signals are less reliable.
 
@@ -251,19 +270,10 @@ Two-layer screening, resolved together in `lib/objectTrendRisk.ts`: a fast singl
 
 See [docs/REENTRY_RISK.md](./docs/REENTRY_RISK.md) for the full model and architecture, and [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPELINE.md) for the pipeline and schema.
 
-#### Satellite Ground Track
-
-- Past track (teal, fading) + future track (blue, fading) as `PathLayer` segments
-- `generateSatelliteTrack` in worker: 120 samples past + 120 future across 1 orbital period
-- `splitAtAntimeridian` prevents horizontal slash lines at ±180° longitude
-- Opacity encoded as normalizedT in `[lon, lat, t]` tuples, converted to per-segment `TrackSegment`
-- `requestIdRef` pattern prevents stale async results when satellite changes mid-flight
-- Reruns on `simulationOffsetHours` change
-
 #### Predictive Time Simulation
 
 - Redux: `simulationOffsetHours`, `isSimulating`, `simLoading`
-- `useSimulatedPositions` hook: 600ms debounce on initial compute, 10s periodic refresh
+- `useSimulatedPositions` hook: debounced initial compute, periodic refresh
 - `batchPositionAtOffsetAsync`: stamps all entries with `Date.now() + offsetMs`
 - ForecastOverlay: IBM Plex Mono, 72h window, drag scrubber, amber warning beyond 48h (SGP4 accuracy degrades)
 - `simLoading` in Redux so ForecastOverlay subscribes independently without prop drilling
@@ -304,7 +314,7 @@ Used for globe coloring (gray dots) and as a gate in `getReentryRisk` for re-ent
 - **Re-entry footprint corridor**: Show ground track corridor on globe for objects within 7 days
 - **Space-Track CDM integration**: Conjunction Data Messages (requires account + backend job)
 - **Stale data timestamp header**: `x-stale-since` response header + frontend freshness warning banner
-- **Automated partition maintenance**: create/drop `tle_history` monthly partitions on a schedule instead of manually
+- **Automated partition maintenance**: implemented for the current architecture; daily partition creation and stale-partition cleanup are now handled by `/api/internal/manage-tle-partitions`. Remaining work is operational scheduling/migration cleanup rather than implementation of the maintenance routine itself.
 - **`tle_archive` restructure**: only the latest name per object is ever read -- an upsert-in-place table would be simpler than an append-and-prune one
 
 ---
@@ -313,10 +323,10 @@ Used for globe coloring (gray dots) and as a gate in `getReentryRisk` for re-ent
 
 | Table                 | Description                                                                                                                                                                                             |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`tle_history`**     | Time-series of parsed orbital parameters per NORAD ID, partitioned monthly by `epoch`. One row per object per TLE epoch.                                                                                |
+| **`tle_history`**     | Time-series of parsed orbital parameters per NORAD ID, range-partitioned by `epoch`. The current migration uses daily partitions from the September 2026 cutover while legacy monthly partitions remain compatible during transition. |
 | **`tle_archive`**     | Raw TLE name + line 1 + line 2, one row per `(norad_id, epoch)`. Pruned to the 3 most recent rows per object on ingest.                                                                                 |
-| **`object_trends`**   | Derived cache, one row per NORAD ID. Regression slopes, decay classification, persisted signal-strength sub-scores, current re-entry estimate.                                                          |
-| **`trend_jobs`**      | Ephemeral work queue for the trend worker. Rows deleted on success, not marked done.                                                                                                                    |
+| **`object_trends`**   | Derived cache, one row per NORAD ID. Regression slopes, decay classification, persisted signal-strength sub-scores, current re-entry estimate, and trend version.                                  |
+| **`trend_jobs`**      | Ephemeral work queue for the trend worker. Rows deleted on success, not marked done; failed jobs are retried up to three times before exhaustion.                                                     |
 | **`trend_snapshots`** | Append-only log of `object_trends` outcome changes, written only when tier or decay signal actually differs from the last computation. Powers dashboard triage and the Analysis page's change timeline. |
 
 Full column-level detail: [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPELINE.md)
@@ -327,29 +337,30 @@ Full column-level detail: [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPE
 
 | Method | Endpoint                                 | Description                                                                                                                                                                                                                                                           |
 | ------ | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/api/tle`                               | Combined TLE data (all groups), served from Redis (`tle:combined`, 2h TTL; falls back to permanent `tle:combined:stale`). Pure read path as of Phase 4 -- no fetching, writing, or shadow diff of its own; ingestion is entirely owned by `/api/internal/ingest-tle`. |
-| `GET`  | `/api/object-trends`                     | Bulk read of current `object_trends` rows                                                                                                                                                                                                                             |
-| `GET`  | `/api/object-trends/[noradId]/history`   | Raw `tle_history` time series for one object -- Analysis page evidence charts                                                                                                                                                                                         |
-| `GET`  | `/api/object-trends/[noradId]/explain`   | Persisted trend-model reasoning for one object (signal breakdown, consensus)                                                                                                                                                                                          |
-| `GET`  | `/api/object-trends/[noradId]/snapshots` | Full classification-change history for one object -- Analysis page change timeline                                                                                                                                                                                    |
-| `GET`  | `/api/object-trends/recent-changes`      | Latest 1-2 snapshots per object, catalog-wide -- dashboard triage grouping                                                                                                                                                                                            |
-| `GET`  | `/api/solar-flux`                        | Read current NOAA F10.7 value from Redis                                                                                                                                                                                                                              |
-| `POST` | `/api/solar-flux`                        | Refresh F10.7 from NOAA (cron-job.org, daily)                                                                                                                                                                                                                         |
-| `POST` | `/api/internal/process-trends`           | Trend worker drain (cron-job.org, every 15 min, `x-internal-secret` auth)                                                                                                                                                                                             |
-| `POST` | `/api/internal/requeue-stale`            | Re-enqueue `object_trends` rows on a stale `trend_version`                                                                                                                                                                                                            |
-| `POST` | `/api/internal/ingest-tle`               | Space-Track (primary) + CelesTrak (debris, always; payload/rocket-body fallback) merge cycle, writes `tle:combined`/`tle:combined:stale` and per-source `tle_history` rows. Point the hourly trigger here per the migration plan's Phase 2. `x-internal-secret` auth. |
-| `POST` | `/api/internal/manage-tle-partitions`    | Creates the next few months of `tle_history` partitions ahead of time and drops any partition entirely >35 days stale. Idempotent, meant to run monthly. `x-internal-secret` auth.                                                                                    |
+| `GET`  | `/api/tle`                               | Combined TLE data, served from Redis (`tle:combined`, 2h TTL; falls back to permanent `tle:combined:stale`). Pure read path; no fetching, writing, or background ingestion of its own. |
+| `GET`  | `/api/object-trends`                     | Bulk read of current `object_trends` rows |
+| `GET`  | `/api/object-trends/[noradId]/history`   | Raw `tle_history` time series for one object -- Analysis page evidence charts |
+| `GET`  | `/api/object-trends/[noradId]/explain`   | Persisted trend-model reasoning for one object (signal breakdown, consensus) |
+| `GET`  | `/api/object-trends/[noradId]/snapshots` | Full classification-change history for one object -- Analysis page change timeline |
+| `GET`  | `/api/object-trends/recent-changes`      | Latest 1-2 snapshots per object, catalog-wide -- dashboard triage grouping |
+| `GET`  | `/api/solar-flux`                        | Read current NOAA F10.7 value from Redis |
+| `POST` | `/api/solar-flux`                        | Refresh F10.7 from NOAA (cron-job.org, daily) |
+| `POST` | `/api/internal/process-trends`           | Trend worker drain (cron-job.org, every 15 min, `x-internal-secret` auth) |
+| `POST` | `/api/internal/requeue-stale`            | Re-enqueue `object_trends` rows on a stale `trend_version` |
+| `POST` | `/api/internal/ingest-tle`               | Space-Track (primary) + CelesTrak (debris, always; payload/rocket-body fallback) merge cycle, writes `tle:combined`/`tle:combined:stale` and per-source `tle_history` rows. `x-internal-secret` auth. |
+| `POST` | `/api/internal/manage-tle-partitions`    | Ensures the current UTC day plus seven additional daily `tle_history` partitions and drops partitions whose complete range is beyond the 35-day retention cutoff. Idempotent, `x-internal-secret` auth. |
 
 ---
 
 ## Data Flow
 
-1. An hourly job merges Space-Track (primary) and CelesTrak (debris + fallback) into Upstash Redis (`tle:combined` TTL 2h + `tle:combined:stale` permanent) — see docs/TLE_PIPELINE_ARCHITECTURE.md. `/api/tle` itself is a pure read of that snapshot, no side effects.
-2. Client calls `/api/tle` once via TanStack Query (`staleTime: 2h`). Parsed into `TleEntry[]` by `parseTleText` in `useTleEntriesQuery`.
+1. An hourly job merges Space-Track (primary) and CelesTrak (debris + fallback) into Upstash Redis (`tle:combined` TTL 2h + `tle:combined:stale` permanent) — see docs/TLE_PIPELINE_ARCHITECTURE.md. `/api/tle` itself is a pure read of that snapshot, with no side effects.
+2. Client calls `/api/tle` via TanStack Query (`staleTime: 2h`). Parsed into `TleEntry[]` by `parseTleText` in `useTleEntriesQuery`.
 3. `useSatellitePositions` propagates all entries via `batchPositionFromTLEAsync` (Comlink worker) every 5 seconds.
 4. `useSimulatedPositions` computes projected positions at T+offset when forecast mode is active.
 5. deck.gl layers are recomputed via `useMemo` when filtered satellites, mode flags, or selection changes.
-6. User-triggered screening (`showDensity`, `showReentry`, `showBands`) activates the relevant hook and recolors the ScatterplotLayer.
+6. User-triggered screening (`showDensity`, `showReentry`, `showBands`) activates the relevant hook and visualization layer.
+7. New historical epochs are written to `tle_history`, enqueue one pending trend job per affected NORAD ID, and are later processed asynchronously into `object_trends` and `trend_snapshots`.
 
 ---
 
@@ -377,14 +388,14 @@ npm run test:watch
 
 | Variable                   | Description                                                                                                                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint                                                                                                                                                                                                                      |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token                                                                                                                                                                                                                         |
-| `DATABASE_URL`             | Neon PostgreSQL connection string (Drizzle)                                                                                                                                                                                                      |
-| `INTERNAL_JOB_SECRET`      | Shared secret for `x-internal-secret` header on internal cron routes (`/api/internal/*`)                                                                                                                                                         |
-| `InDevelopment`            | Set to `"true"` to show UnderDevelopment page for dashboard routes                                                                                                                                                                               |
-| `SPACETRACK_IDENTITY`      | Space-Track account username.                                                                                                                                                                                                                    |
-| `SPACETRACK_PASSWORD`      | Space-Track account password                                                                                                                                                                                                                     |
-| `TLE_PROVIDER`             | `spacetrack` (default) or `celestrak`. Read by `getPrimaryProvider()`/`getFallbackProvider()` in `lib/tle-providers/`, which `lib/ingestion/tleIngestionService.ts` calls every cycle -- actively wired into the live ingest path since Phase 2. |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token |
+| `DATABASE_URL`             | Neon PostgreSQL connection string (Drizzle) |
+| `INTERNAL_JOB_SECRET`      | Shared secret for `x-internal-secret` header on internal cron routes (`/api/internal/*`) |
+| `InDevelopment`            | Set to `"true"` to show UnderDevelopment page for dashboard routes |
+| `SPACETRACK_IDENTITY`      | Space-Track account username |
+| `SPACETRACK_PASSWORD`      | Space-Track account password |
+| `TLE_PROVIDER`             | `spacetrack` (default) or `celestrak`. Read by `getPrimaryProvider()`/`getFallbackProvider()` in `lib/tle-providers/` and actively used by the live ingest path. |
 
 ---
 
