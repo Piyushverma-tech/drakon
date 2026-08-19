@@ -38,7 +38,7 @@ The implementation is built around several invariants:
 flowchart TB
     subgraph acquisition [TLE Acquisition]
         FETCH[Space-Track / CelesTrak]
-        INGEST[POST /api/internal/ingest-tle]
+        INGEST["POST /api/internal/ingest-tle"]
     end
 
     subgraph history [Historical Ingestion]
@@ -61,8 +61,8 @@ flowchart TB
     HIST --> TJ
 
     subgraph worker [Asynchronous Trend Worker]
-        CRON[cron-job.org · every 15 min]
-        ROUTE[POST /api/internal/process-trends]
+        CRON["cron-job.org · every 15 min"]
+        ROUTE["POST /api/internal/process-trends"]
         CLAIM[Claim with SKIP LOCKED]
         COMPUTE[recomputeTrends]
         UPSERT[upsertTrend]
@@ -77,9 +77,9 @@ flowchart TB
     TJ -->|success: delete| WORKDONE[Queue remains small]
 
     subgraph api [Read APIs]
-        TRENDAPI[GET /api/object-trends]
-        CHANGEAPI[GET /api/object-trends/recent-changes]
-        SNAPAPI[GET /api/object-trends/[noradId]/snapshots]
+        TRENDAPI["GET /api/object-trends"]
+        CHANGEAPI["GET /api/object-trends/recent-changes"]
+        SNAPAPI["GET /api/object-trends/{noradId}/snapshots"]
     end
 
     OT --> TRENDAPI
