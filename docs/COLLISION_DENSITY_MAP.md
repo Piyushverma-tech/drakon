@@ -34,8 +34,8 @@ The design is based on several important decisions:
 ```mermaid
 flowchart TB
     subgraph source [Current orbital state]
-        POS[SatellitePoint[]\nlat / lon / altitude / metadata / TLE]
-        TLE[Current TLE state\npropagated elsewhere]
+        POS["SatellitePoint[]<br/>lat / lon / altitude / metadata / TLE"]
+        TLE["Current TLE state<br/>propagated elsewhere"]
     end
 
     subgraph client [Client orchestration]
@@ -70,8 +70,8 @@ flowchart TB
     TOP --> RESULT
 
     subgraph visualization [Visualization]
-        SAT[ScatterplotLayer\nsatellite density color/size]
-        LINES[LineLayer\ntop 50 filtered pairs]
+        SAT["ScatterplotLayer<br/>satellite density color/size"]
+        LINES["LineLayer<br/>top 50 filtered pairs"]
         LEGEND[Density legend]
         STATS[Collision statistics / dashboard]
         RESULT --> SAT
