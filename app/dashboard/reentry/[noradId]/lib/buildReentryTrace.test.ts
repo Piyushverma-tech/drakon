@@ -66,7 +66,11 @@ describe('buildReentryTrace', () => {
   it('builds a full trace when the trend model itself is the source of truth', () => {
     const trend = makeTrend();
     const risk = makeRisk();
-    const trace = buildReentryTrace({ risk, trend });
+    const trace = buildReentryTrace({
+      risk,
+      trend,
+      isCurrentModelVersion: true,
+    });
 
     expect(trace.verdict.headline).toBe('Re-entry expected in ~9 days');
     expect(trace.verdict.confidenceLine).toBe('76% confidence');
@@ -121,7 +125,11 @@ describe('buildReentryTrace', () => {
       decayConfidence: undefined,
     });
 
-    const trace = buildReentryTrace({ risk, trend });
+    const trace = buildReentryTrace({
+      risk,
+      trend,
+      isCurrentModelVersion: true,
+    });
 
     expect(trace.verdict.tier).toBe('critical');
     expect(trace.verdict.headline).toBe('Re-entry expected in ~1 days');
@@ -158,8 +166,22 @@ describe('buildReentryTrace', () => {
     });
     const risk = makeRisk({ tier: 'critical', estimatedDaysRemaining: 2 });
 
-    const trace = buildReentryTrace({ risk, trend });
+    const trace = buildReentryTrace({
+      risk,
+      trend,
+      isCurrentModelVersion: true,
+    });
     expect(trace.steps.find((s) => s.id === 'override')).toBeUndefined();
+  });
+
+  it('uses the caller-provided model freshness instead of assuming the trend is current', () => {
+    const trace = buildReentryTrace({
+      risk: makeRisk(),
+      trend: makeTrend({ trendVersion: 3 }),
+      isCurrentModelVersion: false,
+    });
+
+    expect(trace.isCurrentModelVersion).toBe(false);
   });
 
   it('handles a brand new object with no trend row yet -- no load-history step either', () => {
@@ -172,7 +194,11 @@ describe('buildReentryTrace', () => {
       decayConfidence: undefined,
     });
 
-    const trace = buildReentryTrace({ risk, trend: undefined });
+    const trace = buildReentryTrace({
+      risk,
+      trend: undefined,
+      isCurrentModelVersion: true,
+    });
 
     expect(trace.computedAt).toBeNull();
     expect(trace.verdict.confidenceLine).toBe('High confidence');
@@ -196,7 +222,11 @@ describe('buildReentryTrace', () => {
       estimatedDaysRemaining: null,
     });
 
-    const trace = buildReentryTrace({ risk, trend });
+    const trace = buildReentryTrace({
+      risk,
+      trend,
+      isCurrentModelVersion: true,
+    });
     expect(trace.verdict.headline).toBe('Maneuver signature detected');
     expect(trace.verdict.summary).toContain('probable maneuver signature');
     expect(trace.steps.find((s) => s.id === 'tier')?.detail).toBe(
@@ -215,7 +245,11 @@ describe('buildReentryTrace', () => {
     });
     const risk = makeRisk();
 
-    const trace = buildReentryTrace({ risk, trend });
+    const trace = buildReentryTrace({
+      risk,
+      trend,
+      isCurrentModelVersion: true,
+    });
     // a trend row exists (even if sub-scores aren't persisted yet), so
     // load-history is real and shown -- only the per-signal breakdown is
     // withheld, not fabricated as zeros
@@ -242,7 +276,11 @@ function makeTip(overrides: Partial<TipPrediction> = {}): TipPrediction {
 describe('buildReentryTrace — TIP comparison step', () => {
   it('omits the step entirely when there is no TIP prediction', () => {
     const risk = makeRisk({ tip: undefined });
-    const trace = buildReentryTrace({ risk, trend: makeTrend() });
+    const trace = buildReentryTrace({
+      risk,
+      trend: makeTrend(),
+      isCurrentModelVersion: true,
+    });
     expect(trace.steps.find((s) => s.id === 'tip-comparison')).toBeUndefined();
   });
 
@@ -254,7 +292,11 @@ describe('buildReentryTrace — TIP comparison step', () => {
       tipDeltaDays: null,
       tipAgreement: null,
     });
-    const trace = buildReentryTrace({ risk, trend: undefined });
+    const trace = buildReentryTrace({
+      risk,
+      trend: undefined,
+      isCurrentModelVersion: true,
+    });
     const step = trace.steps.find((s) => s.id === 'tip-comparison');
     expect(step?.icon).toBe('alert-triangle');
     expect(step?.status).toBe('disagree');
@@ -269,7 +311,11 @@ describe('buildReentryTrace — TIP comparison step', () => {
       tipDeltaDays: 2,
       tipAgreement: 'aligned',
     });
-    const trace = buildReentryTrace({ risk, trend: makeTrend() });
+    const trace = buildReentryTrace({
+      risk,
+      trend: makeTrend(),
+      isCurrentModelVersion: true,
+    });
     const step = trace.steps.find((s) => s.id === 'tip-comparison');
     expect(step?.icon).toBe('shield-check');
     expect(step?.status).toBe('agree');
@@ -283,7 +329,11 @@ describe('buildReentryTrace — TIP comparison step', () => {
       tipDeltaDays: 20,
       tipAgreement: 'diverges',
     });
-    const trace = buildReentryTrace({ risk, trend: makeTrend() });
+    const trace = buildReentryTrace({
+      risk,
+      trend: makeTrend(),
+      isCurrentModelVersion: true,
+    });
     const ids = trace.steps.map((s) => s.id);
     const step = trace.steps.find((s) => s.id === 'tip-comparison');
     expect(step?.icon).toBe('shield-x');

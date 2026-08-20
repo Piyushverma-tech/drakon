@@ -50,7 +50,7 @@ export interface BuildReentryTraceInput {
    * consensus steps, and is compared against `risk` to detect when a live
    * altitude estimate has overridden it. */
   trend: ObjectTrend | undefined;
-  isCurrentModelVersion?: boolean;
+  isCurrentModelVersion: boolean;
 }
 
 function pct(value: number): number {
@@ -325,7 +325,7 @@ function tipComparisonStep(risk: ReentryRisk): ReentryTraceStep | null {
 export function buildReentryTrace({
   risk,
   trend,
-  isCurrentModelVersion = true,
+  isCurrentModelVersion,
 }: BuildReentryTraceInput): ReentryTrace {
   const steps: ReentryTraceStep[] = [];
   const signals = trend ? reconstructSignalContributions(trend) : [];

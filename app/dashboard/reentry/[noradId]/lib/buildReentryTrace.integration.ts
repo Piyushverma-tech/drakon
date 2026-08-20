@@ -82,7 +82,11 @@ describe('resolveReentryRisk -> buildReentryTrace (integration, real functions e
     const entry = makeEntry();
     expect(() => {
       const risk = resolveReentryRisk(entry, undefined, 1);
-      const trace = buildReentryTrace({ risk, trend: undefined });
+      const trace = buildReentryTrace({
+        risk,
+        trend: undefined,
+        isCurrentModelVersion: true,
+      });
       expect(trace.verdict.tier).toBe('critical');
       expect(trace.steps.map((s) => s.id)).toEqual(['tier']);
     }).not.toThrow();
@@ -94,7 +98,11 @@ describe('resolveReentryRisk -> buildReentryTrace (integration, real functions e
 
     expect(() => {
       const risk = resolveReentryRisk(entry, trend, 1);
-      const trace = buildReentryTrace({ risk, trend });
+      const trace = buildReentryTrace({
+        risk,
+        trend,
+        isCurrentModelVersion: true,
+      });
 
       expect(risk.tier).toBe('critical');
       expect(trace.verdict.tier).toBe('critical');
@@ -108,7 +116,11 @@ describe('resolveReentryRisk -> buildReentryTrace (integration, real functions e
     expect(() => {
       const risk = resolveReentryRisk(entry, undefined, 1);
       expect(risk.decaySignal).toBeUndefined();
-      const trace = buildReentryTrace({ risk, trend: undefined });
+      const trace = buildReentryTrace({
+        risk,
+        trend: undefined,
+        isCurrentModelVersion: true,
+      });
       expect(trace.verdict.headline).toBe('No significant decay detected');
     }).not.toThrow();
   });
@@ -123,7 +135,11 @@ describe('resolveReentryRisk -> buildReentryTrace (integration, real functions e
 
     expect(() => {
       const risk = resolveReentryRisk(entry, undefined, 1);
-      const trace = buildReentryTrace({ risk, trend: undefined });
+      const trace = buildReentryTrace({
+        risk,
+        trend: undefined,
+        isCurrentModelVersion: true,
+      });
       expect(trace).toBeDefined();
     }).not.toThrow();
   });
@@ -139,7 +155,11 @@ describe('resolveReentryRisk -> buildReentryTrace (integration, real functions e
 
     expect(() => {
       const risk = resolveReentryRisk(entry, trend, 1);
-      const trace = buildReentryTrace({ risk, trend });
+      const trace = buildReentryTrace({
+        risk,
+        trend,
+        isCurrentModelVersion: true,
+      });
       expect(trace.verdict.tier).toBe('stable');
     }).not.toThrow();
   });
@@ -149,7 +169,11 @@ describe('resolveReentryRisk -> buildReentryTrace (integration, real functions e
 
     expect(() => {
       const risk = resolveReentryRisk(entry, undefined, 1);
-      const trace = buildReentryTrace({ risk, trend: undefined });
+      const trace = buildReentryTrace({
+        risk,
+        trend: undefined,
+        isCurrentModelVersion: true,
+      });
       expect(trace.verdict.tier).toBe('stable');
     }).not.toThrow();
   });

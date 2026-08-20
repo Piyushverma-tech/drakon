@@ -16,6 +16,7 @@ import { useTleEntriesQuery } from '@/hooks/useTleEntriesQuery';
 import { useObjectTrendsQuery } from '@/hooks/useObjectTrendsQuery';
 import { useObjectHistoryQuery } from '@/hooks/useObjectHistoryQuery';
 import { useObjectSnapshotsQuery } from '@/hooks/useObjectSnapshotsQuery';
+import { useObjectExplainQuery } from '@/hooks/useObjectExplainQuery';
 import { useMetadataForSatellite } from '@/hooks/useSatelliteMetadata';
 import { useTipQuery } from '@/hooks/useTipQuery';
 import { useOrbitalFrame } from '@/hooks/useOrbitalFrame';
@@ -146,6 +147,11 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
   const { data: tip } = useTipQuery(true); // data only -- never gate render on TIP
   const historyQuery = useObjectHistoryQuery(noradId, 30);
   const snapshotsQuery = useObjectSnapshotsQuery(noradId);
+  const {
+    data: trendExplanation,
+    isLoading: explanationLoading,
+    isFetching: explanationFetching,
+  } = useObjectExplainQuery(noradId);
   const metadata = useMetadataForSatellite(noradId);
 
   const entry = useMemo(
@@ -153,6 +159,8 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
     [tleData?.entries, noradId]
   );
   const trend = objectTrendsById?.get(noradId);
+
+  const isCurrentModelVersion = trendExplanation?.isCurrentModelVersion ?? true;
   const solarFluxMultiplier =
     tleData?.solarFluxMultiplier ?? DEFAULT_SOLAR_FLUX_MULTIPLIER;
 
@@ -168,8 +176,9 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
   }, [entry, trend, solarFluxMultiplier, tip, noradId]);
 
   const trace = useMemo(
-    () => (risk ? buildReentryTrace({ risk, trend }) : null),
-    [risk, trend]
+    () =>
+      risk ? buildReentryTrace({ risk, trend, isCurrentModelVersion }) : null,
+    [risk, trend, isCurrentModelVersion]
   );
 
   const altitudeOption = useMemo(
@@ -248,6 +257,12 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
     },
   ].filter((row) => row.value && row.value !== '—');
 
+  const trendVersion =
+    trendExplanation?.trendVersion ??
+    objectTrendsById?.get(noradId)?.trendVersion;
+  const trendComputedAt =
+    trace.computedAt ?? trendExplanation?.updatedAt ?? null;
+
   return (
     <div className="max-w-6xl mx-auto p-6">
       <DecisionTrace
@@ -281,31 +296,38 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
               <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
               <div>{trace.verdict.confidenceLine}</div>
 
-              {trace.computedAt && (
+              {trendComputedAt && (
                 <>
                   <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
                   <div>
                     {'Trend computed '}
-                    {formatRelativeTime(trace.computedAt)}
+                    {formatRelativeTime(trendComputedAt)}
                   </div>
                 </>
               )}
 
-              {trace.computedAt && (
+              {trendComputedAt && (
                 <>
                   <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
                   <div>
-                    {'Trend Version '}
-                    {objectTrendsById?.get(noradId)?.trendVersion}
+                    {'Trend Model V.0'}
+                    {trendVersion ?? '—'}{' '}
+                    {trace.isCurrentModelVersion ? ' (latest)' : ' (outdated)'}
                   </div>
                 </>
               )}
-              {!trace.computedAt && trendsLoading && (
-                <>
-                  <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
-                  <div>Loading trend model</div>
-                </>
-              )}
+              {!trendComputedAt &&
+                (trendsLoading ||
+                  explanationLoading ||
+                  explanationFetching) && (
+                  <>
+                    <Dot
+                      className=" text-gray-400 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <div>Loading trend model</div>
+                  </>
+                )}
               {!trace.isCurrentModelVersion && (
                 <span className="text-amber-400">
                   {' '}
@@ -398,7 +420,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                   tier and signal have held steady since tracking began.
                 </p>
               ) : (
-                <ul className="flex flex-col gap-3 h-[240px] overflow-auto no-scrollbar">
+                <ul className="flex flex-col gap-3 h-auto max-h-[240px] overflow-auto no-scrollbar">
                   {timeline.map((event) => {
                     const Icon = DIRECTION_ICON[event.direction];
                     return (
@@ -432,8 +454,8 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
               {trend?.epochsAvailable ?? '—'} epochs
               {' · '}
               {trend?.historyDaysAvailable.toFixed(1) ?? '—'} days history
-              {trace.computedAt && (
-                <> · trend computed at {formatAbsoluteUtc(trace.computedAt)}</>
+              {trendComputedAt && (
+                <> · trend computed at {formatAbsoluteUtc(trendComputedAt)}</>
               )}
             </p>
           </>
