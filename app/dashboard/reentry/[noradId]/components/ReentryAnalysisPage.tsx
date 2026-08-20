@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useCallback, useMemo } from 'react';
 import {
   ArrowRight,
@@ -29,8 +30,6 @@ import {
 import { getOrbitType } from '@/lib/satelliteHelpers';
 import { DecisionTrace, TraceStep } from '@/components/DecisionTrace';
 import type { TraceStepEmphasis } from '@/components/DecisionTrace';
-import { EChart } from '@/components/Charts/Echart';
-import { FlightDynamicsCanvas } from '@/components/FlightDynamics';
 import { formatAbsoluteUtc, formatRelativeTime } from '../lib/formatTimestamp';
 import { buildReentryTrace } from '../lib/buildReentryTrace';
 import {
@@ -44,6 +43,7 @@ import {
 } from '../lib/buildChangeTimeline';
 import { ReentryCountdown } from '@/components/ReentryCountdown';
 import { resolveCountdownTarget } from '@/lib/tip/countdownTarget';
+import { ReentryAnalysisLoading } from './ReentryAnalysisLoading';
 
 const TIER_BADGE: Record<string, string> = {
   critical: 'border-red-500/40 bg-red-500/10 text-red-400',
@@ -76,6 +76,44 @@ type MetadataRow = {
   value: string | null | undefined;
 };
 
+function EvidencePlaceholder({
+  height = 240,
+  label = 'Loading evidence...',
+}: {
+  height?: number;
+  label?: string;
+}) {
+  return (
+    <div
+      className="flex items-center justify-center border border-white/10 bg-white/[0.03] text-[11px] uppercase tracking-wider text-gray-500"
+      style={{ height }}
+    >
+      {label}
+    </div>
+  );
+}
+
+const EChart = dynamic(
+  () => import('@/components/Charts/Echart').then((mod) => mod.EChart),
+  {
+    ssr: false,
+    loading: () => <EvidencePlaceholder />,
+  }
+);
+
+const FlightDynamicsCanvas = dynamic(
+  () =>
+    import('@/components/FlightDynamics').then(
+      (mod) => mod.FlightDynamicsCanvas
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <EvidencePlaceholder height={240} label="Loading flight dynamics..." />
+    ),
+  }
+);
+
 function formatNumber(value: number | null | undefined, digits = 2): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return '—';
@@ -103,7 +141,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
     isError: tleError,
     error: tleErrorObj,
   } = useTleEntriesQuery();
-  const { data: objectTrendsById, isFetching: trendsFetching } =
+  const { data: objectTrendsById, isLoading: trendsLoading } =
     useObjectTrendsQuery(true);
   const { data: tip } = useTipQuery(true); // data only -- never gate render on TIP
   const historyQuery = useObjectHistoryQuery(noradId, 30);
@@ -157,12 +195,8 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
     dispatch(setShowReentry(true));
   }, [dispatch, noradId]);
 
-  if (tleLoading || trendsFetching) {
-    return (
-      <div className="max-w-6xl mx-auto p-6 text-sm text-center text-gray-400">
-        Loading decision trace…
-      </div>
-    );
+  if (tleLoading) {
+    return <ReentryAnalysisLoading noradId={noradId} />;
   }
 
   if (tleError) {
@@ -261,9 +295,15 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                 <>
                   <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
                   <div>
-                    {'Version '}
+                    {'Trend Version '}
                     {objectTrendsById?.get(noradId)?.trendVersion}
                   </div>
+                </>
+              )}
+              {!trace.computedAt && trendsLoading && (
+                <>
+                  <Dot className=" text-gray-400 shrink-0" aria-hidden="true" />
+                  <div>Loading trend model</div>
                 </>
               )}
               {!trace.isCurrentModelVersion && (
@@ -348,7 +388,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
             <div className="mt-8 border-t border-white/10 pt-6">
               <p className="text-sm text-gray-500 mb-3 flex items-center gap-1.5">
                 <History className="h-3.5 w-3.5" aria-hidden="true" />
-                Change logs
+                Change History
               </p>
               {snapshotsQuery.isLoading ? (
                 <p className="text-[12px] text-gray-500">Loading…</p>
@@ -358,7 +398,7 @@ export function ReentryAnalysisPage({ noradId }: { noradId: number }) {
                   tier and signal have held steady since tracking began.
                 </p>
               ) : (
-                <ul className="flex flex-col gap-3">
+                <ul className="flex flex-col gap-3 h-[240px] overflow-auto no-scrollbar">
                   {timeline.map((event) => {
                     const Icon = DIRECTION_ICON[event.direction];
                     return (

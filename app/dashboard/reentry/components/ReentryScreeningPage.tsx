@@ -202,7 +202,7 @@ export function ReentryScreeningPage() {
       </div>
 
       {tleLoading ? (
-        <div className="flex items-center gap-2 py-16 text-sm text-gray-500">
+        <div className="flex items-center justify-center gap-2 py-14 text-sm text-gray-500">
           <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
           Loading catalog…
         </div>

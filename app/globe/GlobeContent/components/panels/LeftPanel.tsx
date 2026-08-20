@@ -527,7 +527,7 @@ const LeftPanel = memo(function LeftPanel({
           >
             <div className="flex items-center justify-between  ">
               <span className="text-[9px] uppercase tracking-widest text-gray-400">
-                Re-entry Risk
+                Re-entry
               </span>
               <span
                 className={`text-[11px] font-semibold uppercase tracking-wider ${TIER_COLOR[reentryRisk.tier]}`}

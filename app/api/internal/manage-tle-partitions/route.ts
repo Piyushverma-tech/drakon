@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { runPartitionMaintenance } from '@/lib/db/tlePartitions';
 
-// This is meant to run monthly via cron-job.org -- every step is idempotent (CREATE TABLE
-// IF NOT EXISTS / DROP TABLE IF EXISTS).
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
