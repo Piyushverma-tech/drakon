@@ -1,22 +1,48 @@
 # Geomagnetic Storm Effects on Re-entry Risk
 
-## 1. Purpose
+## 1. Purpose and implementation boundary
 
-DRAKON's current re-entry screening model already applies a solar-activity correction through `lib/solarFlux.ts`, but it does not currently account for short-timescale thermospheric density changes caused by geomagnetic activity.
+DRAKON's current re-entry screening model applies a slowly varying solar-activity correction through `lib/solarFlux.ts`, but it does not yet account for short-timescale thermospheric-density changes associated with geomagnetic activity.
 
-This plan defines a scientifically conservative extension for incorporating geomagnetic storm effects into the existing re-entry model without turning DRAKON into a full operational thermosphere model.
+This document defines the implementation and validation plan for adding that missing signal without turning DRAKON into a full operational thermosphere model.
 
-The design treats geomagnetic activity as an **external atmospheric calibration signal**: it is fetched from NOAA SWPC, cached with explicit freshness semantics, converted into a bounded empirical density multiplier, and composed with the existing solar-flux multiplier at final risk resolution.
+The feature is an **external environmental correction layer**. It will ingest NOAA SWPC geomagnetic observations, normalize and retain a short recent history, derive a lag-aware geomagnetic activity feature, convert that feature into a bounded empirical atmospheric-density multiplier, and compose that multiplier with the existing F10.7 correction at final re-entry-risk resolution.
 
-The goal is not to reproduce a Jacchia, DTM, NRLMSISE-00, NRLMSIS 2.0, or other full thermospheric density model. The goal is to capture a missing first-order environmental effect on short timescales while preserving DRAKON's existing fail-soft and explainable screening architecture.
+The first production implementation is intentionally not a physics-complete density model such as NRLMSISE-00, NRLMSIS 2.0, JB2008, DTM, or WAM. It is a calibrated screening correction intended to capture first-order storm-driven density changes on timescales that F10.7 alone cannot represent.
 
-## 2. Current model boundary
+The implementation must be scientifically conservative: until retrospective validation demonstrates that the correction improves prediction quality without creating unacceptable false urgency, the geomagnetic multiplier remains disabled or forced to `1.0`.
 
-The current re-entry architecture has three relevant paths.
+## 2. Verified external-data decision
 
-### 2.1 Single-epoch screening
+The earlier proposal to consume a NOAA first-class JSON `ap` feed is not valid for the current SWPC product surface.
 
-`getReentryRisk()` in `lib/satelliteHelpers.ts` estimates decay for qualifying debris using current TLE-derived BSTAR and N-dot evidence. Its atmospheric proxy contains the altitude-sensitive term:
+The current NOAA JSON catalog exposes `planetary_k_index_1m.json` as the real-time minute-cadence planetary Kp stream. NOAA's current JSON product catalog does not expose an analogous clean real-time planetary-ap JSON feed. NOAA's legacy `AK.txt` product contains a textual "Planetary(estimated Ap)" row, but it is a fixed-width station-oriented product and is not a clean counterpart to `f107_cm_flux.json`. citeturn280502search0turn280502search33
+
+Therefore the implementation will use the NOAA real-time planetary Kp feed as the primary live source and perform the standard published Kp-to-ap conversion inside DRAKON.
+
+This conversion is not an empirical model. It is the established Bartels/IAGA lookup that maps the 28 discrete Kp classes to their corresponding three-hour `ap` equivalent amplitudes. NOAA NCEI publishes the lookup explicitly, and NASA documentation reproduces the same table. citeturn667084search0turn667084search38
+
+This is preferable to parsing the legacy `AK.txt` product because it keeps NOAA-specific transport parsing isolated while making the index conversion deterministic, tiny, testable, and versionable.
+
+### Authoritative source roles
+
+| Source | Role | First implementation |
+| --- | --- | --- |
+| NOAA `planetary_k_index_1m.json` | Near-real-time planetary Kp observations | **Required** |
+| Internal Bartels Kp→ap lookup | Convert each Kp class to three-hour ap | **Required** |
+| NOAA `AK.txt` estimated Ap row | Legacy text alternative | **Not used** |
+| CelesTrak space-weather data | Independent reference/validation source | **Not a runtime dependency** |
+| GFZ Kp/ap nowcast series | Independent validation/reference | **Not a runtime dependency** |
+
+CelesTrak's current space-weather documentation independently confirms the standard relationship: Kp data is used to calculate ap, while its current nowcast data contains both three-hourly Kp and ap. That makes CelesTrak useful for cross-validation of DRAKON's conversion rather than necessary for the runtime path. citeturn280502search2
+
+## 3. Current DRAKON model boundary
+
+The current re-entry implementation has three relevant atmospheric paths.
+
+### 3.1 Single-epoch screening
+
+`getReentryRisk()` in `lib/satelliteHelpers.ts` estimates decay for qualifying debris from current TLE-derived evidence. The atmospheric proxy contains the altitude-sensitive factor:
 
 ```text
 decayRate ∝ |BSTAR|
@@ -27,721 +53,848 @@ decayRate ∝ |BSTAR|
 
 This path is intentionally inexpensive and does not require a database query per object.
 
-### 2.2 Historical trend screening
+### 3.2 Historical trend model
 
-`computeObjectTrends.ts` and `explainReentryTrend.ts` use repeated TLE observations to evaluate BSTAR, N-dot, and orbital-altitude trends over 7/14/30-day windows. This persisted regression model does not currently contain an explicit atmospheric-density state variable.
+`computeObjectTrends.ts` and `explainReentryTrend.ts` evaluate repeated TLE observations over 7/14/30-day windows using BSTAR, N-dot, and orbital-altitude signals.
 
-Geomagnetic correction should **not** be injected into these persisted regressions in this phase. Doing so would make the historical trend cache dependent on a changing external environmental series and would require reprocessing historical observations whenever the geomagnetic model changes.
+Geomagnetic forcing must **not** be introduced into these persisted regressions in the first implementation. The historical trend cache represents orbital evidence derived from TLE history. Injecting an external environmental series into that layer would couple `object_trends` to a changing provider, require environmental-history alignment, and force trend-version changes whenever the atmospheric model changes.
 
-### 2.3 Low-altitude fallback
+### 3.3 Low-altitude fallback
 
-For very low-perigee objects, `resolveReentryRisk()` can use the altitude-dominated fallback path. Its decay proxy contains:
+`resolveReentryRisk()` in `lib/objectTrendRisk.ts` can use an altitude-dominated fallback for very low-perigee objects. Its decay proxy contains:
 
 ```text
 decayRate ∝ exp((200 - altitude) / 35)
              × solarFluxMultiplier
 ```
 
-This path is particularly sensitive to short-timescale density changes and is therefore one of the primary consumers of the new geomagnetic correction.
+This path is deliberately sensitive to near-terminal atmospheric conditions and is therefore a primary consumer of the new geomagnetic correction.
 
-### 2.4 Final risk resolution boundary
+### 3.4 Final integration boundary
 
-`resolveReentryRisk()` in `lib/objectTrendRisk.ts` is the correct integration boundary because it already combines the single-epoch estimate, historical trend evidence, payload/debris policy, low-altitude handling, and the existing solar correction.
+`resolveReentryRisk()` is the correct integration boundary because it already combines current TLE evidence, persisted trend evidence, payload/debris policy, low-altitude handling, and the existing solar correction.
 
-The geomagnetic signal should modify the atmospheric estimate at this boundary without changing the existing decision tree, consensus rules, trend persistence model, or risk-tier policy.
+The new signal must modify only the atmospheric correction state at this boundary. It must not alter the existing decision tree, payload consensus policy, trend persistence semantics, or risk-tier thresholds in the first release.
 
-## 3. Scientific rationale
+## 4. Scientific basis
 
-Geomagnetic activity can produce rapid changes in thermospheric density that are not represented by slowly varying solar-radio-flux measurements alone. NOAA's operational geomagnetic products describe Kp as a global indicator of magnetic disturbance and note that Kp is defined over three-hour intervals; the real-time NOAA stream provides estimated planetary activity before the final official index is available. citeturn620085search0turn620085search4
+Geomagnetic activity is a meaningful short-timescale driver of thermospheric density variability. Planetary Kp is a three-hour magnetic-activity index, and the associated ap index converts the quasi-logarithmic Kp scale to an equivalent-amplitude scale. NOAA NCEI defines ap as a three-hour planetary equivalent-amplitude index and publishes the standard Kp/ap conversion table. citeturn667084search0turn667084search1
 
-The planetary `ap` index is preferable to averaging Kp values directly because Kp is quasi-logarithmic. NOAA explicitly states that averaging K values is not meaningful and that equivalent-amplitude `a` indices are used to linearize the activity scale. NOAA also defines `ap` as a three-hour planetary equivalent-amplitude index, with daily Ap formed from eight three-hour values. citeturn620085search0turn620085search5
+The important modeling constraint is that a geomagnetic index is an **external proxy for thermospheric forcing**, not a direct local density measurement. The actual density response depends on altitude, latitude, local solar time, season, storm phase, and thermospheric state/history. A global planetary index can therefore identify enhanced forcing without uniquely determining local density at every satellite.
 
-DRAKON should therefore use a NOAA-provided three-hourly planetary `ap`/estimated `ap` product as its internal geomagnetic forcing variable rather than implementing a Kp-to-ap conversion itself.
+DRAKON should consequently use geomagnetic activity as a bounded empirical correction to its existing atmospheric proxy, not interpret the multiplier as a measured density ratio.
 
-The model should nevertheless remain empirical. A single planetary index does not uniquely determine local thermospheric density because density response depends on altitude, latitude, local time, season, storm phase, and the state/history of the thermosphere. NOAA also warns that a globally averaged geomagnetic index can miss localized disturbances. citeturn620085search0turn620085search4
+### Why ap is an intermediate representation
 
-Accordingly, the geomagnetic correction must be treated as a bounded screening adjustment rather than as a physically exact density ratio.
+Kp itself is quasi-logarithmic; direct averaging of Kp values is not appropriate as a linear activity measure. The standard solution is to convert each three-hour Kp class to its corresponding `ap` value and then perform any temporal aggregation on the linearized ap series. NOAA publishes this relationship explicitly. citeturn667084search0turn667084search38
 
-## 4. External data source
-
-### 4.1 Primary geomagnetic variable: 3-hour planetary ap
-
-The preferred internal forcing variable is the planetary `ap` family rather than raw Kp.
-
-NOAA SWPC documents `ap` as a three-hour planetary equivalent-amplitude measure. NOAA also reports an estimated Ap operationally because the official planetary series is finalized after the fact. citeturn620085search0turn620085search1
-
-The implementation should consume a NOAA SWPC product that provides the latest three-hour planetary `ap` estimate and enough recent samples to reconstruct the short storm history needed by the model.
-
-The exact NOAA endpoint and JSON schema should be verified against the live SWPC product catalog during implementation rather than hard-coded from a secondary description. The repository should store the provider URL as one named constant in `lib/geomagneticIndex.ts` so endpoint changes are localized.
-
-NOAA's current products index confirms that SWPC exposes planetary geomagnetic products, including a real-time planetary K-index stream and related geomagnetic products. citeturn594566search0turn594566search1
-
-### 4.2 Optional fast signal: near-real-time Kp
-
-The existing NOAA `planetary_k_index_1m.json` feed should remain optional rather than becoming the primary model input.
-
-Its value is operational responsiveness: it can indicate the onset or rapid change of a storm before a finalized three-hour product is available. NOAA describes the minute-by-minute K monitoring stream as a near-real-time operational estimate and distinguishes it from the finalized three-hour indices. citeturn620085search0turn620085search3
-
-A future implementation may use this stream as a **storm-onset trigger** or freshness aid, but the first production model should derive its multiplier from the three-hour planetary `ap` series alone. This keeps the correction numerically stable and avoids mixing two index definitions in the first calibration cycle.
-
-## 5. Requirements
-
-The geomagnetic subsystem must satisfy the following requirements:
-
-1. It must be fail-soft. An unavailable or invalid environmental signal must never make the re-entry page or TLE ingestion unavailable.
-2. It must be time-sensitive. A 24-hour TTL is inappropriate for a storm signal whose relevant changes occur on multi-hour timescales.
-3. It must preserve recent history. The multiplier cannot be based only on the newest three-hour value because atmospheric response is not guaranteed to be instantaneous.
-4. It must be bounded. The correction must not overpower orbital evidence or create extreme discontinuities in lifetime estimates.
-5. It must be monotonic. Greater recent geomagnetic activity must not reduce predicted drag when all other inputs are held constant.
-6. It must be explainable. The risk resolver must be able to expose the activity value, observation age, multiplier, and source state.
-7. It must be independently calibratable. The Kp/ap-to-multiplier curve must not be justified as a first-principles physical law.
-8. It must not alter persisted historical regression semantics in the first implementation.
-9. It must compose with the existing solar correction instead of replacing it.
-10. It must have explicit behavior for stale, missing, malformed, and contradictory provider data.
-
-## 6. Data architecture
-
-The subsystem should mirror the operational pattern already established by `lib/solarFlux.ts`, while adding short-term memory because geomagnetic forcing changes much faster than F10.7.
+The first production path is therefore:
 
 ```text
-NOAA SWPC three-hour planetary ap
-             |
-             v
-   validate + normalize sample
-             |
-             +--> latest sample
-             |
-             +--> recent 24h history
-             |
-             v
-        Redis cache
-             |
-             v
-  lagged/storm-state feature
-             |
-             v
-   geomagnetic multiplier
-             |
-             +-------------------+
-                                 |
-NOAA F10.7 ----------------> solar multiplier
-                                 |
-                                 v
-                    atmospheric correction state
-                                 |
-                                 v
-                       resolveReentryRisk()
-                                 |
-                  +--------------+--------------+
-                  |                             |
-          single-epoch model          low-altitude fallback
+NOAA real-time Kp
+      ↓
+standard Kp → ap lookup
+      ↓
+three-hour ap observations
+      ↓
+lagged / recency-weighted activity feature
+      ↓
+empirical geomagnetic multiplier
 ```
 
-The design intentionally keeps the environmental input out of the TLE history schema and `object_trends` persistence layer.
+## 5. Kp-to-ap conversion specification
+
+The conversion must be implemented as a pure lookup function. It is not to be fitted, interpolated, or learned.
+
+### 5.1 Published lookup table
+
+Use the standard 28-entry Bartels/IAGA mapping:
+
+| Kp class | ap | Kp class | ap |
+| --- | ---: | --- | ---: |
+| 0o | 0 | 5- | 39 |
+| 0+ | 2 | 5o | 48 |
+| 1- | 3 | 5+ | 56 |
+| 1o | 4 | 6- | 67 |
+| 1+ | 5 | 6o | 80 |
+| 2- | 6 | 6+ | 94 |
+| 2o | 7 | 7- | 111 |
+| 2+ | 9 | 7o | 132 |
+| 3- | 12 | 7+ | 154 |
+| 3o | 15 | 8- | 179 |
+| 3+ | 18 | 8o | 207 |
+| 4- | 22 | 8+ | 236 |
+| 4o | 27 | 9- | 300 |
+| 4+ | 32 | 9o | 400 |
+
+This table is the published conversion used by NOAA/NCEI and NASA documentation. citeturn667084search0turn667084search38
+
+The implementation should store the table as a readonly constant in `lib/geomagneticIndex.ts` and expose a pure function such as:
+
+```typescript
+function kpToAp(kp: number | string): number
+```
+
+### 5.2 Kp representation normalization
+
+The NOAA real-time JSON feed may represent Kp as a numeric value using the one-third-step convention or an equivalent encoded representation. The parser must normalize the provider value into the canonical 28 classes before lookup.
+
+The implementation must not silently round arbitrary Kp to the nearest integer. Kp subdivisions such as `4-`, `4o`, and `4+` carry materially different ap values.
+
+The accepted canonical sequence is:
+
+```text
+0o, 0+, 1-, 1o, 1+, ... , 8+, 9-, 9o
+```
+
+If the provider payload cannot be unambiguously normalized to one of these published classes, the sample must be rejected rather than approximated.
+
+### 5.3 No model version for the table
+
+The lookup itself is a standards/reference conversion, not a DRAKON calibration parameter. It should still have a source comment and unit tests, but changing the Kp→ap table would require a deliberate scientific-review decision rather than ordinary model tuning.
+
+## 6. NOAA ingestion
+
+### 6.1 Primary endpoint
+
+Use:
+
+```text
+https://services.swpc.noaa.gov/json/planetary_k_index_1m.json
+```
+
+The NOAA JSON catalog currently lists this as the real-time planetary K-index product. citeturn280502search0
+
+The exact response schema must be verified from the live endpoint during implementation. Do not infer field names from this document alone.
+
+### 6.2 Sample selection
+
+The feed is minute-cadence, but the geomagnetic model should not treat every minute as an independent physical measurement of the thermosphere.
+
+For each refresh:
+
+1. Parse the latest valid planetary Kp observation(s).
+2. Normalize each Kp sample to the canonical class.
+3. Convert the class to ap.
+4. Preserve its source timestamp.
+5. Deduplicate observations by timestamp.
+6. Retain enough observations to reconstruct the latest completed three-hour interval and a rolling short history.
+
+The model should prefer the most recent valid sample for storm awareness, but its final activity feature must be derived from the three-hour ap sequence rather than raw minute-by-minute Kp noise.
+
+### 6.3 Three-hour aggregation semantics
+
+The canonical model unit is a three-hour ap observation.
+
+If the NOAA minute stream contains repeated estimated Kp values for the same three-hour interval, DRAKON should not create dozens of independent ap observations from the same interval. Normalize the source stream to one effective ap observation per three-hour interval.
+
+The chosen interval representative should be documented in implementation and tests. Prefer the value associated with the latest valid estimated planetary Kp for that interval, rather than averaging Kp numerically.
+
+### 6.4 Cross-check during development
+
+During implementation, compare DRAKON's generated three-hour ap values against an independent authoritative/reference series such as GFZ's Kp/ap nowcast or CelesTrak's space-weather dataset.
+
+This is a validation step, not a runtime dependency. CelesTrak's current documentation explicitly includes three-hourly Kp and ap fields and identifies primary-source geomagnetic data. citeturn280502search2
 
 ## 7. `lib/geomagneticIndex.ts`
 
-Create `lib/geomagneticIndex.ts` as the environmental-data module.
+Create `lib/geomagneticIndex.ts` as the sole module responsible for the geomagnetic environmental signal.
 
-Its responsibilities should mirror `lib/solarFlux.ts` where appropriate:
+It should own:
 
-- fetch the NOAA product;
-- validate the response schema;
-- normalize timestamps and the planetary `ap` value;
-- maintain a short recent observation history;
-- expose the latest observation and derived storm-state features;
-- calculate the empirical multiplier;
-- persist/retrieve the normalized state through Redis;
-- return safe defaults when data is unavailable.
+- NOAA endpoint configuration;
+- provider response validation;
+- Kp normalization;
+- the published Kp→ap lookup;
+- three-hour interval normalization;
+- short-term history retention;
+- stale/live/default state determination;
+- lagged activity-feature calculation;
+- the empirical multiplier;
+- Redis serialization/deserialization;
+- safe fallback behavior.
 
-The module should not contain re-entry risk-resolution logic. It should expose environmental state; `objectTrendRisk.ts` remains responsible for applying that state to an object.
+It must not own:
 
-### Suggested type
+- `ReentryRisk` resolution;
+- payload/debris policy;
+- risk-tier assignment;
+- trend classification;
+- Decision Trace rendering.
+
+Those responsibilities remain in the existing re-entry architecture.
+
+### Suggested state contract
 
 ```typescript
 type GeomagneticState = {
+  kp: number;
+  kpClass: string;
   ap: number;
   observedAt: string;
   ageMinutes: number;
   history: Array<{
+    kp: number;
+    kpClass: string;
     ap: number;
     observedAt: string;
   }>;
-  stormActivity: number;
+  activity: number;
   multiplier: number;
-  source: 'noaa';
+  source: 'noaa-swpc';
   freshness: 'live' | 'stale' | 'default';
 };
 ```
 
-The exact type can be simplified during implementation, but the concepts should remain available for explainability.
+The exact public type may be smaller, but the internal state must retain enough information to reproduce and explain the multiplier.
 
 ## 8. Redis storage and freshness
 
-Geomagnetic state should use Redis but should not rely on a single key alone.
+Geomagnetic activity changes much faster than F10.7, so the Redis design must retain short-term history instead of using only one scalar.
 
-Recommended conceptual keys:
+Recommended keys:
 
 ```text
 geomagnetic:latest
 geomagnetic:history
 ```
 
-`geomagnetic:latest` contains the newest normalized NOAA sample and short metadata.
+`geomagnetic:latest` stores the latest normalized sample and derived freshness metadata.
 
-`geomagnetic:history` contains a bounded rolling set of recent three-hour samples. A 24-hour history is sufficient for the first model because it provides eight three-hour periods while keeping the stored object extremely small.
+`geomagnetic:history` stores a bounded rolling sequence of effective three-hour ap samples. A 24-hour analytical window gives eight three-hour periods; the implementation may retain a modestly larger buffer if needed for calibration while keeping the payload negligible.
 
-### Freshness policy
+### Freshness states
 
-The live sample should have a short TTL, approximately 1–3 hours, with the exact value chosen to tolerate normal product publication delays without allowing an entire storm cycle to become invisible.
-
-The history cache should have a longer protective TTL because losing the history immediately after one failed fetch would destroy the model's lagged state. The history should therefore survive temporary provider outages long enough to support graceful degradation.
-
-The model must distinguish:
+The subsystem must distinguish:
 
 ```text
-live       = recent NOAA observation available
-stale      = historical state available but no fresh observation
-
- default    = no usable geomagnetic state available
+live      = newest usable sample is inside freshness threshold
+stale     = no fresh sample, but a bounded recent history remains usable
+default   = no usable geomagnetic history exists
 ```
 
-The multiplier itself should fall back to `1.0` in the default case.
+A live sample should use a short TTL on the order of 1–3 hours. The exact TTL must be chosen relative to NOAA's publication cadence and tested against expected product delays.
 
-This preserves the existing fail-soft principle: missing external data reduces model sophistication; it does not stop DRAKON from operating.
+The historical buffer needs a separate protective lifetime long enough to survive a temporary NOAA or Redis failure without immediately erasing the last usable storm state.
 
-## 9. Geomagnetic feature construction
+The no-data multiplier is exactly `1.0`.
 
-The first implementation should not directly map the newest `ap` value to the multiplier.
+A stale state may continue to use the last validated history-derived multiplier, but its stale age must be exposed to observability and Decision Trace. A stale signal must never be presented as current NOAA data.
 
-Instead, derive a short-term activity feature from the recent three-hour sequence.
+## 9. Activity feature construction
 
-A suitable starting formulation is a recency-weighted activity index:
+Do not map the newest ap sample directly to the multiplier.
+
+The first model should derive a short-term geomagnetic activity feature from the recent three-hour ap sequence. The objective is to represent both storm amplitude and persistence while avoiding minute-level noise.
+
+### 9.1 Recency-weighted activity
+
+A suitable starting formulation is:
 
 ```text
-activity = Σ(weight_i × ap_i) / Σ(weight_i)
+activity = Σ(ap_i × w_i) / Σ(w_i)
+
+w_i = exp(-age_i / τ)
 ```
 
-where newer observations receive larger weights and observations outside the short memory window contribute little or not at all.
+where `age_i` is the age of the three-hour observation and `τ` is a calibration parameter.
 
-An exponentially decaying weighting is appropriate:
+Do not choose `τ` merely because it produces a convenient-looking curve. It must be evaluated against historical storm response.
+
+### 9.2 Persistence term
+
+A persistent storm and a single isolated elevated interval should not necessarily receive the same correction.
+
+The model should therefore retain a simple persistence descriptor, for example:
 
 ```text
-weight_i = exp(-age_i / τ)
+persistence = fraction of recent intervals above the quiet threshold
 ```
 
-The time constant `τ` must be calibrated rather than assumed to be physically exact.
+The first implementation may use persistence only as a diagnostic feature rather than introducing another fitted coefficient into the multiplier.
 
-The feature should also preserve storm persistence. A single high `ap` sample followed immediately by quiet values should not produce the same multiplier as a sustained sequence of elevated `ap` values.
+### 9.3 Storm phase
 
-### Optional storm onset feature
-
-A second scalar can capture recent acceleration:
+For calibration and diagnostics, classify recent conditions into:
 
 ```text
-activityTrend = recentActivity - priorActivity
+quiet
+rising
+sustained
+recovering
 ```
 
-This can be used only for diagnostics or a small bounded onset adjustment. The first implementation should avoid making the final multiplier depend strongly on the derivative because a noisy estimate of storm onset can create false spikes.
+based on the recent activity history and its short-term slope.
+
+The production multiplier should initially depend on the smoothed activity level and not strongly on the derivative. This prevents noisy storm-onset estimates from producing artificial lifetime discontinuities.
 
 ## 10. Empirical multiplier model
 
-The geomagnetic multiplier represents an estimated correction to the atmospheric-density proxy, not a complete density model.
+The geomagnetic multiplier represents an atmospheric-density correction proxy. It is not a measured density ratio.
 
-The initial implementation should use a continuous, monotonic, bounded function.
+The first implementation should use a continuous, monotonic, bounded function with explicitly versioned calibration parameters.
 
-A suitable calibration family is:
-
-```text
-multiplier = 1                                      activity <= quietThreshold
-multiplier = 1 + A × f(activity)                    activity > quietThreshold
-multiplier = min(multiplier, MAX_GEOMAG_MULTIPLIER)
-```
-
-where `f(activity)` is monotonic and continuous.
-
-A practical first family is a sub-linear power or smooth exponential transition rather than a discrete Kp-style step function:
+A suitable family is:
 
 ```text
-multiplier = 1 + A × ((activity - threshold) / scale)^p
+multiplier = 1                                      activity <= threshold
+multiplier = 1 + A × f(activity - threshold)       activity > threshold
+multiplier = min(multiplier, MAX_MULTIPLIER)
 ```
 
-with `0 < p < 1` or another empirically selected shape.
+where `f(x)` is continuous and monotonic.
 
-The exact coefficients, transition point, and maximum correction are **calibration parameters**, not implementation truths. They must be kept as named constants and changed only through a documented calibration process.
+A sub-linear power-law family is an acceptable initial candidate:
 
-### Why not a hard Kp/AP step table?
+```text
+multiplier = 1 + A × (x / scale)^p
+```
 
-A hard threshold would introduce discontinuities in predicted lifetime. Two almost-identical environmental states could produce materially different re-entry estimates solely because an index crossed a boundary.
+with `0 < p < 1`.
 
-The correction should instead vary smoothly so the risk estimate changes continuously as environmental activity changes.
+A smooth exponential family may also be evaluated during the calibration sweep. The final family must be selected from retrospective evidence, not convenience.
 
-## 11. Bounding and safety policy
+### 10.1 Calibration parameters
 
-The geomagnetic multiplier must have an explicit upper bound:
+At minimum, keep these as named constants/configuration values:
+
+```text
+GEOMAG_MODEL_VERSION
+GEOMAG_ACTIVITY_THRESHOLD
+GEOMAG_SCALE
+GEOMAG_POWER
+MAX_GEOMAG_MULTIPLIER
+GEOMAG_HISTORY_HOURS
+GEOMAG_DECAY_CONSTANT_HOURS
+```
+
+Do not scatter these values through the model or API routes.
+
+### 10.2 No hard Kp/ap storm steps
+
+Do not implement logic such as:
+
+```text
+ap < X  → 1.0
+ap >= X → 1.2
+```
+
+as the final production model.
+
+The published Kp→ap lookup is discrete because it is an index conversion. The atmospheric multiplier must remain continuous because it is a DRAKON calibration model.
+
+## 11. Bounding and physical safety
+
+The multiplier must satisfy:
 
 ```text
 1.0 <= geomagneticMultiplier <= MAX_GEOMAG_MULTIPLIER
 ```
 
-The maximum must be conservative enough that geomagnetic activity cannot overwhelm strong contradictory orbital evidence.
+The upper bound must be explicitly calibrated.
 
-This is especially important because the existing decay proxies contain exponential altitude terms:
+This safety measure is mandatory because the existing decay-rate proxies already contain strong altitude exponentials:
 
 ```text
 exp((400 - altitude) / 60)
-```
-
-and:
-
-```text
 exp((200 - altitude) / 35)
 ```
 
-A multiplicative environmental factor is therefore amplified by the already altitude-sensitive model.
+A large multiplicative correction can therefore produce disproportionately large lifetime reductions for terminal objects.
 
-The first production calibration should deliberately target a modest correction. The system should prefer under-correction to a large unvalidated storm multiplier until historical validation demonstrates that stronger values materially improve prediction quality.
+The first operational release should bias toward under-correction rather than risk a large unvalidated storm multiplier.
 
-## 12. Composition with the existing solar correction
+The implementation must also verify numerical sanity after composition:
 
-The existing solar-flux correction should remain unchanged.
+```text
+combinedMultiplier = solarFluxMultiplier × geomagneticMultiplier
+```
 
-At the atmospheric-correction boundary, compose the signals:
+Non-finite or out-of-range results must fall back to a safe bounded value rather than propagating invalid arithmetic into re-entry estimates.
+
+## 12. Composition with solar activity
+
+The existing F10.7 correction remains unchanged.
+
+The environmental state is composed once:
 
 ```typescript
 const combinedMultiplier =
   solarFluxMultiplier * geomagneticMultiplier;
 ```
 
-The combined multiplier is then supplied to the existing atmospheric estimate in the same place the solar multiplier is currently applied.
+The combined factor is supplied at the existing atmospheric-correction boundary.
 
-The conceptual data flow becomes:
+Conceptually:
 
 ```text
-F10.7 ────────────────> solarFluxMultiplier ──┐
-                                             ├─> combinedMultiplier
-recent planetary ap ─> geomagneticMultiplier ─┘
+F10.7 ----------------------> solarFluxMultiplier ----┐
+                                                       ├─> combinedMultiplier
+NOAA Kp → ap → activity → geomagneticMultiplier -----┘
+                                                       |
+                                                       v
+                                              atmospheric proxy
 ```
 
-This avoids adding geomagnetic logic separately to multiple branches and prevents the two environmental effects from drifting apart between the single-epoch and low-altitude paths.
+This composition must be centralized. Do not multiply the geomagnetic factor independently inside several branches, because that would make later model calibration difficult and could cause inconsistent risk results between the single-epoch and low-altitude paths.
 
-## 13. Integration points
+## 13. Application integration
 
-The current application boundary suggests the following integration points:
+### 13.1 `lib/satelliteHelpers.ts`
 
-### `lib/satelliteHelpers.ts`
+Keep `getReentryRisk()` focused on orbital inputs and the already-resolved atmospheric multiplier. Prefer passing the combined environmental factor rather than adding a second geomagnetic-specific parameter where the current signature allows this cleanly.
 
-`getReentryRisk()` should accept the combined environmental multiplier at the existing solar-correction boundary rather than receiving an independent geomagnetic parameter if practical.
+### 13.2 `lib/objectTrendRisk.ts`
 
-### `lib/objectTrendRisk.ts`
+Resolve environmental state once and pass the combined multiplier consistently through the single-epoch and low-altitude paths.
 
-`resolveReentryRisk()` should resolve the environmental correction once and pass the combined factor consistently into the single-epoch and low-altitude estimation paths.
+`resolveReentryRisk()` remains the application-level authority for final risk resolution.
 
-### Re-entry screening hook
+### 13.3 Dashboard and globe orchestration
 
-`app/dashboard/reentry/hooks/useReentryScreening.ts` and the globe-side screening orchestration should consume the resolved risk result rather than each independently querying NOAA or Redis.
+`app/dashboard/reentry/hooks/useReentryScreening.ts` and globe-side risk construction must consume the resolved risk result rather than independently fetching or interpreting geomagnetic data.
 
-This preserves the existing architectural rule that the UI does not own environmental-data semantics.
+No UI component should know how Kp becomes ap or how the activity feature becomes a multiplier.
 
-### No `CURRENT_TREND_VERSION` bump
+### 13.4 Trend persistence
 
-The first implementation does not modify persisted regression features in `object_trends`. Therefore it should not require a `CURRENT_TREND_VERSION` bump.
+Do not add geomagnetic columns to `object_trends` in this phase.
 
-The environmental correction is applied at final risk resolution, after historical trend data has already been computed.
+Do not modify historical regression inputs.
+
+Do not bump `CURRENT_TREND_VERSION` solely because the final atmospheric correction changes.
+
+A trend-version change is required only if persisted regression semantics change.
 
 ## 14. Public API and observability
 
-The geomagnetic subsystem should mirror the observability pattern used by the solar-flux subsystem.
-
 ### `/api/geomagnetic-index`
 
-Provide a read endpoint that exposes the currently resolved environmental state without exposing provider secrets.
+Add a read endpoint analogous to `/api/solar-flux`.
 
-The response should include at minimum:
+Expose at minimum:
 
 ```text
+kp
+kpClass
 ap
 observedAt
 ageMinutes
-stormActivity
+activity
 multiplier
 freshness
 source
+modelVersion
 ```
 
-A future extension may also expose the most recent history samples for debugging/calibration.
+Do not expose NOAA credentials or internal Redis details.
 
 ### `/api/tle` response headers
 
-Expose compact metadata alongside the existing solar-flux headers:
+Expose the environmental state used by the serving application through compact headers analogous to the existing solar headers:
 
 ```text
-x-geomagnetic-index
+x-geomagnetic-kp
+x-geomagnetic-ap
 x-geomagnetic-multiplier
 ```
 
-The headers should represent the same environmental state that was used by the risk-resolution process.
+If the state is stale/default, expose sufficient metadata for a client or diagnostic tool to distinguish that condition rather than implying that live NOAA data was used.
 
-If the correction is unavailable and defaults to `1.0`, the response should make the freshness/default state distinguishable rather than implying live NOAA data exists.
+### Decision Trace
 
-## 15. Scheduling
-
-The geomagnetic refresh should be triggered independently from the TLE ingestion cycle.
-
-Recommended initial cadence:
-
-```text
-NOAA geomagnetic refresh: every 1 hour
-TLE ingestion:             existing schedule
-Trend worker:              existing 15-minute schedule
-```
-
-The one-hour refresh is intentionally faster than the three-hour nominal data interval. It provides room for product publication delays and catches updated values without requiring a separate storm-specific scheduler.
-
-The geomagnetic refresh endpoint should be safe to call repeatedly and should update Redis atomically enough that a partially written state cannot become the active environmental state.
-
-The system should not make TLE ingestion wait for a geomagnetic refresh. Environmental refresh failure is independent from orbital-data ingestion.
-
-## 16. Fail-soft behavior
-
-The following failure matrix should be treated as part of the contract:
-
-| Condition | Behavior |
-| --- | --- |
-| NOAA request succeeds with valid recent ap | Use live state |
-| NOAA request succeeds but sample is older than freshness threshold | Mark stale; use bounded stale state if available |
-| NOAA request fails but recent history exists | Keep last usable environmental state and mark stale |
-| Redis latest missing but history exists | Derive state from history |
-| Redis unavailable but no in-memory state exists | Multiplier = `1.0` |
-| NOAA payload malformed | Ignore sample; preserve last valid state |
-| Negative/non-finite ap | Reject sample |
-| Multiplier calculation invalid | Multiplier = `1.0` |
-| Multiplier outside configured bounds | Clamp to configured bounds |
-
-No environmental failure should throw from the risk-resolution path merely because the external service is unavailable.
-
-## 17. Explainability and Decision Trace
-
-The geomagnetic correction should become part of the explainability contract from the beginning.
-
-A risk explanation should eventually be able to show:
+The explainability surface should be able to show the environmental contribution:
 
 ```text
 Atmospheric environment
-    F10.7: <value>
-    Solar multiplier: <value>
-
-    Planetary ap activity: <value>
-    Geomagnetic multiplier: <value>
-    Environmental multiplier: <combined value>
+  F10.7: <value>
+  Solar multiplier: <value>
+  Kp: <value> (<canonical class>)
+  ap: <value>
+  Recent activity: <value>
+  Geomagnetic multiplier: <value>
+  Combined atmospheric multiplier: <value>
+  Freshness: live / stale / default
 ```
 
-The Decision Trace should distinguish between:
+The text should explicitly identify the multiplier as an **empirical screening correction**, not as measured local thermospheric density.
 
-- live environmental data;
-- stale environmental data;
-- default/no-op correction.
+## 15. Refresh scheduling
 
-This matters because two re-entry estimates with identical orbital evidence may legitimately differ when the atmospheric environment differs.
+Geomagnetic refresh should be independent of TLE ingestion.
 
-The environmental correction should remain explicitly labelled as an empirical screening adjustment, not as a measured local density value.
-
-## 18. Calibration methodology
-
-Calibration is the highest-risk part of this feature. The `ap → multiplier` relationship should not be selected solely from qualitative space-weather intuition.
-
-### Phase 1 — retrospective storm dataset
-
-Build a historical set of storm and quiet windows using synchronized:
-
-- TLE history from DRAKON;
-- NOAA planetary geomagnetic activity;
-- NOAA F10.7;
-- Space-Track TIP predictions where available;
-- observed perigee/mean-motion changes from successive TLEs.
-
-The dataset should deliberately include both:
-
-- strong geomagnetic storm windows;
-- quiet/control windows with similar orbital populations.
-
-### Phase 2 — parameter sweep
-
-Evaluate multiple candidate multiplier families and parameter ranges rather than tuning one curve manually.
-
-For each candidate, measure:
-
-- error in estimated days remaining;
-- timing bias during storm onset;
-- timing bias during storm recovery;
-- error at low altitude;
-- false acceleration during quiet periods;
-- effect on payloads versus debris;
-- proportion of critical objects whose tier changes only because of the environmental correction.
-
-### Phase 3 — TIP divergence analysis
-
-Use the existing TIP comparison machinery to measure whether the correction reduces systematic divergence between DRAKON and external predictions.
-
-The objective is not to force equality with TIP. The objective is to determine whether geomagnetic forcing explains a repeatable component of the divergence.
-
-### Phase 4 — quiet-period regression test
-
-A valid correction should remain close to neutral during quiet intervals. A candidate multiplier that produces substantial corrections during quiet control periods should be rejected even if it improves a subset of storm cases.
-
-### Phase 5 — critical-tier safety evaluation
-
-Before allowing the correction to influence the confidence ceiling or materially change a critical-tier classification, evaluate the maximum tier movement generated by the calibrated multiplier.
-
-The system should document:
-
-- maximum multiplier;
-- maximum lifetime contraction;
-- number of storm-period tier escalations;
-- number of quiet-period false escalations;
-- percentage of cases where TIP alignment improves;
-- percentage where divergence worsens.
-
-## 19. Validation against actual orbital response
-
-TIP comparison alone is insufficient.
-
-The strongest validation signal available to DRAKON is the measured change in orbital state itself.
-
-For objects with adequate history, compare the model-implied drag change against observed changes in:
-
-- perigee decay;
-- semi-major-axis decay;
-- mean-motion derivative;
-- TLE-derived BSTAR behavior.
-
-The purpose is to determine whether elevated geomagnetic forcing coincides with faster-than-baseline orbital decay after accounting for the existing F10.7 correction.
-
-This should be evaluated separately by altitude bands because the same global geomagnetic forcing can produce very different drag consequences at different orbital heights.
-
-## 20. Storm phases
-
-The model should explicitly evaluate at least three phases:
+Recommended starting schedule:
 
 ```text
-Storm onset
-    geomagnetic activity rising rapidly
-
-Storm main phase
-    sustained elevated activity
-
-Storm recovery
-    geomagnetic activity falling after sustained elevation
+geomagnetic refresh: hourly
+TLE ingestion:       existing schedule
+trend worker:        existing 15-minute schedule
+solar flux:          existing daily schedule
 ```
 
-This matters because a current `ap` value alone cannot distinguish an object entering the storm from an object several hours into recovery.
+Hourly execution is a scheduling choice, not a claim that the environmental signal only changes hourly. The minute-cadence NOAA source can publish more frequently; the short TTL and rolling history are what preserve the storm signal between scheduled refreshes.
 
-The short history feature should therefore be calibrated against storm phase, not only storm peak.
+The refresh endpoint must be idempotent and must not block TLE ingestion.
 
-## 21. Non-goals
+A refresh failure leaves the last validated history intact.
 
-This feature must not attempt to become a complete atmospheric model.
+## 16. Fail-soft behavior
 
-Out of scope for the first implementation:
+Failure semantics are part of the model contract:
 
-- direct local thermospheric density reconstruction;
-- latitude/local-time dependent density enhancement maps;
-- geomagnetic storm morphology or auroral-region density mapping;
-- replacing SGP4/TLE propagation with numerical orbit integration;
-- ingesting full WAM/DTM/NRLMSIS model outputs;
-- changing the historical TLE regression model;
-- treating the geomagnetic index as an authoritative re-entry prediction.
+| Condition | Required behavior |
+| --- | --- |
+| Valid recent NOAA Kp | Normalize → ap → activity → multiplier |
+| NOAA request failure + valid history | Keep last validated history; mark stale |
+| NOAA request failure + no history | Multiplier = `1.0`; mark default |
+| Malformed payload | Reject sample; preserve last valid state |
+| Unrecognized Kp class | Reject sample; do not approximate |
+| Non-finite/negative ap | Reject sample |
+| Invalid activity calculation | Multiplier = `1.0` or last validated bounded state |
+| Multiplier outside bounds | Clamp to configured bounds |
+| Redis latest unavailable + local history available | Use local validated state |
+| Redis unavailable + no validated state | Multiplier = `1.0` |
 
-Those may become future architecture directions if DRAKON later needs higher-fidelity density modeling.
+No environmental failure may throw from the risk-resolution path merely because NOAA or Redis is unavailable.
 
-## 22. Testing strategy
+## 17. Calibration methodology
 
-### Unit tests
+Calibration is the highest-risk part of the feature. The atmospheric multiplier must not be selected from intuition, a single storm, or agreement with one external prediction stream.
+
+### Phase 1 — build a historical dataset
+
+Build synchronized storm/control windows containing:
+
+- DRAKON TLE history;
+- NOAA planetary Kp observations;
+- internally converted three-hour ap values;
+- NOAA F10.7;
+- Space-Track TIP predictions where available;
+- successive TLE-derived perigee, semi-major-axis, N-dot, and BSTAR behavior.
+
+The dataset must include both geomagnetically active and quiet control periods.
+
+### Phase 2 — verify index conversion
+
+Before calibrating the multiplier, verify that DRAKON's 28-entry Kp→ap lookup reproduces an independent reference series for the same Kp inputs.
+
+This isolates index-conversion correctness from atmospheric-model calibration.
+
+### Phase 3 — evaluate activity filters
+
+Compare candidate history windows, recency constants, and persistence formulations.
+
+At this stage the output should be a diagnostic activity feature only. Do not modify risk estimates.
+
+### Phase 4 — parameter sweep
+
+Evaluate multiple multiplier families and parameter ranges.
+
+Measure at minimum:
+
+- error in estimated days remaining;
+- storm-onset lag;
+- storm-recovery lag;
+- lifetime bias by altitude band;
+- improvement versus solar-only baseline;
+- quiet-period false acceleration;
+- number and direction of risk-tier changes.
+
+Select the simplest model that produces a repeatable improvement.
+
+### Phase 5 — TIP comparison
+
+Use the existing `aligned` / `diverges` machinery as an external comparison.
+
+TIP is a reference signal, not the optimization target. The purpose of this analysis is to determine whether geomagnetic forcing explains a repeatable component of DRAKON/TIP divergence.
+
+### Phase 6 — orbital-response validation
+
+Use observed TLE evolution as the primary physical validation signal. Compare modeled atmospheric acceleration with measured changes in perigee, semi-major axis, mean-motion derivative, and BSTAR behavior.
+
+Perform this by altitude bands because geomagnetic forcing does not translate to an identical drag response at all altitudes.
+
+### Phase 7 — quiet-window rejection test
+
+A candidate correction that improves storm cases but creates significant artificial acceleration during quiet windows must be rejected.
+
+The required qualitative outcome is:
+
+```text
+storm activity ↑  → modeled drag does not decrease
+quiet activity   → model remains close to solar-only baseline
+```
+
+## 18. Storm-phase analysis
+
+Calibration must distinguish at least:
+
+```text
+onset       activity rising
+main phase  sustained elevation
+recovery    activity falling after sustained elevation
+quiet       baseline/control
+```
+
+This is necessary because the same current ap can occur at materially different positions in the storm lifecycle.
+
+The first multiplier should be based primarily on lagged activity level. A storm-derivative term may be retained for diagnostics but should not be allowed to dominate the production multiplier until historical validation demonstrates a stable benefit.
+
+## 19. Validation metrics and acceptance criteria
+
+The feature is not production-ready when unit tests pass alone.
+
+Before enabling the multiplier for live risk scoring, establish quantitative acceptance criteria covering:
+
+1. **Index correctness:** Kp→ap conversion matches the published reference table for all 28 classes.
+2. **Freshness correctness:** live, stale, and default states behave deterministically under controlled failures.
+3. **Monotonicity:** increasing recent geomagnetic activity cannot lower the modeled decay rate with all orbital inputs fixed.
+4. **Boundedness:** the multiplier never exceeds its configured safety cap.
+5. **Numerical stability:** composition with F10.7 never creates NaN/Infinity or uncontrolled lifetime collapse.
+6. **Storm improvement:** historical storm windows show statistically defensible improvement over the solar-only baseline.
+7. **Quiet neutrality:** quiet/control windows do not show an unacceptable increase in false acceleration.
+8. **Altitude consistency:** the correction's behavior remains bounded and interpretable across relevant altitude bands.
+9. **TIP comparison:** divergence does not systematically worsen after calibration.
+10. **Risk safety:** the correction does not create unacceptable false critical/warning escalations.
+
+Exact numeric acceptance thresholds should be defined from a baseline evaluation dataset before calibration, rather than invented after seeing the results.
+
+## 20. Testing strategy
+
+### 20.1 Unit tests
 
 Add `lib/geomagneticIndex.test.ts` covering:
 
-- valid NOAA response parsing;
-- timestamp normalization;
-- valid three-hour `ap` samples;
-- rejection of malformed/non-finite values;
-- rolling history insertion and retention;
+- canonical Kp-class parsing;
+- all 28 Kp→ap lookup values;
+- rejection of unrecognized Kp values;
+- sample timestamp normalization;
+- three-hour interval deduplication;
+- rolling history insertion and bounded retention;
 - stale-state detection;
-- default multiplier = `1.0` when no usable data exists;
-- Redis failure → safe fallback;
-- bounded multiplier behavior;
-- monotonicity of the multiplier curve;
-- known calibration fixtures producing deterministic expected multipliers.
+- default multiplier exactly `1.0` with no usable state;
+- Redis/provider failure fallback;
+- monotonic multiplier behavior;
+- multiplier bounds;
+- deterministic calibration fixtures.
 
-### Integration tests
+### 20.2 Integration tests
 
 Add tests for:
 
 - `/api/geomagnetic-index` response shape;
 - `/api/tle` geomagnetic headers;
-- live vs stale vs default behavior;
-- combined solar × geomagnetic multiplier propagation into risk resolution;
-- no regression-data mutation or trend-version invalidation.
+- live/stale/default metadata;
+- combined solar × geomagnetic multiplier propagation;
+- no mutation of `object_trends` schema or trend version;
+- graceful risk resolution when the geomagnetic subsystem is unavailable.
 
-### Regression tests
+### 20.3 Historical regression tests
 
-Use historical fixtures representing:
+Create replay fixtures for at least:
 
 - quiet activity;
 - moderate activity;
-- strong storm activity;
-- storm onset;
-- storm recovery.
+- strong storm;
+- onset;
+- main phase;
+- recovery.
 
-The critical invariant is:
+The regression harness should compare:
 
 ```text
-same orbital state
-+ higher geomagnetic activity
-= never lower modeled drag
+solar-only model
+vs.
+solar + geomagnetic model
 ```
 
-while a quiet-period correction should remain near the solar-only baseline.
+and report both improvement and regressions by object/altitude/storm phase.
 
-## 23. Operational safety gates
+## 21. Rollout strategy
 
-The feature should not be considered production-ready merely because the NOAA integration and unit tests pass.
+### Stage 1 — index-validation mode
 
-The following gates should be satisfied before enabling the correction in operational risk scoring:
+Implement the NOAA parser and Kp→ap conversion without applying any multiplier.
 
-1. NOAA feed availability and schema stability verified.
-2. Three-hour planetary `ap` semantics verified against live SWPC data.
-3. 24-hour rolling history persisted correctly.
-4. Stale/default semantics tested under provider outages.
-5. Multiplier is continuous, monotonic, bounded, and numerically stable.
-6. Historical storm validation completed.
-7. Quiet control-window validation completed.
-8. TIP divergence analysis shows a measurable improvement or a defensible neutral result.
-9. No unacceptable increase in false critical/warning transitions.
-10. Decision Trace can explain the environmental correction used for a result.
+Compare the generated ap series against independent references.
 
-Until these gates are satisfied, the geomagnetic state should be observable and testable but the multiplier should remain disabled or forced to `1.0` in production.
+### Stage 2 — shadow mode
 
-## 24. Rollout strategy
+Calculate the environmental activity and proposed multiplier, but continue using the solar-only risk result for production.
 
-A staged rollout is recommended.
+Record:
 
-### Stage 1 — shadow mode
-
-Fetch, cache, and calculate the geomagnetic multiplier but do not apply it to risk. Store/log:
-
-- latest ap;
-- short-term activity feature;
+- Kp/Kp class;
+- ap;
+- activity feature;
 - proposed multiplier;
 - freshness state;
-- comparison to the solar-only risk result.
+- solar-only estimate;
+- corrected estimate;
+- tier delta;
+- TIP comparison.
 
-### Stage 2 — analytical comparison
+### Stage 3 — historical calibration
 
-Run the proposed correction against historical storm/control datasets and measure model improvement.
+Run the full storm/control calibration process and select the model version and parameter set.
 
-### Stage 3 — limited risk integration
+### Stage 4 — limited production integration
 
-Apply the correction to single-epoch debris estimates and low-altitude fallback while keeping the confidence ceiling unchanged.
+Enable the correction for the single-epoch debris and low-altitude atmospheric paths while preserving the existing confidence ceiling.
 
-### Stage 4 — critical-tier validation
+### Stage 5 — critical-tier evaluation
 
-Only after retrospective validation should the correction be allowed to materially alter critical/warning states in production.
+Observe whether storm-driven corrections improve operational triage without producing unacceptable false urgency.
 
-## 25. Interaction with confidence and risk tiers
+Any later change to the safety ceiling must be a separate decision, supported by validation evidence.
 
-The first release should **not** change the existing confidence ceiling policy.
+## 22. Confidence and risk-tier interaction
 
-The geomagnetic correction can change the estimated decay rate and therefore the raw estimated lifetime, but that does not mean the environmental signal itself is sufficiently trustworthy to elevate an object into a higher-confidence operational category.
+The first release must not allow geomagnetic activity to bypass the existing confidence ceiling.
 
-During calibration, the correction should initially be prevented from bypassing existing confidence ceilings solely because of geomagnetic activity.
+The correction may change the raw estimated lifetime because the environment has changed, but environmental activity alone is not sufficient evidence to claim that the orbital estimate itself is high-confidence.
 
-Once validated, any special treatment for highly disturbed low-altitude cases should be introduced as a separate documented policy decision rather than being an accidental side effect of the multiplier.
+In particular:
 
-This preserves DRAKON's existing preference for evidence quality over urgency.
+- no direct critical-tier bypass;
+- no automatic confidence boost from storm activity;
+- no special low-altitude exception until validated separately.
 
-## 26. Future upgrade path
+If future evidence supports a special rule for highly disturbed terminal objects, it should be introduced as a named policy with its own tests and documentation.
 
-The architecture should leave room for a later move from scalar correction to actual density modeling.
+## 23. Non-goals
 
-A future environmental layer could evolve from:
+The first implementation must not attempt to provide:
 
-```text
-F10.7 + geomagnetic scalar
-```
+- direct local thermospheric-density reconstruction;
+- latitude/local-time density maps;
+- auroral-region density morphology;
+- covariance-aware atmospheric propagation;
+- a replacement for SGP4/TLE propagation;
+- authoritative re-entry predictions;
+- a full Jacchia, DTM, NRLMSIS, JB2008, or WAM implementation;
+- geomagnetic inputs inside the persisted TLE trend regression;
+- direct optimization against TIP as though TIP were ground truth.
 
-to:
+## 24. Future upgrade path
+
+The environmental layer should remain extensible:
 
 ```text
 F10.7
 + geomagnetic history
-+ solar wind / IMF features
++ solar-wind / IMF features
++ altitude
 + latitude
 + local solar time
-+ altitude
-+ thermosphere model
++ calibrated thermosphere model
         ↓
-local neutral density
+local neutral-density estimate
 ```
 
-At that point `getReentryRisk()` would consume a density estimate rather than multiplying an empirical factor into the existing atmospheric proxy.
+At that point `getReentryRisk()` can consume a density estimate rather than applying a scalar empirical correction.
 
-The proposed first implementation should therefore isolate all geomagnetic logic inside an environmental module and avoid embedding NOAA-specific or Kp/ap-specific assumptions throughout `satelliteHelpers.ts` and `objectTrendRisk.ts`.
+The first implementation must therefore keep NOAA-specific parsing and geomagnetic semantics entirely inside `lib/geomagneticIndex.ts` and avoid spreading Kp/ap assumptions through `satelliteHelpers.ts`, `objectTrendRisk.ts`, or dashboard code.
 
-## 27. Engineering invariants
+## 25. Engineering invariants
 
-Future changes should preserve these properties:
+1. The runtime primary external input is NOAA SWPC's real-time planetary Kp stream.
+2. DRAKON converts Kp to three-hour ap using the published fixed 28-entry Bartels/IAGA lookup; this conversion is deterministic and separately tested.
+3. The Kp→ap table is a standards conversion, not a fitted DRAKON calibration curve.
+4. The final atmospheric multiplier is calibrated separately from the Kp→ap conversion.
+5. Geomagnetic data is external environmental state, not historical orbital evidence.
+6. Missing geomagnetic data never blocks ingestion, trend computation, or risk resolution.
+7. The no-data multiplier is exactly `1.0`.
+8. The production geomagnetic multiplier is continuous, monotonic, finite, and explicitly bounded.
+9. The activity feature is based on normalized three-hour ap observations, not a naive numeric average of Kp.
+10. Recent history is retained independently from the latest sample so storm persistence can be represented.
+11. NOAA-specific parsing, normalization, and conversion remain isolated in `lib/geomagneticIndex.ts`.
+12. The environmental correction is composed with the existing solar correction at one application-level boundary.
+13. Geomagnetic activity does not directly modify persisted `object_trends` in the first implementation.
+14. `CURRENT_TREND_VERSION` is not changed unless persisted trend semantics change.
+15. Geomagnetic activity cannot bypass the existing confidence ceiling in the first release.
+16. Decision Trace can identify the environmental inputs and multiplier used for a risk result.
+17. Calibration parameters are named, versioned, and reproducible.
+18. Calibration uses both storm and quiet/control windows.
+19. TIP is a validation/reference source, not the target function for blind fitting.
+20. The first production implementation must remain describable as an empirical screening correction, not a physical thermosphere model.
 
-1. Geomagnetic data is an external environmental signal, not historical orbital evidence.
-2. Missing geomagnetic data never blocks ingestion, trend computation, or risk resolution.
-3. The no-data multiplier remains exactly `1.0`.
-4. The production multiplier is continuous, monotonic, and explicitly bounded.
-5. The three-hour planetary `ap` series is the primary model input; Kp conversion is not duplicated inside DRAKON.
-6. Recent geomagnetic history is retained separately from the single latest observation.
-7. Solar and geomagnetic corrections are composed multiplicatively unless calibration demonstrates a better validated composition.
-8. `CURRENT_TREND_VERSION` is not changed unless persisted historical trend semantics change.
-9. Geomagnetic correction does not silently bypass the existing confidence ceiling.
-10. Decision Trace can identify the environmental state and multiplier used for a risk result.
-11. NOAA-specific parsing remains isolated inside the environmental-data module.
-12. Calibration parameters are documented and versioned.
-13. Historical validation must include both storm and quiet control windows.
-14. TIP is a validation/reference signal, not the target function that the geomagnetic curve is blindly fitted to.
-15. The first production implementation remains an empirical correction and must not be described as a physical thermosphere model.
+## 26. Verification checklist against the current repository
 
-## 28. Verification checklist against the current DRAKON architecture
-
-Before implementation, confirm the following current interfaces remain the integration boundaries:
+Before implementation, verify these boundaries against `main`:
 
 ```text
 lib/solarFlux.ts
-    ↓ existing environmental pattern
+    ↓ established external-environment pattern
+lib/geomagneticIndex.ts
+    ↓ NOAA ingestion + Kp normalization + Kp→ap + activity + multiplier
 lib/satelliteHelpers.ts
     ↓ single-epoch atmospheric proxy
 lib/objectTrendRisk.ts
-    ↓ final risk composition / low-altitude path
+    ↓ final risk resolution + low-altitude path
 app/dashboard/reentry/hooks/useReentryScreening.ts
     ↓ dashboard risk map
-lib/objectTrendRisk.ts callers on globe/re-entry surfaces
-    ↓ application-wide resolution
+Globe/re-entry risk callers
+    ↓ application-wide resolved risk
 ```
 
-No change is required to:
+No changes are intended for:
 
-- the persisted `object_trends` regression schema;
+- `tle_history` schema;
+- `object_trends` schema;
 - `trend_jobs`;
 - `trend_snapshots`;
-- the TLE history partition model;
-- the historical 7/14/30-day regression windows;
-- payload consensus logic;
-- TIP storage and comparison semantics.
+- TLE partition management;
+- historical 7/14/30-day trend windows;
+- payload consensus rules;
+- TIP storage semantics.
 
-The implementation should be considered complete only when the geomagnetic correction can be followed from NOAA observation through Redis state, multiplier calculation, final risk resolution, API observability, and Decision Trace without introducing a second environmental-data architecture.
+Implementation is complete only when the signal can be traced end-to-end:
 
-## 29. References
+```text
+NOAA Kp
+  ↓
+canonical Kp class
+  ↓
+published Kp→ap lookup
+  ↓
+three-hour ap history
+  ↓
+lagged activity feature
+  ↓
+bounded geomagnetic multiplier
+  ↓
+solar × geomagnetic composition
+  ↓
+getReentryRisk / low-altitude fallback
+  ↓
+resolveReentryRisk
+  ↓
+ReentryRisk
+  ↓
+API / Decision Trace / dashboard
+```
 
-NOAA SWPC, Station K and A Indices: K/Kp three-hour definitions, estimated real-time values, Ap semantics, and limitations. citeturn620085search0turn620085search3
+## 27. References
 
-NOAA SWPC, Space Weather Glossary: definitions of Kp, ap, and Ap. citeturn620085search1turn620085search4
+1. NOAA NCEI, **Magnetic Activity Indices** — Kp/ap definitions and the published 28-entry Kp→ap conversion table.  
+   https://www.ngdc.noaa.gov/stp/solar/magindices.html  
+   https://www.ngdc.noaa.gov/geomag/indices/kp_ap.html
 
-NOAA NCEI, Geomagnetic Indices: Ap and Ap* definitions and planetary index relationships. citeturn620085search5
+2. NOAA SWPC, **JSON product catalog** — current product inventory including `planetary_k_index_1m.json` and `f107_cm_flux.json`.  
+   https://services.swpc.noaa.gov/json/
 
-NOAA SWPC Products Index and JSON Product Index: current availability of planetary geomagnetic products. citeturn594566search0turn594566search1
+3. NOAA SWPC, **The K-index** — operational definition of K/Kp, three-hour indexing, and near-real-time estimated planetary Kp behavior.  
+   https://www.swpc.noaa.gov/sites/default/files/images/u2/TheK-index.pdf
+
+4. CelesTrak, **Space Weather Data Documentation** — current primary-source data architecture and explicit Kp/ap fields; documents that Kp is used to calculate ap in its processing chain.  
+   https://www.celestrak.org/SpaceData/SpaceWx-format.php
+
+5. NASA NTRS, **ap, Ap, Cp, and C9 Indices** — historical reference for the Bartels Kp→ap conversion and three-hour ap definition.  
+   https://ntrs.nasa.gov/citations/19910021306
+
+6. NASA NTRS, **Kp to ap conversion documentation** — historical implementation example of the published conversion table.  
+   https://ntrs.nasa.gov/citations/19700022692
+
+7. GFZ Potsdam, **Kp Index Data Directory** — independent reference source exposing Kp/ap nowcast products for validation.  
+   https://www-app3.gfz-potsdam.de/data.php
