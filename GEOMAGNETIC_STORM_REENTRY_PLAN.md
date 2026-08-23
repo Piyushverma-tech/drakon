@@ -16,25 +16,25 @@ The implementation must be scientifically conservative: until retrospective vali
 
 The earlier proposal to consume a NOAA first-class JSON `ap` feed is not valid for the current SWPC product surface.
 
-The current NOAA JSON catalog exposes `planetary_k_index_1m.json` as the real-time minute-cadence planetary Kp stream. NOAA's current JSON product catalog does not expose an analogous clean real-time planetary-ap JSON feed. NOAA's legacy `AK.txt` product contains a textual "Planetary(estimated Ap)" row, but it is a fixed-width station-oriented product and is not a clean counterpart to `f107_cm_flux.json`. citeturn280502search0turn280502search33
+The current NOAA JSON catalog exposes `planetary_k_index_1m.json` as the real-time minute-cadence planetary Kp stream. NOAA's current JSON product catalog does not expose an analogous clean real-time planetary-ap JSON feed. NOAA's legacy `AK.txt` product contains a textual "Planetary(estimated Ap)" row, but it is a fixed-width station-oriented product and is not a clean counterpart to `f107_cm_flux.json`.
 
 Therefore the implementation will use the NOAA real-time planetary Kp feed as the primary live source and perform the standard published Kp-to-ap conversion inside DRAKON.
 
-This conversion is not an empirical model. It is the established Bartels/IAGA lookup that maps the 28 discrete Kp classes to their corresponding three-hour `ap` equivalent amplitudes. NOAA NCEI publishes the lookup explicitly, and NASA documentation reproduces the same table. citeturn667084search0turn667084search38
+This conversion is not an empirical model. It is the established Bartels/IAGA lookup that maps the 28 discrete Kp classes to their corresponding three-hour `ap` equivalent amplitudes. NOAA NCEI publishes the lookup explicitly, and NASA documentation reproduces the same table.
 
 This is preferable to parsing the legacy `AK.txt` product because it keeps NOAA-specific transport parsing isolated while making the index conversion deterministic, tiny, testable, and versionable.
 
 ### Authoritative source roles
 
-| Source | Role | First implementation |
-| --- | --- | --- |
-| NOAA `planetary_k_index_1m.json` | Near-real-time planetary Kp observations | **Required** |
-| Internal Bartels Kp→ap lookup | Convert each Kp class to three-hour ap | **Required** |
-| NOAA `AK.txt` estimated Ap row | Legacy text alternative | **Not used** |
-| CelesTrak space-weather data | Independent reference/validation source | **Not a runtime dependency** |
-| GFZ Kp/ap nowcast series | Independent validation/reference | **Not a runtime dependency** |
+| Source                           | Role                                     | First implementation         |
+| -------------------------------- | ---------------------------------------- | ---------------------------- |
+| NOAA `planetary_k_index_1m.json` | Near-real-time planetary Kp observations | **Required**                 |
+| Internal Bartels Kp→ap lookup    | Convert each Kp class to three-hour ap   | **Required**                 |
+| NOAA `AK.txt` estimated Ap row   | Legacy text alternative                  | **Not used**                 |
+| CelesTrak space-weather data     | Independent reference/validation source  | **Not a runtime dependency** |
+| GFZ Kp/ap nowcast series         | Independent validation/reference         | **Not a runtime dependency** |
 
-CelesTrak's current space-weather documentation independently confirms the standard relationship: Kp data is used to calculate ap, while its current nowcast data contains both three-hourly Kp and ap. That makes CelesTrak useful for cross-validation of DRAKON's conversion rather than necessary for the runtime path. citeturn280502search2
+CelesTrak's current space-weather documentation independently confirms the standard relationship: Kp data is used to calculate ap, while its current nowcast data contains both three-hourly Kp and ap. That makes CelesTrak useful for cross-validation of DRAKON's conversion rather than necessary for the runtime path.
 
 ## 3. Current DRAKON model boundary
 
@@ -78,7 +78,7 @@ The new signal must modify only the atmospheric correction state at this boundar
 
 ## 4. Scientific basis
 
-Geomagnetic activity is a meaningful short-timescale driver of thermospheric density variability. Planetary Kp is a three-hour magnetic-activity index, and the associated ap index converts the quasi-logarithmic Kp scale to an equivalent-amplitude scale. NOAA NCEI defines ap as a three-hour planetary equivalent-amplitude index and publishes the standard Kp/ap conversion table. citeturn667084search0turn667084search1
+Geomagnetic activity is a meaningful short-timescale driver of thermospheric density variability. Planetary Kp is a three-hour magnetic-activity index, and the associated ap index converts the quasi-logarithmic Kp scale to an equivalent-amplitude scale. NOAA NCEI defines ap as a three-hour planetary equivalent-amplitude index and publishes the standard Kp/ap conversion table.
 
 The important modeling constraint is that a geomagnetic index is an **external proxy for thermospheric forcing**, not a direct local density measurement. The actual density response depends on altitude, latitude, local solar time, season, storm phase, and thermospheric state/history. A global planetary index can therefore identify enhanced forcing without uniquely determining local density at every satellite.
 
@@ -86,7 +86,7 @@ DRAKON should consequently use geomagnetic activity as a bounded empirical corre
 
 ### Why ap is an intermediate representation
 
-Kp itself is quasi-logarithmic; direct averaging of Kp values is not appropriate as a linear activity measure. The standard solution is to convert each three-hour Kp class to its corresponding `ap` value and then perform any temporal aggregation on the linearized ap series. NOAA publishes this relationship explicitly. citeturn667084search0turn667084search38
+Kp itself is quasi-logarithmic; direct averaging of Kp values is not appropriate as a linear activity measure. The standard solution is to convert each three-hour Kp class to its corresponding `ap` value and then perform any temporal aggregation on the linearized ap series. NOAA publishes this relationship explicitly.
 
 The first production path is therefore:
 
@@ -110,29 +110,29 @@ The conversion must be implemented as a pure lookup function. It is not to be fi
 
 Use the standard 28-entry Bartels/IAGA mapping:
 
-| Kp class | ap | Kp class | ap |
-| --- | ---: | --- | ---: |
-| 0o | 0 | 5- | 39 |
-| 0+ | 2 | 5o | 48 |
-| 1- | 3 | 5+ | 56 |
-| 1o | 4 | 6- | 67 |
-| 1+ | 5 | 6o | 80 |
-| 2- | 6 | 6+ | 94 |
-| 2o | 7 | 7- | 111 |
-| 2+ | 9 | 7o | 132 |
-| 3- | 12 | 7+ | 154 |
-| 3o | 15 | 8- | 179 |
-| 3+ | 18 | 8o | 207 |
-| 4- | 22 | 8+ | 236 |
-| 4o | 27 | 9- | 300 |
-| 4+ | 32 | 9o | 400 |
+| Kp class |  ap | Kp class |  ap |
+| -------- | --: | -------- | --: |
+| 0o       |   0 | 5-       |  39 |
+| 0+       |   2 | 5o       |  48 |
+| 1-       |   3 | 5+       |  56 |
+| 1o       |   4 | 6-       |  67 |
+| 1+       |   5 | 6o       |  80 |
+| 2-       |   6 | 6+       |  94 |
+| 2o       |   7 | 7-       | 111 |
+| 2+       |   9 | 7o       | 132 |
+| 3-       |  12 | 7+       | 154 |
+| 3o       |  15 | 8-       | 179 |
+| 3+       |  18 | 8o       | 207 |
+| 4-       |  22 | 8+       | 236 |
+| 4o       |  27 | 9-       | 300 |
+| 4+       |  32 | 9o       | 400 |
 
-This table is the published conversion used by NOAA/NCEI and NASA documentation. citeturn667084search0turn667084search38
+This table is the published conversion used by NOAA/NCEI and NASA documentation.
 
 The implementation should store the table as a readonly constant in `lib/geomagneticIndex.ts` and expose a pure function such as:
 
 ```typescript
-function kpToAp(kp: number | string): number
+function kpToAp(kp: number | string): number;
 ```
 
 ### 5.2 Kp representation normalization
@@ -163,7 +163,7 @@ Use:
 https://services.swpc.noaa.gov/json/planetary_k_index_1m.json
 ```
 
-The NOAA JSON catalog currently lists this as the real-time planetary K-index product. citeturn280502search0
+The NOAA JSON catalog currently lists this as the real-time planetary K-index product.
 
 The exact response schema must be verified from the live endpoint during implementation. Do not infer field names from this document alone.
 
@@ -194,7 +194,7 @@ The chosen interval representative should be documented in implementation and te
 
 During implementation, compare DRAKON's generated three-hour ap values against an independent authoritative/reference series such as GFZ's Kp/ap nowcast or CelesTrak's space-weather dataset.
 
-This is a validation step, not a runtime dependency. CelesTrak's current documentation explicitly includes three-hourly Kp and ap fields and identifies primary-source geomagnetic data. citeturn280502search2
+This is a validation step, not a runtime dependency. CelesTrak's current documentation explicitly includes three-hourly Kp and ap fields and identifies primary-source geomagnetic data.
 
 ## 7. `lib/geomagneticIndex.ts`
 
@@ -419,8 +419,7 @@ The existing F10.7 correction remains unchanged.
 The environmental state is composed once:
 
 ```typescript
-const combinedMultiplier =
-  solarFluxMultiplier * geomagneticMultiplier;
+const combinedMultiplier = solarFluxMultiplier * geomagneticMultiplier;
 ```
 
 The combined factor is supplied at the existing atmospheric-correction boundary.
@@ -542,18 +541,18 @@ A refresh failure leaves the last validated history intact.
 
 Failure semantics are part of the model contract:
 
-| Condition | Required behavior |
-| --- | --- |
-| Valid recent NOAA Kp | Normalize → ap → activity → multiplier |
-| NOAA request failure + valid history | Keep last validated history; mark stale |
-| NOAA request failure + no history | Multiplier = `1.0`; mark default |
-| Malformed payload | Reject sample; preserve last valid state |
-| Unrecognized Kp class | Reject sample; do not approximate |
-| Non-finite/negative ap | Reject sample |
-| Invalid activity calculation | Multiplier = `1.0` or last validated bounded state |
-| Multiplier outside bounds | Clamp to configured bounds |
-| Redis latest unavailable + local history available | Use local validated state |
-| Redis unavailable + no validated state | Multiplier = `1.0` |
+| Condition                                          | Required behavior                                  |
+| -------------------------------------------------- | -------------------------------------------------- |
+| Valid recent NOAA Kp                               | Normalize → ap → activity → multiplier             |
+| NOAA request failure + valid history               | Keep last validated history; mark stale            |
+| NOAA request failure + no history                  | Multiplier = `1.0`; mark default                   |
+| Malformed payload                                  | Reject sample; preserve last valid state           |
+| Unrecognized Kp class                              | Reject sample; do not approximate                  |
+| Non-finite/negative ap                             | Reject sample                                      |
+| Invalid activity calculation                       | Multiplier = `1.0` or last validated bounded state |
+| Multiplier outside bounds                          | Clamp to configured bounds                         |
+| Redis latest unavailable + local history available | Use local validated state                          |
+| Redis unavailable + no validated state             | Multiplier = `1.0`                                 |
 
 No environmental failure may throw from the risk-resolution path merely because NOAA or Redis is unavailable.
 
