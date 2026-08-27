@@ -207,3 +207,68 @@ export const trendSnapshots = pgTable(
     ),
   ]
 );
+
+// ─── geomagnetic_shadow_runs ────────────────────────────────────────────────
+// Stage 2 shadow-mode durability (GEOMAGNETIC_STORM_REENTRY_PLAN.md §21).
+// One row per shadow evaluation — either a scheduled run against the live
+// geomagnetic Redis state, or a replay run against a historical Kp/ap
+// series. Entirely separate from object_trends / tle_history: nothing in
+// the production risk path reads this table, and nothing here is read by
+// resolveReentryRisk() or any call site that feeds it.
+
+export const geomagneticShadowRuns = pgTable(
+  'geomagnetic_shadow_runs',
+  {
+    id: serial('id').primaryKey(),
+    generatedAt: timestamp('generated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    source: text('source').notNull(), // 'scheduled' | 'replay'
+    replayLabel: text('replay_label'), // set only when source = 'replay'
+    observedAt: timestamp('observed_at', { withTimezone: true }), // geomagnetic reading time; null for a default (no-data) state
+    kpClass: text('kp_class'),
+    estimatedAp: integer('estimated_ap'),
+    activity: doublePrecision('activity'),
+    freshness: text('freshness').notNull(), // 'live' | 'stale' | 'default'
+    modelVersion: smallint('model_version').notNull(),
+    solarFluxMultiplier: doublePrecision('solar_flux_multiplier').notNull(),
+    geomagneticMultiplier: doublePrecision('geomagnetic_multiplier').notNull(),
+    combinedMultiplier: doublePrecision('combined_multiplier').notNull(),
+    objectsEvaluated: integer('objects_evaluated').notNull(),
+    objectsWithTierChange: integer('objects_with_tier_change').notNull(),
+  },
+  (table) => [
+    // Recent-runs / retention queries
+    index('idx_geomagnetic_shadow_runs_generated_at').on(table.generatedAt),
+    // Filter scheduled vs. replay runs
+    index('idx_geomagnetic_shadow_runs_source').on(table.source),
+  ]
+);
+
+// ─── geomagnetic_shadow_object_deltas ───────────────────────────────────────
+// One row per (run, object) where the corrected estimate actually differs
+// from the solar-only estimate — mirrors GeomagneticShadowRow from
+// lib/geomagneticShadow.ts.
+
+export const geomagneticShadowObjectDeltas = pgTable(
+  'geomagnetic_shadow_object_deltas',
+  {
+    id: serial('id').primaryKey(),
+    runId: integer('run_id').notNull(),
+    noradId: integer('norad_id').notNull(),
+    solarOnlyDays: integer('solar_only_days'),
+    solarOnlyTier: text('solar_only_tier').notNull(),
+    correctedDays: integer('corrected_days'),
+    correctedTier: text('corrected_tier').notNull(),
+    daysDelta: integer('days_delta'),
+    tierChanged: boolean('tier_changed').notNull(),
+    solarOnlyTipAgreement: text('solar_only_tip_agreement'), // 'aligned' | 'diverges' | null
+    correctedTipAgreement: text('corrected_tip_agreement'), // 'aligned' | 'diverges' | null
+  },
+  (table) => [
+    // Fetch all deltas for one run (join key)
+    index('idx_geomagnetic_shadow_deltas_run_id').on(table.runId),
+    // "History of this object's shadow deltas" queries
+    index('idx_geomagnetic_shadow_deltas_norad_id').on(table.noradId),
+  ]
+);

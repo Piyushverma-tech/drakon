@@ -36,6 +36,13 @@
       "when": 1786639204545,
       "tag": "0004_windy_maverick",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787852303744,
+      "tag": "0005_soft_husk",
+      "breakpoints": true
     }
   ]
 }

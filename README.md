@@ -58,10 +58,10 @@ The dashboard also contains **Proximity Timeline**, **Critical Alerts**, and rel
 | **Orbit Propagation** | satellite.js (SGP4), Comlink Web Workers                                                                                                                                                     |
 | **State Management**  | Redux Toolkit (visualization state) + TanStack Query v5 (all data fetching)                                                                                                                  |
 | **Backend / API**     | Next.js API Routes (serverless)                                                                                                                                                              |
-| **Database**          | Neon PostgreSQL (serverless HTTP driver) via Drizzle ORM -- `tle_history`, `object_trends`, `trend_snapshots`, etc.                                                                          |
+| **Database**          | Neon PostgreSQL (serverless HTTP driver) via Drizzle ORM -- `tle_history`, `object_trends`, `trend_snapshots`, `geomagnetic_shadow_runs`, `geomagnetic_shadow_object_deltas`, etc.               |
 | **Cache**             | Upstash Redis (HTTP-based, serverless-compatible) -- 2h live TTL + permanent stale fallback                                                                                                 |
 | **TLE Source**        | Space-Track `gp` class (primary, payload + rocket-body) with CelesTrak NORAD GP catalog as fallback and as the permanent source for iridium-33-debris, cosmos-2251-debris, fengyun-1c-debris |
-| **Scheduling**        | cron-job.org (hourly TLE ingest via `/api/internal/ingest-tle`, 15min trend worker, partition maintenance, daily solar flux refresh)                                                          |
+| **Scheduling**        | cron-job.org (hourly TLE ingest via `/api/internal/ingest-tle`, 15min trend worker, partition maintenance, daily solar flux refresh, hourly geomagnetic index + shadow observation refresh)   |
 | **CI/CD**             | GitHub Actions -> Vercel                                                                                                                                                                     |
 
 ---
@@ -345,6 +345,11 @@ Full column-level detail: [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPE
 | `GET`  | `/api/object-trends/recent-changes`      | Latest 1-2 snapshots per object, catalog-wide -- dashboard triage grouping |
 | `GET`  | `/api/solar-flux`                        | Read current NOAA F10.7 value from Redis |
 | `POST` | `/api/solar-flux`                        | Refresh F10.7 from NOAA (cron-job.org, daily) |
+| `GET`  | `/api/geomagnetic-index`                 | Read current Kp/ap/activity/multiplier state from Redis (Stage 2, uncalibrated -- `calibrated: false` in every response) |
+| `POST` | `/api/geomagnetic-index`                 | Refresh Kp/ap from NOAA (cron-job.org, recommended hourly per plan §15), `x-internal-secret` auth |
+| `GET`  | `/api/internal/geomagnetic-shadow`       | Read persisted Stage 2 shadow-mode observations (`?runId=` for one run's per-object deltas; `?source=`/`?limit=`/`?sinceHours=` to filter the list). `x-internal-secret` auth |
+| `POST` | `/api/internal/geomagnetic-shadow`       | Run a live shadow comparison against the current catalog + current geomagnetic state, persist it, does not affect production risk scoring (cron-job.org, recommended hourly). `x-internal-secret` auth |
+| `POST` | `/api/internal/geomagnetic-shadow/replay`| Replay a historical Kp/ap scenario (default: the real May 2024 Gannon storm) against the current catalog and persist the result (`?label=`, `?asOf=`). `x-internal-secret` auth |
 | `POST` | `/api/internal/process-trends`           | Trend worker drain (cron-job.org, every 15 min, `x-internal-secret` auth) |
 | `POST` | `/api/internal/requeue-stale`            | Re-enqueue `object_trends` rows on a stale `trend_version` |
 | `POST` | `/api/internal/ingest-tle`               | Space-Track (primary) + CelesTrak (debris, always; payload/rocket-body fallback) merge cycle, writes `tle:combined`/`tle:combined:stale` and per-source `tle_history` rows. `x-internal-secret` auth. |
