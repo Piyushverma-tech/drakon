@@ -39,6 +39,7 @@ import {
   GFZ_HISTORICAL_KP_AP_MAY_2024,
   type GfzHistoricalKpApEntry,
 } from './fixtures/gfzHistoricalKpAp';
+import { GFZ_HISTORICAL_KP_AP_QUIET_CONTROL_JAN_2024 } from './fixtures/gfzHistoricalKpApQuietControl';
 
 /** Reverse of geomagneticIndex.ts's LEGACY_LETTER_SUFFIX, for building realistic synthetic entries. */
 const CANONICAL_TO_LEGACY_SUFFIX: Record<string, string> = {
@@ -165,5 +166,48 @@ describe('geomagneticIndex — historical validation against real GFZ/CelesTrak 
     expect(metrics.intervalsGeneratedOnly).toBe(0);
     // The extra reference-only interval must not corrupt the error metrics.
     expect(metrics.meanAbsoluteError).toBe(0);
+  });
+});
+
+describe('geomagneticIndex — historical validation against a real, independent QUIET CONTROL window', () => {
+  // Plan §17 Phase 1 requires "both geomagnetically active and quiet
+  // control periods" in the calibration dataset, and Phase 7's
+  // quiet-window rejection test specifically needs a genuine control
+  // window — not just the quieter days inside the storm week above.
+  // See lib/fixtures/gfzHistoricalKpApQuietControl.ts for provenance and
+  // why this window (2024-01-04 to 2024-01-17) was chosen.
+
+  const generated: ThreeHourApObservation[] = reduceToThreeHourApObservations(
+    parseNoaaKpPayload(
+      buildSyntheticNoaaPayload(GFZ_HISTORICAL_KP_AP_QUIET_CONTROL_JAN_2024)
+    )
+  );
+
+  const reference = GFZ_HISTORICAL_KP_AP_QUIET_CONTROL_JAN_2024.map((entry) => ({
+    intervalStart: entry.intervalStart,
+    ap: entry.officialAp,
+  }));
+
+  it('parses and reduces all 112 real intervals of the quiet control window without dropping any', () => {
+    expect(generated).toHaveLength(
+      GFZ_HISTORICAL_KP_AP_QUIET_CONTROL_JAN_2024.length
+    );
+  });
+
+  it('reproduces the official ap record exactly across the full quiet control window', () => {
+    const rows = compareApSeries(generated, reference);
+    const metrics = computeApSeriesComparisonMetrics(rows);
+
+    expect(metrics.intervalsCompared).toBe(112);
+    expect(metrics.intervalsGeneratedOnly).toBe(0);
+    expect(metrics.intervalsReferenceOnly).toBe(0);
+    expect(metrics.exactMatchRate).toBe(1);
+    expect(metrics.meanAbsoluteError).toBe(0);
+    expect(metrics.maxAbsoluteError).toBe(0);
+  });
+
+  it('confirms the window is genuinely quiet: max real ap stays at 12, nowhere near the storm-peak 400', () => {
+    const maxAp = Math.max(...generated.map((o) => o.estimatedAp));
+    expect(maxAp).toBe(12);
   });
 });
