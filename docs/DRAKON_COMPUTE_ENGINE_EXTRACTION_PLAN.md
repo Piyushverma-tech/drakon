@@ -1,1047 +1,710 @@
 # DRAKON Compute Engine — Python/FastAPI Extraction & Architecture Plan
 
 **Status:** Proposed architecture  
-**Target branch:** `main`  
 **Baseline reviewed:** `bf12871c7e712ac5a555bd354c879044406d8336`  
-**Scope:** Introduce Python + FastAPI as a dedicated numerical/scientific compute subsystem inside the existing DRAKON repository without destabilizing the existing Next.js application, Redis/PostgreSQL data paths, or cron-driven pipelines.
+**Document revision:** 2  
+**Scope:** Introduce Python + FastAPI as a dedicated server-side scientific compute service inside the existing DRAKON repository, while preserving the current Next.js API surface, browser-side real-time computation, Redis/PostgreSQL ownership, and cron-driven operational pipelines.
 
 ---
 
 ## 1. Executive decision
 
-DRAKON should evolve into a **hybrid application**:
+DRAKON should evolve into a **three-plane system**, not a Next.js application with a generic Python backend:
 
-- **Next.js / TypeScript remains the application, orchestration, persistence, provider-integration, and presentation layer.**
-- **Python / FastAPI becomes the DRAKON Compute Engine: a dedicated numerical and scientific computation layer for mathematically heavy algorithms, model execution, simulation, calibration, and internal analysis.**
-- Both layers remain in the **same Git repository** and share explicit API/data contracts rather than sharing implementation code.
-- Existing cron endpoints remain the operational control plane. Python is introduced behind existing boundaries so scheduler cadence, locks, retry behavior, provider logic, and database semantics do not change during the extraction.
-- Migration is **incremental and reversible**. Existing TypeScript implementations remain available until Python has passed parity, regression, performance, and production-shadow validation.
-- Model versions become first-class metadata. Every scientific result must identify the model family/version and, where applicable, the calibration/parameter-set version.
+1. **Browser Compute Plane** — existing TypeScript/Web Worker computation for interactive globe workloads. This remains local to the browser.
+2. **Application Plane** — existing Next.js + TypeScript application. It owns `/api/*`, providers, Redis, PostgreSQL, cron orchestration, job claiming, persistence, and application-facing responses.
+3. **DRAKON Compute Engine** — new Python + FastAPI service for server-side scientific/numerical models, heavy algorithms, simulation, calibration, and reusable internal analysis.
 
-The objective is **not** to rewrite DRAKON in Python. The objective is to make the mathematical core of DRAKON independently testable, scalable, and scientifically extensible while keeping the existing application stable.
+The services are deployed as **Vercel Services in the same Vercel project and repository**. The Next.js application remains the primary web service. The Python service has its own root, dependency environment, and FastAPI entrypoint. It is private by default and is reached from server-side Next.js code through a Vercel Service Binding rather than a public client-facing route. Vercel documents this pattern for multi-service projects and FastAPI backends, including service roots, bindings, and per-service runtime configuration. citeturn639927search1turn639927search4
 
----
-
-## 2. Why this architecture
-
-The current repository already has the correct conceptual seam for this transition: numerical/domain logic is concentrated in `lib/`, while `app/api/` routes and job handlers orchestrate ingestion, persistence, external providers, and application-facing responses.
-
-The current re-entry and trend implementations illustrate why a separate numerical subsystem is justified:
-
-- `lib/satelliteHelpers.ts` contains TLE parsing, orbital-element calculations, BSTAR interpretation, decay-rate estimation, anomaly guards, confidence handling, and re-entry estimation.
-- `lib/explainReentryTrend.ts` contains weighted signal analysis, regression-derived signal strengths, confidence aggregation, maneuver likelihood, payload consensus rules, and re-entry estimation logic.
-- `lib/jobs/computeObjectTrends.ts` contains the historical regression implementation, rolling windows, recency weighting, and the worker's persistence lifecycle.
-- Collision-density and orbital-geometry workloads are naturally aligned with numerical/vectorized computation and can become future Python compute services without requiring the surrounding dashboard architecture to move.
-
-This makes Python useful for reasons stronger than syntax preference:
-
-1. **Numerical clarity:** scientific equations and numerical workflows are generally easier to express and review in Python.
-2. **Scientific ecosystem:** NumPy/SciPy and domain-specific libraries can be introduced when they materially improve the model.
-3. **Analysis reuse:** the exact production model implementation can be imported by calibration and research scripts rather than duplicated in notebooks.
-4. **Performance options:** vectorization, batch processing, multiprocessing, native scientific libraries, and eventually worker processes become available without changing the Next.js UI.
-5. **Model governance:** a compute service provides a clean place to define model contracts, versions, validation datasets, parameter sets, and reproducible experiments.
-
----
-
-## 3. Current architecture baseline
-
-The current application should be treated as the baseline that must continue working during migration.
-
-```text
-                         External providers
-                    Space-Track / CelesTrak / NOAA
-                                  |
-                                  v
-                        Next.js internal routes
-                                  |
-                   +--------------+--------------+
-                   |                             |
-                Redis                       PostgreSQL
-                   |                             |
-          current serving state          historical / derived state
-                   |                             |
-                   +-------------+---------------+
-                                 |
-                                 v
-                    TypeScript business logic
-                                 |
-                                 +--> dashboard / API responses
-                                 |
-                                 +--> cron-driven workers
-```
-
-The TLE pipeline is explicitly ingestion-first and keeps `GET /api/tle` side-effect free. The ingestion lifecycle is controlled through authenticated internal endpoints, including `/api/internal/ingest-tle`, while partition maintenance and trend processing are separate jobs. Current documentation also describes the external scheduler as `cron-job.org`, with hourly TLE ingestion, a 15-minute trend worker, partition maintenance, daily solar-flux refresh, and hourly geomagnetic/shadow refresh.
-
-### Baseline invariants that must not be broken
-
-The extraction must preserve these existing behaviors:
-
-- TLE provider acquisition and fallback remain in TypeScript initially.
-- Redis continues to own the current TLE serving snapshot.
-- PostgreSQL remains the historical system of record.
-- Ingestion remains serialized by the existing Redis lock.
-- Provider fallback must not accidentally authorize destructive catalog pruning.
-- `/api/tle` remains a pure read path.
-- Existing partition maintenance remains independent from ingestion.
-- Historical trend jobs remain durable and retryable.
-- Cron cadence and endpoint contracts do not change merely because a calculation is moved to Python.
-
-The architecture change is therefore a **compute-plane extraction**, not a scheduler, storage, or ingestion rewrite.
-
----
-
-## 4. Target architecture
-
-```text
-                                      +----------------------+
-                                      | External providers   |
-                                      | ST / CelesTrak / NOAA|
-                                      +----------+-----------+
-                                                 |
-                                                 v
-                                      +----------------------+
-                                      | Next.js application   |
-                                      |-----------------------|
-                                      | API routes            |
-                                      | Auth / internal jobs  |
-                                      | Redis / PostgreSQL     |
-                                      | Provider integration  |
-                                      | Orchestration          |
-                                      +----------+-----------+
-                                                 |
-                              HTTPS / internal contract
-                                                 |
-                         +-----------------------+-----------------------+
-                         |                       |                       |
-                         v                       v                       v
-                 /compute/reentry      /compute/trends        /compute/orbit
-                         |                       |                       |
-                         +-----------------------+-----------------------+
-                                                 |
-                                      +----------v-----------+
-                                      | DRAKON Compute Engine |
-                                      | FastAPI               |
-                                      |-----------------------|
-                                      | Pydantic contracts    |
-                                      | Numerical services   |
-                                      | Model registry        |
-                                      | Scientific kernels   |
-                                      | Batch operations     |
-                                      +----------+-----------+
-                                                 |
-                         +-----------------------+-----------------------+
-                         |                       |                       |
-                         v                       v                       v
-                      NumPy                   SciPy             domain libraries
-                         |
-                         v
-                 orbital / re-entry / collision / analysis models
-
-                     +--------------------------------------+
-                     | Internal analysis / calibration       |
-                     |--------------------------------------|
-                     | replay datasets                       |
-                     | benchmark scripts                     |
-                     | parameter sweeps                      |
-                     | model comparison                      |
-                     | calibration reports                   |
-                     +--------------------------------------+
-```
-
-### Core architectural rule
-
-> **TypeScript decides what the application needs computed; Python owns the mathematics of how that computation is performed.**
-
-TypeScript should not become a thin proxy around hundreds of Python functions. Likewise, Python should not become a second copy of the application backend.
-
----
-
-## 5. Architectural boundaries
-
-### 5.1 TypeScript remains responsible for
-
-- Next.js UI and server components
-- public and internal HTTP routing
-- authentication and authorization
-- internal job authentication
-- provider access: Space-Track, CelesTrak, NOAA, TIP, etc.
-- Redis access and cache policy
-- PostgreSQL access and transaction boundaries
-- cron/job orchestration
-- locking, claiming, retry, and queue semantics
-- object catalog lifecycle
-- API response composition
-- application-specific filtering and presentation transformations
-- feature flags and rollout controls
-- persistence of model outputs
-- coordination of Python calls
-
-### 5.2 Python becomes responsible for
-
-- numerical kernels
-- scientific calculations
-- orbital mechanics calculations that are computationally meaningful
-- statistical and regression calculations
-- vectorized batch processing
-- simulation
-- optimization
-- sensitivity analysis
-- model calibration
-- uncertainty calculations
-- model-specific classification/scoring when those calculations are part of the scientific model
-- reusable analysis functions used by both production and research tooling
-
-### 5.3 Things Python should not own initially
-
-Do **not** move these simply because Python exists:
-
-- Space-Track authentication/session management
-- CelesTrak provider implementations
-- Redis session/cache ownership
-- PostgreSQL schema ownership
-- TLE ingestion locks
-- ingestion snapshot merging
-- catalog pruning authority
-- cron scheduling
-- public API routing
-- dashboard-specific formatting
-- UI labels/styles
-- provider fallback policy
-- partition lifecycle
-- existing database queue semantics
-
-Python is a compute subsystem first.
-
----
-
-## 6. Proposed repository structure
-
-Start with a contained Python application rather than a broad repository refactor.
+The target repository shape is:
 
 ```text
 drakon/
-├── app/                              # Existing Next.js application
-│   ├── api/                          # Existing HTTP + internal job routes
-│   ├── dashboard/
-│   └── ...
+├── app/                         # Next.js App Router — unchanged
+│   └── api/                     # 100% TypeScript; owns /api/*
 │
-├── components/                       # Existing UI components
+├── lib/                         # existing TS application/domain code
 │
-├── lib/                              # TypeScript application/domain layer
-│   ├── db/                            # PostgreSQL / Drizzle
-│   ├── ingestion/                     # Provider orchestration + history writes
-│   ├── jobs/                          # Existing job orchestration/persistence
-│   ├── tle-providers/                 # Space-Track / CelesTrak
-│   ├── spacetrack/                    # Session handling
-│   ├── tip/                           # TIP integration
-│   ├── redis.ts
-│   ├── types.ts
-│   └── ...                            # Remaining app/domain logic
+├── backend/                     # NEW: DRAKON Compute Engine
+│   ├── pyproject.toml           # Python dependencies/configuration
+│   ├── main.py                  # app = FastAPI()
+│   ├── contracts.py             # Pydantic API contracts
+│   └── compute/
+│       ├── reentry.py           # first model family
+│       ├── orbit.py              # future server-side orbital models
+│       └── ...
 │
-├── python/                            # NEW: DRAKON Compute Engine
-│   ├── app/
-│   │   ├── main.py                    # FastAPI application entry point
-│   │   ├── api/
-│   │   │   ├── health.py
-│   │   │   ├── reentry.py
-│   │   │   ├── trends.py
-│   │   │   ├── orbital.py
-│   │   │   ├── collision.py
-│   │   │   └── analysis.py
-│   │   ├── models/
-│   │   │   ├── common.py              # shared request/response models
-│   │   │   ├── tle.py
-│   │   │   ├── reentry.py
-│   │   │   ├── trend.py
-│   │   │   ├── orbital.py
-│   │   │   └── collision.py
-│   │   ├── core/
-│   │   │   ├── model_registry.py
-│   │   │   ├── model_version.py
-│   │   │   └── configuration.py
-│   │   └── services/
-│   │       ├── orbital/
-│   │       │   ├── tle.py
-│   │       │   ├── elements.py
-│   │       │   ├── kepler.py
-│   │       │   ├── state_vectors.py
-│   │       │   └── propagation.py
-│   │       ├── reentry/
-│   │       │   ├── bstar.py
-│   │       │   ├── decay_rate.py
-│   │       │   ├── signals.py
-│   │       │   ├── confidence.py
-│   │       │   ├── consensus.py
-│   │       │   ├── estimator.py
-│   │       │   └── model.py
-│   │       ├── trends/
-│   │       │   ├── regression.py
-│   │       │   ├── windows.py
-│   │       │   ├── weighting.py
-│   │       │   └── classifier.py
-│   │       ├── collision/
-│   │       │   ├── density.py
-│   │       │   ├── spatial_index.py
-│   │       │   └── candidates.py
-│   │       └── analysis/
-│   │           ├── replay.py
-│   │           ├── metrics.py
-│   │           └── sensitivity.py
-│   │
-│   ├── analysis/
-│   │   ├── README.md
-│   │   ├── calibration/
-│   │   ├── notebooks/
-│   │   ├── replay/
-│   │   └── benchmarks/
-│   │
-│   ├── tests/
-│   │   ├── unit/
-│   │   ├── numerical/
-│   │   ├── golden/
-│   │   ├── contract/
-│   │   ├── integration/
-│   │   └── performance/
-│   │
-│   ├── pyproject.toml
-│   ├── uv.lock                         # if uv is adopted
-│   └── README.md
-│
-├── docs/
-│   ├── DRAKON_COMPUTE_ENGINE_EXTRACTION_PLAN.md
-│   └── ...
-│
+├── vercel.json                  # Vercel Services configuration
 ├── package.json
 └── ...
 ```
 
-This structure intentionally avoids turning the repository into a premature Turborepo-style multi-application workspace. A single bounded `python/` subsystem is sufficient at the current scale.
+The goal is **not** to rewrite DRAKON in Python. The goal is to create a clean scientific boundary that can grow from a small re-entry model into a reusable compute platform without forcing the web application, browser visualization, or operational pipeline to move with it.
 
 ---
 
-## 7. Extraction classification for the existing `lib/`
+## 2. Architectural principles
 
-The extraction should follow **function responsibility**, not file extension or file size.
+### 2.1 Compute placement follows workload characteristics
+
+Not every computation should move to Python.
+
+A workload remains in the browser when latency is part of the product experience. A workload remains in TypeScript when it is primarily application orchestration, persistence, or integration logic. A workload moves to Python when its scientific complexity, numerical ecosystem, batch characteristics, analysis lifecycle, or independent server-side compute requirements justify the boundary.
+
+### 2.2 `/api/*` remains a TypeScript contract
+
+The existing Next.js App Router API namespace is not being replaced with FastAPI routes. Existing clients, cron jobs, and internal integrations continue to call the same paths.
+
+Python is an implementation dependency behind selected TypeScript routes.
+
+### 2.3 Existing cron jobs remain the control plane
+
+The scheduler does not become aware of Python during the initial migration. Existing external scheduling continues to invoke the current Next.js internal endpoints at the current cadence.
+
+### 2.4 Existing storage ownership remains intact
+
+PostgreSQL remains the source of historical and derived application state. Redis remains the current serving/cache layer. Python receives explicit compute inputs and returns explicit compute results; it does not become the owner of DRAKON's primary persistence model during the first extraction.
+
+### 2.5 Production and research use the same model implementation
+
+Internal analysis, replay, calibration, sensitivity analysis, and production inference should import the same Python model modules. A notebook must not silently become a second implementation of a production equation.
+
+### 2.6 Model identity is explicit
+
+Every scientifically meaningful result must identify the model that produced it and the parameter/calibration context under which it was produced.
+
+---
+
+## 3. Current DRAKON architecture — corrected baseline
+
+The existing architecture has **three distinct execution environments**.
+
+```text
+                                        EXTERNAL DATA
+                           Space-Track / CelesTrak / NOAA / TIP
+                                      │
+                                      ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                         APPLICATION PLANE                           │
+│                         Next.js / TypeScript                        │
+│                                                                    │
+│  app/api/*                    lib/*                 cron endpoints  │
+│  public/internal APIs         DB/Redis              job orchestration│
+└──────────────┬──────────────────────────┬──────────────────────────┘
+               │                          │
+               │                          └───────────────┐
+               │                                          │
+               ▼                                          ▼
+        Redis / PostgreSQL                         DRAKON Compute Engine
+                                                     Python / FastAPI
+                                                            │
+                                                            ▼
+                                              numerical/scientific models
+
+┌────────────────────────────────────────────────────────────────────┐
+│                        BROWSER COMPUTE PLANE                        │
+│                    Next.js client + Comlink Worker                  │
+│                                                                    │
+│  satellite.js / SGP4                                               │
+│  current positions                                                 │
+│  batch propagation                                                 │
+│  ground tracks / orbit paths                                       │
+│  interactive collision-density computation                         │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+The browser plane is important. `lib/workers/satellite.worker.ts` performs SGP4 propagation, ground-track/orbit-path generation, relative-velocity work, and collision-density computation in a Web Worker. `lib/satelliteWorker.ts` explicitly gates worker creation on `typeof window !== 'undefined'` and falls back to synchronous computation on the server. This is an intentional low-latency design and must not be replaced by network calls to FastAPI. fileciteturn20file0L2-L2 fileciteturn21file0L2-L2
+
+The TLE architecture is also intentionally ingestion-first: the current catalog is assembled through internal Next.js routes and served through Redis, while PostgreSQL stores historical observations and downstream derived state. The client read path does not perform provider ingestion. fileciteturn12file0L2-L2
+
+---
+
+## 4. Target service topology
+
+Vercel Services is the initial deployment model.
+
+```text
+                         One Git repository
+                              DRAKON
+                                │
+                    ┌───────────┴───────────┐
+                    │                       │
+                    ▼                       ▼
+          Next.js Service             Compute Service
+          root: ./                    root: ./backend
+          framework: nextjs            framework: FastAPI
+                    │                       │
+                    │ Service Binding      │
+                    └──────────────────────►
+                                            │
+                                      private by default
+```
+
+Vercel's current Services model supports multiple frontends/backends within a single project. Each service has its own root and services can communicate through bindings; a service does not need a public rewrite to be reachable by another bound service. The calling service receives an injected URL environment variable for the target service. citeturn639927search1turn639927search4
+
+For DRAKON the preferred relationship is:
+
+```text
+Browser
+   │
+   ├── /api/* ───────────────► Next.js
+   │
+   └── Web Worker ───────────► local JS computation
+
+cron
+   │
+   ▼
+Next.js /api/internal/*
+   │
+   ├── Redis
+   ├── PostgreSQL
+   ├── external providers
+   │
+   └── private service binding
+               │
+               ▼
+        DRAKON Compute Engine
+        FastAPI / Python
+```
+
+Nothing client-facing needs to reach FastAPI directly for the first generation of the service.
+
+---
+
+## 5. Vercel Services configuration
+
+The final `vercel.json` should define the Next.js service and the Python service as separate roots. The exact service configuration should follow the Vercel Services syntax available to the project at implementation time; the current documentation uses service definitions plus a binding on the caller. citeturn639927search4turn416716view1
+
+Conceptually:
+
+```json
+{
+  "services": {
+    "web": {
+      "root": ".",
+      "framework": "nextjs",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "compute",
+          "format": "url",
+          "env": "BACKEND_URL"
+        }
+      ]
+    },
+    "compute": {
+      "root": "backend/",
+      "framework": "fastapi",
+      "entrypoint": "main:app"
+    }
+  }
+}
+```
+
+The important architectural properties are:
+
+- `web` remains the primary Next.js service.
+- `compute` has an independent root and Python dependency environment.
+- `BACKEND_URL` is injected into the calling service by the binding.
+- `compute` has no public rewrite in the initial design.
+- `app/api/*` is still handled by Next.js.
+- Vercel's internal binding handles service reachability without exposing the compute service through public traffic. A binding grants reachability; application-level authorization should still be implemented in the service. citeturn639927search4turn639927search3
+
+Vercel's published FastAPI + Next.js example demonstrates the same multi-service model with separate roots and FastAPI entrypoint configuration. citeturn416716view1
+
+---
+
+## 6. Why FastAPI is an internal compute boundary, not a second public API
+
+FastAPI provides:
+
+- typed Pydantic request/response contracts
+- a stable interface around scientific models
+- model discovery/health endpoints where needed
+- a natural home for Python numerical libraries
+- a clean separation between HTTP concerns and model implementation
+
+It should **not** become a second public API namespace competing with `app/api/*`.
+
+The application-facing flow is:
+
+```text
+Client
+  │
+  ▼
+/api/object-trends
+/api/internal/process-trends
+/api/... existing routes
+  │
+  ▼
+TypeScript application logic
+  │
+  ▼
+PythonComputeClient
+  │
+  ▼
+private service binding
+  │
+  ▼
+FastAPI
+```
+
+A future internal FastAPI endpoint might be `/compute/reentry`, but that path is inside the private compute service, not a new client-facing DRAKON API contract.
+
+---
+
+## 7. Extraction rules for existing TypeScript code
+
+Extraction is performed by **responsibility**, not by file.
 
 ### 7.1 `lib/satelliteHelpers.ts`
 
-**Split rather than move wholesale.**
+Split the file. Do not port it wholesale.
 
-#### Extract to Python
+#### Strong Python candidates
 
-These are strong candidates for the compute layer:
-
-- numerical TLE field interpretation when used as part of a scientific model
-- semi-major-axis calculation from mean motion
-- perigee/apogee calculations
-- orbital velocity calculations
-- atmospheric-density proxies
-- BSTAR interpretation where it feeds the re-entry model
+- orbital parameter calculations used by the re-entry model
+- BSTAR parsing/interpretation when it is model input
+- atmospheric proxy calculations
 - decay-rate equations
-- altitude-based decay estimates
-- mathematical plausibility/anomaly calculations
-- re-entry time estimation
-- model-specific numerical confidence transformations
-
-The current `getReentryRisk()` path combines exactly these numerical operations with application classification and output assembly. The mathematical kernel should move; the application-facing orchestration should not be copied blindly.
+- altitude-based re-entry estimation
+- mathematical anomaly/sanity checks
+- numerical pieces of `getReentryRisk()`
 
 #### Keep in TypeScript
 
-- `formatDistance()` and other presentation formatting
-- UI-oriented labels
-- application-specific object classification when it is only a lightweight presentation concern
-- response-shaping code specific to Next.js consumers
-- any code that primarily decides whether/how to query storage or external systems
+- presentation formatting such as `formatDistance()`
+- UI/application helpers
+- API response shaping
+- provider/storage orchestration
+- lightweight classification used outside a scientific model
 
-#### Preferred end state
+The first Python extraction should preserve the current numerical behavior before improving the model.
+
+### 7.2 `lib/objectTrendRisk.ts`
+
+This file is a **first-class extraction boundary** and must not be omitted from the plan.
+
+The most important function is:
 
 ```text
-lib/satelliteHelpers.ts
-        |
-        +--> lightweight app helpers remain
-        |
-        +--> PythonComputeClient.reentry(...)
-
-python/app/services/reentry/
-        |
-        +--> numerical/scientific implementation
+resolveReentryRisk()
 ```
 
-Do not delete the TypeScript implementation until Python parity is established.
+It is the final re-entry resolution/composition point where current orbital state, trend evidence, environmental corrections, and decision policy are combined. The current implementation includes the HEO gate, altitude-path selection, raising-orbit / negative-BSTAR handling, maneuver/stability gates, trend comparison, pessimistic estimate selection, and tier boundaries. fileciteturn19file0L2-L2
 
----
+The Python extraction should therefore model this explicitly as a **Re-entry Resolution Model**, not merely as another helper.
 
-## 8. `lib/jobs/computeObjectTrends.ts`
+Conceptually:
 
-This file should also be **split**, not replaced in one step.
+```text
+Current orbital state
+Trend evidence
+Solar flux multiplier
+Geomagnetic correction/state
+Model parameters
+       │
+       ▼
+ReentryResolutionModel
+       │
+       ├── HEO gate
+       ├── object/debris policy
+       ├── low-altitude path
+       ├── maneuver/raising-orbit gates
+       ├── trend path
+       ├── altitude path
+       ├── pessimistic-of-two resolution
+       └── confidence/tier resolution
+       │
+       ▼
+ReentryResolutionResult
+```
 
-### Keep in TypeScript
+#### Specifically keep out of the Python model
 
-The following remain job-worker concerns:
+`attachTipData()`, `effectiveDaysRemaining()`, and `buildReentryRiskMap()` remain application/reference-data composition. TIP remains an external reference and must not overwrite DRAKON's own estimate. fileciteturn19file0L2-L2
+
+### 7.3 Environmental corrections
+
+The Compute Engine should **receive environmental state; it should not own environmental acquisition**.
+
+For example:
+
+```json
+{
+  "environment": {
+    "solar_flux_multiplier": 1.18,
+    "geomagnetic_correction": 0.92
+  }
+}
+```
+
+The Next.js layer continues to own NOAA/geomagnetic acquisition, Redis caching, freshness policy, and operational scheduling. The Python model remains deterministic with respect to the supplied environmental inputs.
+
+This allows a historical analysis to reproduce a past decision with the same environmental state that was available at that time.
+
+### 7.4 `lib/explainReentryTrend.ts`
+
+The model-level logic is a candidate for Python extraction:
+
+- signal-strength calculations
+- maneuver likelihood
+- confidence composition
+- payload consensus
+- decay classification
+- trend-derived re-entry estimate
+
+But the extraction must reflect the real dependency graph. `resolveReentryRisk()` is downstream of these signals; it is not optional application glue.
+
+### 7.5 `lib/jobs/computeObjectTrends.ts`
+
+This file should be split between **worker orchestration** and **scientific computation**.
+
+Keep in TypeScript:
 
 - claiming `trend_jobs`
 - `FOR UPDATE SKIP LOCKED`
-- concurrency controls for job execution
-- retry counts
-- deleting successful jobs
-- requeueing failed jobs
-- reading historical records from PostgreSQL
-- resolving object names/types from existing tables
-- persistence into `object_trends`
-- writing `trend_snapshots`
-- deciding batch size and scheduler interaction
+- retry counters
+- batch orchestration
+- PostgreSQL reads
+- `object_trends` persistence
+- `trend_snapshots`
+- job deletion/requeue
+- scheduler interaction
 
-### Extract to Python
+The current worker claims a requested number of jobs and processes them in `CONCURRENCY = 10` slices using `Promise.allSettled`, deleting successful jobs immediately so partial progress survives a mid-run failure. fileciteturn18file0L2-L2
 
-The numerical trend engine should move here:
-
-- unweighted regression kernel
-- weighted regression kernel
-- recency weighting
-- time-window selection
-- trend statistics
-- slopes, R², means, standard deviations
-- signal-strength calculations
-- confidence aggregation
-- maneuver likelihood calculations
-- consensus calculations when they are part of the model definition
-- trend-derived re-entry estimation
-
-The TypeScript worker should eventually become an orchestrator:
-
-```text
-trend_jobs
-    |
-    +--> read data
-    |
-    +--> build canonical compute input
-    |
-    +--> call Python batch compute
-    |
-    +--> validate response
-    |
-    +--> persist object_trends
-    |
-    +--> write trend_snapshots
-```
-
-This preserves the existing queue durability while moving the mathematics into a reusable service.
+Do **not** replace that durability model with a Python-owned queue merely because trend mathematics moves to Python.
 
 ---
 
-## 9. `lib/explainReentryTrend.ts`
+## 8. Regression extraction policy
 
-This is one of the strongest candidates for Python extraction because it is already structured around mathematical signal processing.
+The current weighted regression implementation should **remain in TypeScript initially**.
 
-### Extract
+The reason is architectural discipline: a closed-form OLS/weighted-OLS kernel is mathematically simple enough that Python does not automatically provide a material benefit at the current workload. The existing trend worker's regression is not itself sufficient justification for adding a network boundary. fileciteturn18file0L2-L2
 
-- `RegressionResult` equivalent as a Python model
-- signal-strength formulas
-- weighted evidence combination
-- maneuver likelihood calculation
-- decay classification
-- payload consensus evaluation
-- re-entry estimate mathematics
-- confidence ceilings and model scoring
+Move regression to Python when the model becomes materially more sophisticated, for example:
 
-### Keep / recreate in TypeScript only as a consumer boundary
+- robust regression
+- non-linear fitting
+- state-space/Kalman filtering
+- uncertainty propagation
+- Bayesian estimation
+- Monte Carlo inference
+- parameter fitting requiring SciPy
+- vectorized analysis across substantially larger datasets
+- the production trend model and calibration tooling genuinely need the same Python implementation
 
-TypeScript can continue to expose a convenient application-level `ReentryRisk` shape, but the scientific calculation itself should come from Python.
+The architectural rule is:
 
-The implementation should not be duplicated long-term.
+> **Python is not the destination for all mathematics. It is the destination for mathematics whose complexity or lifecycle justifies the compute boundary.**
 
 ---
 
-## 10. Collision-density and future orbital workloads
+## 9. Browser computation is explicitly out of scope
 
-The collision-density subsystem is a good **second-wave** candidate once the Python foundation is stable.
+The following remain in the browser worker architecture:
 
-Potential future Python services include:
+- current satellite position propagation
+- batch position propagation
+- ground-track generation
+- orbit-path generation
+- interactive collision-density calculation
+- relative-velocity checks used by the interactive collision workflow
+- Comlink worker lifecycle and browser-side caches
+
+The reason is not that Python cannot implement them. The reason is that these computations are part of an interactive visualization loop where a network round trip would violate the reason the worker exists.
+
+### Future server-side equivalents are allowed
+
+A separate Python model may eventually support:
 
 ```text
-/compute/collision/density
-/compute/collision/candidates
-/compute/orbit/state
-/compute/orbit/propagate
-/compute/orbit/ground-track
+historical collision analysis
+catalog-wide offline density studies
+large Monte Carlo conjunction experiments
+server-side batch propagation
+research simulations
 ```
 
-The current TypeScript worker/client data structures should remain compatible at the API boundary. Python can initially return the same logical fields rather than forcing UI changes.
+Those are distinct workloads and must not replace the browser worker.
 
-For collision-density work, batch/vectorized input should be the default architectural pattern:
+---
+
+## 10. First Python service — minimal shape
+
+The first implementation should deliberately be small:
+
+```text
+backend/
+├── pyproject.toml
+├── main.py
+├── contracts.py
+└── compute/
+    └── reentry.py
+```
+
+Example responsibilities:
+
+```python
+# main.py
+app = FastAPI()
+
+# contracts.py
+ReentryRequest
+ReentryResponse
+
+# compute/reentry.py
+calculate_reentry(...)
+```
+
+Do not create an empty abstraction for every future service on day one. Expand the directory as real models are extracted.
+
+A later architecture can grow to:
+
+```text
+backend/
+├── main.py
+├── contracts/
+│   ├── reentry.py
+│   ├── trend.py
+│   └── orbit.py
+├── models/
+│   ├── registry.py
+│   └── versions.py
+├── compute/
+│   ├── reentry/
+│   ├── orbit/
+│   ├── collision/
+│   └── uncertainty/
+└── analysis/
+    ├── replay/
+    ├── calibration/
+    ├── sensitivity/
+    └── benchmarks/
+```
+
+---
+
+## 11. Compute API contract
+
+The FastAPI boundary must use explicit request/response models.
+
+### Example request
 
 ```json
 {
-  "objects": [...],
-  "voxel_size_km": 25,
-  "detection_radius_km": 50,
-  "grid_cell_size_deg": 2
+  "norad_id": 12345,
+  "orbital_state": {
+    "perigee_km": 245.2,
+    "apogee_km": 251.8,
+    "mean_motion": 15.8,
+    "mean_motion_dot": 0.000012
+  },
+  "trend": {
+    "decay_signal": "decaying",
+    "decay_confidence": 0.71,
+    "maneuver_likelihood": 0.03,
+    "estimated_days_remaining": 67
+  },
+  "environment": {
+    "solar_flux_multiplier": 1.12,
+    "geomagnetic_correction": 0.96
+  }
 }
 ```
 
-The service should not require one HTTP call per satellite. Network overhead will quickly dominate numerical work at that scale.
+### Example response
+
+```json
+{
+  "status": "ok",
+  "result": {
+    "estimated_days_remaining": 61,
+    "tier": "warning",
+    "confidence": "medium",
+    "source": "multi_epoch"
+  },
+  "model": {
+    "id": "reentry_resolution",
+    "version": "0.1.0",
+    "parameter_set": "reentry-2026-09-baseline",
+    "calibration_version": "cal-2026-09-01"
+  }
+}
+```
+
+Units must be explicit in schemas or field names. Null means unavailable/indeterminate; zero must mean a real zero.
 
 ---
 
-## 11. New Python API design
+## 12. Batch contract and partial success
 
-FastAPI exists primarily as the boundary around the compute engine. The API layer should remain thin.
+Batch APIs are appropriate for background jobs, but the contract must support **per-object results**.
 
-### Example endpoint groups
-
-```text
-GET  /health
-GET  /models
-GET  /models/{model_id}
-
-POST /compute/reentry
-POST /compute/reentry/batch
-POST /compute/trends
-POST /compute/orbit/state
-POST /compute/orbit/propagate
-POST /compute/collision/density
-POST /compute/collision/candidates
-
-POST /analysis/replay
-POST /analysis/sensitivity
-POST /analysis/benchmark
-```
-
-### Endpoint design rules
-
-1. **Thin routes.** Routes validate input, invoke a service, and return a typed response.
-2. **No database access in the mathematical service layer.** Inputs should arrive as explicit data structures.
-3. **No hidden external network access from model functions.** A numerical model must be deterministic with respect to its declared inputs.
-4. **Batch endpoints are preferred for worker workloads.** Avoid per-object HTTP calls for scheduled processing.
-5. **Interactive requests should remain small.** Long-running analyses should eventually move to asynchronous job execution.
-6. **Model metadata is mandatory.** Every model response identifies the model version that produced it.
-
----
-
-## 12. Contracts between TypeScript and Python
-
-Do not attempt to import TypeScript types into Python or Python classes into TypeScript.
-
-Use an explicit contract at the service boundary.
-
-### Phase 1 contract
-
-Pydantic models in Python define the request/response contract.
-
-### Phase 2 contract hardening
-
-Introduce a small repository-level contract directory when the number of services grows:
-
-```text
-contracts/
-├── compute/
-│   ├── reentry.v1.schema.json
-│   ├── trends.v1.schema.json
-│   ├── orbit.v1.schema.json
-│   └── collision.v1.schema.json
-└── README.md
-```
-
-The OpenAPI schema emitted by FastAPI can become the machine-readable source for frontend client typing once the API stabilizes.
-
-### Contract rules
-
-- breaking changes require a versioned contract
-- additive response fields are preferred where possible
-- unit names must be explicit in field names or schema documentation
-- timestamps are ISO-8601 UTC
-- distances use km unless otherwise documented
-- velocities use km/s unless otherwise documented
-- rates include their time basis
-- null means unavailable/indeterminate, not zero
-- enumerated scientific states must be explicit
-
----
-
-## 13. Model versioning — mandatory
-
-Model versioning becomes a first-class capability of the DRAKON Compute Engine.
-
-Do not use API version alone as scientific model version. They are different concerns.
-
-### 13.1 Model identity
-
-Each scientific model should have:
-
-```text
-model_id
-model_version
-parameter_set_id
-calibration_version
-```
+The Python service must not expose an all-or-nothing interpretation for a batch of independent objects.
 
 Example:
 
-```text
-model_id            = reentry_screen
-model_version       = 0.2.0
-parameter_set_id    = reentry-2026-09-baseline
-calibration_version= cal-2026-09-01
-```
-
-### 13.2 Result metadata
-
-Every compute result should include, at minimum:
-
 ```json
 {
+  "status": "partial",
   "model": {
-    "id": "reentry_screen",
-    "version": "0.2.0",
-    "parameter_set": "reentry-2026-09-baseline",
-    "calibration_version": "cal-2026-09-01"
+    "id": "object_trend",
+    "version": "4"
   },
-  "computed_at": "2026-09-03T00:00:00Z",
-  "engine_version": "0.1.0"
-}
-```
-
-### 13.3 Versioning rules
-
-**Patch version:** implementation corrections that do not intentionally change model behavior.  
-**Minor version:** new calculation components or materially changed parameters while retaining the same conceptual model.  
-**Major version:** incompatible methodology or interpretation changes.
-
-Any change that could change historical outputs should be treated as a model version change even if the API shape does not change.
-
-### 13.4 Existing `trendVersion`
-
-The current trend worker already uses `CURRENT_TREND_VERSION = 4`. This concept should be preserved during migration, but eventually expanded into a more explicit model identifier/version scheme.
-
-Recommended future persistence metadata:
-
-```text
-trend_model_id
-trend_model_version
-trend_parameter_set
-trend_calibration_version
-```
-
-The old `trendVersion` field may remain as a compatibility field during transition.
-
----
-
-## 14. Model registry
-
-Create a lightweight Python model registry rather than scattering version constants through endpoint files.
-
-```python
-MODEL_REGISTRY = {
-    "reentry_screen": {
-        "version": "0.1.0",
-        "parameter_set": "default-2026-09",
-        "status": "production",
-    },
-    "reentry_trend": {
-        "version": "0.1.0",
-        "parameter_set": "default-2026-09",
-        "status": "shadow",
-    },
-}
-```
-
-The registry should support states such as:
-
-```text
-experimental
-shadow
-canary
-production
-deprecated
-```
-
-This allows a new model to exist beside the old one without an immediate replacement.
-
----
-
-## 15. Extraction sequence — start to finish
-
-The migration should proceed through explicit gates.
-
-### Phase 0 — Freeze the architectural boundary
-
-**Goal:** prevent accidental cross-contamination while Python is introduced.
-
-Actions:
-
-- document the compute/application boundary
-- inventory current numerical functions in `lib/`
-- identify all callers of the candidate functions
-- identify which outputs are persisted
-- record current cron endpoints and scheduler cadence
-- add a feature-flag convention for compute-engine calls
-- establish Python coding/testing conventions
-
-**Do not change production computation yet.**
-
-Exit criteria:
-
-- candidate extraction list is reviewed
-- no cron endpoint needs a route rename
-- rollback to current TypeScript is still one configuration change away
-
----
-
-### Phase 1 — Create the Python subsystem
-
-Create:
-
-```text
-python/
-├── app/
-├── tests/
-├── analysis/
-├── pyproject.toml
-└── README.md
-```
-
-Install only the foundation dependencies first:
-
-```text
-fastapi
-pydantic
-uvicorn
-numpy
-pytest
-```
-
-Add `scipy`, `sgp4`, `astropy`, or other packages only when a migrated model actually needs them.
-
-The first FastAPI application should expose only:
-
-```text
-GET /health
-GET /models
-```
-
-No production route should call it yet.
-
----
-
-### Phase 2 — Establish local developer workflow
-
-Run both runtimes independently:
-
-```text
-Next.js       http://localhost:3000
-FastAPI       http://localhost:8000
-```
-
-Add a simple developer command convention, for example:
-
-```text
-npm run dev:web
-npm run dev:compute
-```
-
-or use a single development helper script to run both processes.
-
-The Next.js application should refer to a configurable internal base URL:
-
-```text
-COMPUTE_ENGINE_URL=http://localhost:8000
-```
-
-Do not hard-code production hostnames.
-
----
-
-### Phase 3 — Extract the smallest pure numerical kernel
-
-Start with pure functions from `satelliteHelpers.ts`, not the entire `getReentryRisk()` function.
-
-Recommended sequence:
-
-1. TLE numerical parsing
-2. semi-major-axis / perigee / apogee calculations
-3. BSTAR parsing
-4. orbital velocity
-5. decay-rate kernel
-6. anomaly/plausibility guards
-7. re-entry estimate
-
-Each function gets a Python unit test before being connected to FastAPI.
-
-This provides a scientific foundation without yet changing application behavior.
-
----
-
-### Phase 4 — Build golden/parity tests
-
-For each extracted function, create golden inputs from real DRAKON observations and deterministic fixtures.
-
-```text
-TypeScript implementation
-          |
-          +--> golden input --> expected result
-
-Python implementation
-          |
-          +--> same input --> compare
-```
-
-Use numerical tolerances where appropriate. Do not compare serialized floating-point text character-for-character.
-
-For categorical values (`stable`, `warning`, `critical`, etc.), require exact equality.
-
-Store the golden fixtures outside the UI code so they can be reused by both production tests and calibration analysis.
-
----
-
-### Phase 5 — Extract the re-entry model
-
-Once primitives match, move the actual model into Python:
-
-```text
-python/app/services/reentry/
-├── bstar.py
-├── decay_rate.py
-├── signals.py
-├── confidence.py
-├── consensus.py
-├── estimator.py
-└── model.py
-```
-
-Keep the first Python version **mathematically equivalent** to the current production implementation.
-
-Do not improve the model in the same pull request as the language migration.
-
-This is critical for separating:
-
-```text
-migration differences
-```
-
-from:
-
-```text
-scientific/model changes
-```
-
----
-
-### Phase 6 — Introduce FastAPI around the model
-
-Expose:
-
-```text
-POST /compute/reentry
-```
-
-and later:
-
-```text
-POST /compute/reentry/batch
-```
-
-The FastAPI route must not read Redis or PostgreSQL for the initial implementation. The Next.js layer supplies the required input.
-
-This keeps the scientific model deterministic and testable.
-
----
-
-### Phase 7 — Shadow mode
-
-Do not replace the TypeScript result immediately.
-
-Instead:
-
-```text
-Incoming application request
-          |
-          +--> TypeScript model -----> authoritative result
-          |
-          +--> Python model ---------> shadow result
-                                      |
-                                      +--> compare metrics
-```
-
-Record:
-
-- model version
-- input identity
-- TypeScript result
-- Python result
-- absolute/relative numerical delta
-- categorical disagreement
-- execution time
-- error/timeout
-
-The TypeScript result remains authoritative.
-
-Shadow mode may be implemented for interactive endpoints and for selected scheduled jobs.
-
----
-
-### Phase 8 — Canary rollout
-
-After a sufficient shadow sample:
-
-```text
-feature flag = 1%
-        |
-        v
-Python authoritative for a small population
-        |
-        +--> TypeScript fallback on failure
-```
-
-Then increase gradually.
-
-Recommended rollout controls:
-
-```text
-COMPUTE_ENGINE_ENABLED=false
-COMPUTE_ENGINE_SHADOW=true
-COMPUTE_ENGINE_CANARY_PERCENT=0
-```
-
-Later:
-
-```text
-COMPUTE_ENGINE_ENABLED=true
-COMPUTE_ENGINE_SHADOW=false
-COMPUTE_ENGINE_CANARY_PERCENT=100
-```
-
-The exact configuration naming is implementation detail; the operational behavior is mandatory.
-
----
-
-### Phase 9 — Extract historical trend mathematics
-
-After the re-entry screen is stable, move the numerical core from:
-
-```text
-lib/jobs/computeObjectTrends.ts
-lib/explainReentryTrend.ts
-```
-
-to:
-
-```text
-python/app/services/trends/
-python/app/services/reentry/
-```
-
-The existing TypeScript worker remains the coordinator.
-
-Recommended request shape:
-
-```text
-POST /compute/trends
-{
-  objects: [
+  "results": [
     {
-      norad_id: 12345,
-      epochs: [...]
+      "norad_id": 10001,
+      "status": "ok",
+      "result": { }
+    },
+    {
+      "norad_id": 10002,
+      "status": "error",
+      "error": {
+        "code": "NUMERICAL_FAILURE",
+        "message": "...",
+        "retryable": true
+      }
     }
   ]
 }
 ```
 
-For production worker workloads, prefer one request containing a batch of objects rather than one request per object.
-
----
-
-### Phase 10 — Production worker integration
-
-The existing `process-trends` cron endpoint remains unchanged.
-
-The control flow becomes:
+### Batch status
 
 ```text
-cron-job.org
-      |
-      v
-POST /api/internal/process-trends
-      |
-      +--> claim trend_jobs
-      |
-      +--> read historical data
-      |
-      +--> build Python input batch
-      |
-      +--> call /compute/trends
-      |
-      +--> validate model/version
-      |
-      +--> persist object_trends
-      |
-      +--> delete completed jobs
-      |
-      +--> retry failures
+complete  -> every item returned successfully
+partial   -> at least one success and one item-level failure
+failed    -> no trustworthy item result was returned
 ```
 
-The queue, lock/claim semantics, retry semantics, and persistence stay in TypeScript.
-
-Python is a computational dependency, not the queue owner.
-
----
-
-### Phase 11 — Analysis and calibration layer
-
-Only after the production model is stable should Python's research/analysis tooling become a first-class subsystem.
-
-Add:
+### Item status
 
 ```text
-python/analysis/
-├── calibration/
-├── replay/
-├── sensitivity/
-├── benchmarks/
-└── notebooks/
+ok
+error
 ```
 
-The analysis layer imports the exact same production model modules.
+Every item error must identify whether retrying is meaningful.
 
-Example:
+### Reconciliation in the TypeScript worker
 
 ```text
-production:
-    app.services.reentry.model.calculate(...)
-
-analysis:
-    analysis.calibration.run_reentry_sweep(...)
-            |
-            +--> same model implementation
+Python response
+       │
+       ├── item OK
+       │     └── persist result + delete job
+       │
+       └── item ERROR
+             ├── retryable    -> increment retry + pending
+             └── non-retryable -> record/drop according to policy
 ```
 
-This prevents the common failure mode where the research notebook and production model silently diverge.
+A **transport/service failure** is different:
+
+```text
+HTTP 500 / timeout / no valid response
+       ↓
+whole compute batch is unresolved
+       ↓
+requeue the corresponding jobs
+```
+
+The worker must never increment retry counters for objects already successfully acknowledged in a valid partial response.
 
 ---
 
-### Phase 12 — Extract future compute domains
+## 13. Deadline budgeting around the existing 60-second envelope
 
-After the foundation is stable, extract in roughly this order:
+The current internal routes already declare a 60-second `maxDuration`, including `process-trends`, `ingest-tle`, and partition maintenance. fileciteturn23file0L2-L2 fileciteturn24file0L2-L2 fileciteturn25file0L2-L2
 
-1. re-entry model
-2. trend/regression model
-3. collision density
-4. close-approach/candidate analysis
-5. orbital state/propagation utilities
-6. richer atmospheric models
-7. uncertainty/Monte Carlo services
-8. larger simulation and optimization workloads
+The Python boundary must therefore be treated as part of the existing execution budget, not as an additional unlimited phase.
 
-Do not migrate a component solely for stylistic consistency. Extract it when Python materially improves scientific clarity, capability, or workload characteristics.
+### Initial engineering budget
+
+Use a soft orchestration deadline below the platform ceiling rather than attempting to run to the final second.
+
+```text
+60 s hard outer limit
+│
+├── ~5 s safety margin
+├── DB claim/read overhead
+├── Python network + compute
+├── DB persistence
+└── response/cleanup
+```
+
+The initial implementation should use a **soft deadline around 45–50 seconds**, then tune it from production measurements. The document intentionally does not define a permanent milliseconds-per-object target because the correct budget depends on payload size, model implementation, batch size, and service runtime.
+
+### Deadline propagation
+
+Before each Python call, the TypeScript worker should calculate the remaining orchestration budget.
+
+```text
+remaining = soft_deadline - now
+
+python_timeout = min(
+    configured_compute_timeout,
+    remaining - persistence_reserve
+)
+```
+
+If the remaining budget is too small:
+
+```text
+stop claiming new work
+finish/persist anything already safely completed
+requeue unresolved work
+return
+```
+
+### Outer-function termination
+
+The architecture must explicitly account for the case where the Vercel function approaches 60 seconds while a Python call is in flight.
+
+Do not assume the Python computation will complete after the outer function is terminated. The TypeScript worker must treat the invocation as successfully processing only the jobs whose results were durably acknowledged and persisted before the outer deadline.
+
+Idempotent persistence and retryable jobs make duplicate computation safe.
 
 ---
 
-## 16. Cron and pipeline non-disruption policy
+## 14. Batch sizing strategy
 
-This is a hard requirement.
+The existing `process-trends` route accepts a batch size of 200, while the worker internally processes claimed jobs in concurrency slices of 10. fileciteturn23file0L2-L2 fileciteturn18file0L2-L2
 
-### 16.1 Existing cron endpoints remain unchanged initially
+Do not automatically turn 200 jobs into one giant HTTP request.
 
-The following existing operational endpoints remain under Next.js control:
+Instead:
+
+```text
+scheduler
+   ↓
+claim up to 200 durable jobs
+   ↓
+choose compute request size from benchmarked limit
+   ↓
+submit compute batch
+   ↓
+reconcile per-item results
+   ↓
+repeat while deadline allows
+```
+
+The first production batch size should be measured. A small request such as 10–25 objects is a reasonable starting experiment, not a permanent design constant.
+
+The key requirement is that the worker's **durable batch** and the compute service's **transport batch** are separate concepts.
+
+---
+
+## 15. Cron-driven pipeline non-disruption
+
+The extraction must not migrate scheduler ownership.
+
+Current cron-driven endpoints remain unchanged:
 
 ```text
 POST /api/internal/ingest-tle
@@ -1050,508 +713,586 @@ POST /api/internal/manage-tle-partitions
 POST /api/internal/requeue-stale
 POST /api/internal/geomagnetic-shadow
 POST /api/internal/geomagnetic-shadow/replay
-POST /api/solar-flux
+...
 ```
 
-The external scheduler continues to invoke the same endpoints at the same cadence.
+The current documentation describes external scheduling for hourly TLE ingestion, a 15-minute trend worker, partition maintenance, daily solar-flux refresh, and hourly geomagnetic/shadow refresh. fileciteturn13file0L8-L25
 
-### 16.2 No scheduler migration during extraction
+### Required invariants
 
-Do not combine the Python introduction with a migration from `cron-job.org` to another scheduler.
+- Do not change cron cadence during compute extraction.
+- Do not rename existing cron endpoints.
+- Do not move provider acquisition into Python.
+- Do not move Redis locks into Python.
+- Do not move PostgreSQL queue claiming into Python.
+- Do not move partition maintenance into Python.
+- Do not make TLE ingestion depend synchronously on Python.
+- A Python outage must not corrupt the current TLE snapshot.
+- A Python outage during trend processing must leave work retryable.
 
-Scheduler migration and compute migration are independent changes.
+### Ingestion remains independent
 
-### 16.3 No ingestion rewrite
+`/api/internal/ingest-tle` continues to execute the existing ingestion lifecycle. The Python service is not part of that pipeline unless a future, separately reviewed model genuinely needs to participate.
 
-Do not move `runIngestionCycle()` into Python during the initial extraction.
+The current ingestion route already has its own `maxDuration = 60` and calls `runIngestionCycle()` directly. fileciteturn24file0L2-L2
 
-Specifically, Python must not initially become responsible for:
-
-- Space-Track calls
-- CelesTrak fallback
-- provider health decisions
-- Redis ingestion lock
-- snapshot merge
-- pruning authority
-- historical row insertion
-- partition management
-
-### 16.4 No synchronous Python dependency in ingestion
-
-`/api/internal/ingest-tle` should not fail merely because the compute service is unavailable.
-
-TLE ingestion must remain independently operable.
-
-If a future ingestion calculation truly requires Python, use a fail-safe design where the ingestion state remains safe and the compute task can be retried independently.
-
-### 16.5 Trend worker failure isolation
-
-During the transition, a Python failure must behave like a failed trend computation, not a failed ingestion cycle.
-
-The worker should:
-
-```text
-claim job
-   |
-Python compute fails
-   |
-requeue job / increment retry
-   |
-continue processing other jobs
-```
-
-Do not mark a job completed if Python returned an invalid or mismatched model result.
-
-### 16.6 Timeout policy
-
-All TypeScript -> Python calls must have explicit timeouts.
-
-For a timeout/error:
-
-- interactive path: use a documented fallback if safe
-- background worker: retry/requeue
-- ingestion: do not block the ingestion pipeline
-
-Timeouts must be observable.
+The first extraction must therefore leave that route and service untouched.
 
 ---
 
-## 17. Deployment strategy
+## 16. Trend-worker integration after Python extraction
 
-There are two valid deployment stages, but they should not be confused.
-
-### 17.1 Stage A — same Vercel project for early integration
-
-Vercel currently supports Python/FastAPI deployment alongside Next.js and provides an official Next.js + FastAPI monorepo pattern. This makes it a valid way to prove the architecture with one repository/project and minimal infrastructure.
-
-For example:
+The intended end state is:
 
 ```text
-drakon/
-├── app/        # Next.js
-├── lib/
-└── api/        # Vercel Python functions
+cron-job.org
+     │
+     ▼
+POST /api/internal/process-trends
+     │
+     ▼
+processTrendJobs()
+     │
+     ├── claim jobs
+     ├── read history from PostgreSQL
+     ├── construct compute inputs
+     ├── call FastAPI batch endpoint
+     ├── reconcile per-item results
+     ├── persist successful trends
+     └── requeue failed items
 ```
 
-However, that simple Vercel layout is not the target repository structure for DRAKON's long-term compute subsystem. DRAKON's Python service is expected to contain increasingly substantial numerical and analysis workloads, so a dedicated service boundary is preferable for production scaling.
+The existing `trend_jobs` queue remains the recovery mechanism. Python does not need to know whether a job is pending or processing.
 
-### 17.2 Stage B — recommended production architecture
-
-Use the same Git repository but deploy Python as a **separate containerized FastAPI service**.
-
-```text
-GitHub repository
-      |
-      +------------------------+
-      |                        |
-      v                        v
-   Vercel                 Python service
-   Next.js                 FastAPI
-      |                        |
-      +----------HTTPS---------+
-               |
-               v
-          DRAKON Compute
-```
-
-The exact hosting provider can be chosen independently of the repository architecture. The deployment should support:
-
-- persistent service/process lifecycle
-- container/image builds
-- CPU/memory sizing
-- configurable concurrency
-- private networking or authenticated HTTPS
-- logs/metrics
-- rolling deploys
-- independent scaling
-- background worker capability when eventually required
-
-### 17.3 Why separate deployment is preferred long-term
-
-A separate service makes it possible to scale numerical workloads without scaling the web application.
-
-Example:
-
-```text
-2 web instances
-8 compute workers
-```
-
-rather than coupling both to the same scaling unit.
-
-It also makes future additions such as multiprocessing, batch workers, numerical native dependencies, or asynchronous compute jobs easier to operate.
-
-### 17.4 Deployment transition
-
-The deployment order should be:
-
-```text
-local Python
-    |
-    v
-same-repo staging
-    |
-    v
-Vercel proof deployment OR container staging
-    |
-    v
-shadow production service
-    |
-    v
-canary
-    |
-    v
-production compute service
-```
-
-The Next.js application should always use a configurable `COMPUTE_ENGINE_URL` rather than embedding infrastructure-specific hostnames.
+The current worker intentionally persists progress after each concurrency slice so an interrupted batch does not erase already-completed work. That property must remain after extraction. fileciteturn18file0L2-L2
 
 ---
 
-## 18. Authentication between Next.js and Python
+## 17. Model versioning
 
-The compute service should not be treated as a public anonymous API.
+Model versioning is separate from service/API versioning.
 
-At minimum, implement one of:
+### 17.1 Required metadata
 
-- private network access; or
-- signed internal requests; or
-- an internal service token.
-
-The application should validate Python responses against expected contracts and model versions.
-
-Do not expose calibration or internal analysis endpoints publicly.
-
-Recommended logical separation:
-
-```text
-public dashboard
-    |
-    v
-Next.js
-    |
-    +--> authenticated compute service
-
-internal analysis tooling
-    |
-    v
-Python analysis modules / restricted analysis API
-```
-
----
-
-## 19. Testing strategy
-
-The migration requires more than normal unit tests because scientific outputs can change subtly without producing obvious runtime errors.
-
-### 19.1 Python unit tests
-
-Test pure functions independently:
-
-- TLE numeric parsing
-- Kepler calculations
-- BSTAR parsing
-- orbital velocity
-- decay equations
-- weighting functions
-- regressions
-- signal strengths
-- confidence calculations
-- tier assignment
-
-### 19.2 Numerical invariant tests
-
-Add invariants where mathematically meaningful.
-
-Examples:
-
-```text
-semi-major axis > Earth radius for a valid orbit
-perigee <= apogee
-R² in [0, 1]
-confidence in [0, 1]
-probability-like scores in [0, 1]
-negative physical rates are not silently converted into positive decay
-```
-
-### 19.3 Golden tests
-
-Use known DRAKON inputs and expected results.
-
-Golden datasets should include:
-
-- normal debris
-- stable debris
-- active payload
-- maneuvering payload
-- high-altitude false-positive candidates
-- terminal/low-perigee objects
-- malformed or incomplete TLE input
-- Alpha-5 catalog identifiers where relevant
-
-### 19.4 TypeScript/Python parity tests
-
-During extraction, run both implementations on the same fixture set.
-
-This should be a temporary but explicit test suite.
-
-### 19.5 Contract tests
-
-Validate that:
-
-- FastAPI request schemas accept what the Next.js client sends
-- response fields and null semantics are stable
-- model metadata is always present
-- unknown enum states fail safely
-
-### 19.6 Integration tests
-
-Test:
-
-```text
-Next.js -> Python
-Python -> response
-Next.js -> persistence
-```
-
-But keep scientific unit tests independent of HTTP so service failures can be localized.
-
-### 19.7 Performance tests
-
-Record baseline numbers before extraction:
-
-```text
-TypeScript computation time
-Python computation time
-batch size
-CPU time
-memory
-objects/sec
-request latency
-```
-
-Do not assume Python is faster merely because it is Python. The benefit may come from vectorization or better numerical libraries rather than the language itself.
-
----
-
-## 20. Internal analysis and calibration architecture
-
-The analysis subsystem should be a first-class consumer of the compute engine, not a separate implementation.
-
-### 20.1 Reproducible analysis
-
-Every analysis run should record:
+Each model result should expose:
 
 ```text
 model_id
 model_version
 parameter_set_id
 calibration_version
-input dataset identifier
-code/engine version
-run timestamp
-random seed (when applicable)
+engine_version
 ```
 
-### 20.2 Calibration workflow
+Example:
 
 ```text
-Historical dataset
-      |
-      v
-analysis/replay
-      |
-      v
-model evaluation
-      |
-      +--> parameter sweep
-      |
-      +--> sensitivity analysis
-      |
-      +--> error metrics
-      |
-      v
-candidate parameter set
-      |
-      v
-validation dataset
-      |
-      v
-approved calibration version
-      |
-      v
-model registry
+model_id             = reentry_resolution
+model_version        = 0.2.0
+parameter_set_id     = reentry-2026-09-baseline
+calibration_version  = cal-2026-09-01
+engine_version       = 0.1.0
 ```
 
-### 20.3 Training/calibration separation
+### 17.2 Existing `trendVersion`
 
-Even if DRAKON does not use machine learning, preserve a conceptual distinction between:
+The current trend implementation uses `CURRENT_TREND_VERSION = 4`. This should not be discarded. It should become the compatibility bridge to a more explicit model identity system. fileciteturn18file0L2-L2
 
-- algorithm implementation
-- parameters
-- calibration data
-- validation data
+For example:
 
-Do not embed tuned values directly into a model function without identifying their parameter-set version.
+```text
+legacy trendVersion = 4
 
-### 20.4 Dataset discipline
+new metadata:
+trend_model_id      = object_trend
+trend_model_version = 4
+```
 
-Large historical datasets should not be copied into the production application package.
+### 17.3 Versioning rules
 
-Use lightweight fixtures in Git and external/object storage for larger analysis datasets when necessary.
+- **Patch:** implementation fix without intentional model-behavior change.
+- **Minor:** new component/parameterization within the same conceptual model.
+- **Major:** methodology or interpretation change that is materially incompatible.
+
+Any change expected to alter scientific outputs must cause a model-version decision, even if the API schema remains unchanged.
+
+### 17.4 Result provenance
+
+A persisted derived result should eventually be traceable to:
+
+```text
+input data / observation window
+model version
+parameter set
+environment state
+calibration version
+compute-engine version
+```
+
+This is essential when historical outputs need to be explained or recomputed.
 
 ---
 
-## 21. Model validation and scientific governance
+## 18. Re-entry model architecture
 
-For every model that reaches production, document:
+The first Python model should represent the current DRAKON re-entry behavior rather than invent a new model during migration.
+
+### 18.1 Inputs
 
 ```text
-Purpose
-Inputs
-Outputs
-Units
-Assumptions
-Known limitations
-Calibration data
-Validation data
-Parameter set
-Version
-Fallback behavior
-Failure modes
+TLE-derived orbital state
+Object type/debris policy
+Multi-epoch trend evidence
+Solar flux multiplier
+Geomagnetic correction/state
+Current evaluation time
+Model parameter set
 ```
 
-For DRAKON specifically, this prevents a scientific approximation from being accidentally treated as a high-fidelity physical propagator merely because its implementation lives inside a production service.
+### 18.2 Internal stages
 
-The existing re-entry documentation correctly distinguishes the current system as a screening model and identifies limitations such as simplified atmospheric representation and incomplete environmental/attitude modeling. That distinction should remain part of the model metadata and documentation as the Python implementation becomes more sophisticated.
+```text
+1. Validate input
+2. Establish orbital regime
+3. Apply HEO gate
+4. Apply raising-orbit / contradictory-signal gates
+5. Determine debris/payload path
+6. Evaluate low-altitude path
+7. Evaluate trend path
+8. Calculate candidate estimates
+9. Apply pessimistic-of-two selection where applicable
+10. Apply confidence ceiling/tier boundaries
+11. Emit result + diagnostics + model metadata
+```
+
+This reflects the current `resolveReentryRisk()` role rather than treating the function as an unimportant wrapper. fileciteturn19file0L2-L2
+
+### 18.3 Diagnostics
+
+The model should expose intermediate diagnostics sufficient to support DRAKON's decision-trace UI and internal validation, for example:
+
+```text
+selected_path
+candidate_estimates
+hee/heo_gate_result
+maneuver_gate_result
+environment_adjustment
+confidence
+raw_tier
+final_tier
+```
+
+Diagnostics must be machine-readable rather than reconstructed from UI strings.
 
 ---
 
-## 22. Synchronous vs asynchronous compute
+## 19. Testing architecture
 
-The Compute Engine should support two execution classes.
+Scientific migration needs multiple layers of validation.
 
-### 22.1 Synchronous compute
+### 19.1 Python unit tests
 
-Use for:
+Pure functions should cover:
 
-- one-object re-entry estimation
-- one-object orbital calculation
-- small interactive analysis
-- dashboard requests that must respond immediately
+- TLE numerical parsing
+- orbital equations
+- BSTAR decoding
+- decay-rate equations
+- environmental multipliers/corrections
+- signal calculations
+- confidence calculations
+- tier boundaries
+- decision gates
+
+### 19.2 Numerical invariants
+
+Examples:
 
 ```text
-HTTP request
-   |
-   v
+perigee <= apogee
+R² ∈ [0, 1]
+confidence ∈ [0, 1]
+probability-like scores ∈ [0, 1]
+invalid orbital inputs fail explicitly
+```
+
+### 19.3 Golden fixtures
+
+Build deterministic cases for:
+
+- stable debris
+- decaying debris
+- low-altitude terminal object
+- maneuvering payload
+- stable payload
+- HEO object
+- negative-BSTAR / raising-orbit case
+- contradictory trend case
+- environmental correction case
+- insufficient history
+
+### 19.4 TypeScript/Python parity
+
+During migration, run the current TypeScript model and Python model against the same fixture set.
+
+```text
+same input
+   ├── TypeScript implementation
+   └── Python implementation
+             ↓
+        compare outputs
+```
+
+Numerical fields use tolerances. Categorical states and gate outcomes should match exactly.
+
+### 19.5 Contract tests
+
+Verify:
+
+- request schema compatibility
+- response schema compatibility
+- null semantics
+- units
+- model metadata presence
+- per-item batch status
+
+### 19.6 Integration tests
+
+Test:
+
+```text
+Next.js route
+   ↓
+Python binding
+   ↓
 FastAPI
-   |
-   v
+   ↓
 model
-   |
-   v
+   ↓
 response
+   ↓
+Next.js persistence
 ```
 
-### 22.2 Asynchronous/batch compute
+### 19.7 Performance tests
 
-Use for:
-
-- 15k-object analysis
-- historical trend recomputation
-- large collision-density jobs
-- Monte Carlo simulations
-- parameter sweeps
-- backfills
-- model reprocessing after a new model version
-
-Long-term architecture:
+Benchmark before changing production authority:
 
 ```text
-Next.js job route
-       |
-       v
-persistent job record
-       |
-       v
-compute worker
-       |
-       v
-Python batch model
-       |
-       v
-result store
+Python cold-start latency
+warm-request latency
+batch latency
+objects/sec
+memory
+serialization time
+TypeScript orchestration overhead
 ```
 
-Do not turn synchronous HTTP endpoints into pseudo-workers by simply increasing request timeouts.
+Do not assume Python is faster without measuring the actual end-to-end workload.
 
 ---
 
-## 23. Batch design guidelines
+## 20. Shadow and rollout strategy
 
-For high-throughput services:
+Shadow mode is valuable for **behavior verification**, not as a permanent governance layer.
 
-- prefer batch requests over per-object calls
-- minimize JSON serialization size
-- avoid repeatedly sending the same metadata
-- pass compact numeric arrays where appropriate
-- vectorize calculations inside Python
-- separate batch orchestration from model kernels
-- avoid database round trips from individual model calls
-
-Example future design:
+### Stage 1 — legacy authoritative
 
 ```text
-TypeScript worker
-      |
-      +--> fetch 100 objects of historical data
-      |
-      +--> POST one batch
-      |
-      v
-Python vectorized calculation
-      |
-      +--> 100 results
-      |
-      v
-TypeScript persistence
+TypeScript → production result
+Python     → shadow comparison
 ```
 
-Batch size should be measured and tuned rather than hard-coded permanently.
+Compare:
+
+- estimated days
+- decay rate
+- tier
+- confidence
+- gate outcomes
+- selected path
+
+### Stage 2 — canary authority
+
+A controlled subset of compute calls uses Python as authoritative while the TypeScript implementation remains available as a fallback/diagnostic path.
+
+### Stage 3 — Python authority
+
+Once disagreement, reliability, latency, and data-quality behavior are acceptable:
+
+```text
+Python → authoritative
+TypeScript → removed only after migration confidence
+```
+
+Do not combine the initial language migration with a simultaneous scientific redesign.
 
 ---
 
-## 24. Error handling contract
+## 21. Failure isolation and fallback
 
-Python errors fall into explicit categories.
+### Python unavailable
 
-### Invalid input
+For an interactive/application request where a safe TypeScript implementation still exists:
 
-Return a validation error. Do not calculate from malformed data.
+```text
+Python timeout/error
+      ↓
+TypeScript fallback if explicitly supported
+```
 
-### Model indeterminate
+For a background trend job:
 
-Return a valid result with null/explicitly indeterminate fields when the science cannot support a conclusion.
+```text
+Python timeout/error
+      ↓
+requeue affected job(s)
+```
 
-This is different from an HTTP failure.
+For TLE ingestion:
 
-### Model execution failure
+```text
+Python unavailable
+      ↓
+TLE ingestion continues
+```
 
-Return a service error and let the caller decide whether to retry/fallback.
+There must be no silent conversion such as:
 
-### Dependency/infrastructure failure
+```text
+Python model error → stable
+```
 
-Return a service-unavailable condition. Existing TypeScript job semantics handle retry/fallback.
+unless `stable` is the actual scientifically derived result.
 
-Never silently convert a computation exception into a `stable` scientific result.
+### Compute result validation
+
+Next.js should validate at minimum:
+
+- schema
+- NORAD ID correspondence
+- model ID
+- expected model version
+- enum validity
+- required fields
+- numerical finiteness
+
+A response that cannot be trusted should not be persisted merely because the HTTP request succeeded.
 
 ---
 
-## 25. Observability
+## 22. Database and Redis ownership
 
-The Compute Engine should emit structured telemetry for every production calculation.
+The initial boundary is:
 
-Recommended fields:
+```text
+Next.js
+   │
+   ├── PostgreSQL reads
+   ├── Redis reads
+   └── application state
+          │
+          ▼
+       Python
+          │
+          ▼
+       result
+          │
+          ▼
+Next.js
+   │
+   └── PostgreSQL write
+```
+
+Python does not initially own:
+
+- `trend_jobs`
+- `object_trends`
+- `trend_snapshots`
+- `tle_history`
+- `tle_archive`
+- Redis cache keys
+- ingestion locks
+- partition lifecycle
+
+A future compute service may gain direct database access if scale or architecture proves that beneficial. That is a separate design decision.
+
+---
+
+## 23. Internal analysis and calibration
+
+The Python service should be reusable without FastAPI.
+
+### Production path
+
+```text
+FastAPI endpoint
+    ↓
+model function
+```
+
+### Analysis path
+
+```text
+analysis script/notebook
+    ↓
+same model function
+```
+
+### Calibration path
+
+```text
+historical dataset
+       ↓
+replay
+       ↓
+parameter sweep / sensitivity
+       ↓
+candidate parameter set
+       ↓
+validation dataset
+       ↓
+approved calibration version
+```
+
+A calibration run should record:
+
+```text
+model_id
+model_version
+parameter_set_id
+calibration_version
+dataset identifier
+run timestamp
+random seed, when relevant
+engine version
+```
+
+DRAKON already has calibration/research material in the repository. The Compute Engine should become the reusable home for future calibration work rather than creating more isolated one-off scripts.
+
+---
+
+## 24. Analysis datasets and reproducibility
+
+Small deterministic fixtures belong in Git.
+
+Large historical datasets should not be bundled into the FastAPI deployment package. Use a versioned external/object-storage location when the analysis corpus becomes too large for the repository.
+
+An analysis should be reproducible from:
+
+```text
+dataset version
+model version
+parameter set
+calibration version
+environment inputs
+code/engine version
+```
+
+---
+
+## 25. Future Python services
+
+Future server-side services should be introduced only when justified by workload characteristics.
+
+### Good candidates
+
+```text
+/compute/reentry
+/compute/orbit-state
+/compute/orbit-propagate
+/compute/collision-analysis
+/compute/uncertainty
+/compute/simulation
+```
+
+### Not automatic extraction targets
+
+```text
+browser SGP4 propagation
+browser ground tracks
+browser orbit paths
+browser collision-density interaction
+Comlink worker lifecycle
+React/UI calculations
+```
+
+The same scientific capability may legitimately exist twice when the workloads differ:
+
+```text
+interactive browser propagation  → TypeScript worker
+large offline propagation       → Python Compute Engine
+```
+
+This is intentional duplication at the execution layer, not duplication of a single application API.
+
+---
+
+## 26. Server-side collision/orbital work — when Python becomes appropriate
+
+Python becomes compelling for orbital/collision work when the workload is no longer an interactive globe loop.
+
+Examples:
+
+```text
+15,000 objects × thousands of time steps
+large historical replay
+Monte Carlo conjunction analysis
+parameter sensitivity studies
+multi-object batch propagation
+```
+
+At that point:
+
+```text
+Next.js job orchestration
+      ↓
+Python batch compute
+      ↓
+vectorized/native numerical implementation
+```
+
+is preferable to shipping the workload through the browser or making thousands of HTTP calls.
+
+---
+
+## 27. Deployment evolution
+
+The deployment strategy is intentionally **Vercel-first**.
+
+### Initial state
+
+```text
+One Vercel project
+├── Next.js Service
+└── FastAPI Compute Service
+```
+
+Both services share the repository and deployment system. Vercel documents this as a supported Services pattern; service bindings are deployment-aware and provide private service-to-service connectivity. citeturn639927search4
+
+### Later hosting evolution
+
+If a future workload exceeds the practical characteristics of a Vercel request/Function—for example, long-running simulations, persistent workers, or extremely large batch processing—the **hosting boundary** can change without redesigning the Python model API:
+
+```text
+FastAPI code
+    │
+    ├── Vercel Service today
+    │
+    └── container/service later
+```
+
+The migration should therefore avoid Vercel-specific assumptions inside `compute/*.py`.
+
+The future move is a deployment/configuration concern, not a scientific-model rewrite.
+
+---
+
+## 28. Operational observability
+
+Every production compute call should be observable without logging full scientific payloads by default.
+
+Recommended metadata:
 
 ```text
 request_id
@@ -1559,475 +1300,317 @@ model_id
 model_version
 parameter_set_id
 engine_version
-object_count
+item_count
 execution_ms
-queue_wait_ms (if async)
 status
-fallback_used
 ```
 
-For scientific debugging, log enough metadata to reproduce an issue but avoid logging entire large catalogs by default.
-
-### Key operational metrics
+Recommended metrics:
 
 ```text
 compute_requests_total
 compute_failures_total
 compute_timeouts_total
 compute_duration_ms
+compute_items_processed
+compute_items_failed
 model_disagreements_total
-model_version_usage
-batch_size
-objects_per_second
 ```
 
-During shadow mode, disagreement rate is a primary rollout metric.
+For background processing, the existing job metrics remain the source of truth for whether work is completing.
 
 ---
 
-## 26. Database strategy during extraction
+## 29. Security
 
-Do not move the database schema to Python during the initial phases.
+The FastAPI service is an internal compute service.
 
-The current PostgreSQL schema already stores normalized orbital fields, trend outputs, signal strengths, confidence, and re-entry information. Continue using that schema as the persistence contract while the compute engine is introduced.
-
-### Transitional pattern
-
-```text
-PostgreSQL
-    |
-    v
-Next.js worker
-    |
-    +--> canonical compute input
-    |
-    v
-Python
-    |
-    v
-canonical compute result
-    |
-    v
-Next.js worker
-    |
-    v
-PostgreSQL
-```
-
-### Future possibility
-
-A Python worker may eventually read/write selected analytical tables directly, but this should be an explicit later architecture decision, not an automatic consequence of introducing FastAPI.
+- No public rewrite is required in the initial architecture.
+- The browser must not be given the internal service URL.
+- The service binding provides reachability, not application-level authorization; the compute service should still verify an internal caller credential/header or equivalent application-level control. citeturn639927search4turn639927search3
+- Provider secrets remain with the Next.js service unless a model explicitly requires a provider API and that ownership is deliberately moved later.
+- Calibration/analysis endpoints must not become public application APIs by accident.
 
 ---
 
-## 27. Security and secret ownership
+## 30. CI/CD
 
-Keep external provider secrets in the service that currently owns those integrations.
-
-Examples:
-
-```text
-Space-Track credentials -> Next.js/server environment
-Redis credentials       -> Next.js/server environment
-Postgres credentials    -> Next.js/server environment
-Compute service token   -> both services
-```
-
-Python should not receive secrets it does not need.
-
-The compute service should accept data, not become the universal holder of DRAKON credentials.
-
----
-
-## 28. Rollback strategy
-
-Every extraction must preserve a one-step rollback path.
-
-### Interactive path rollback
-
-```text
-COMPUTE_ENGINE_ENABLED=false
-        |
-        v
-TypeScript implementation becomes authoritative
-```
-
-### Background worker rollback
-
-The `process-trends` route must retain a TypeScript fallback or an explicit legacy mode until Python has been proven in production.
-
-### Model rollback
-
-If `model_version = 0.2.0` produces unexpected results:
-
-```text
-registry
-   |
-   +--> mark 0.2.0 deprecated/disabled
-   |
-   +--> restore 0.1.0 as active
-```
-
-Do not rewrite historical data simply to hide a bad deployment. Preserve the original version metadata and perform an explicit reprocessing decision.
-
----
-
-## 29. Recommended migration order by code area
-
-| Priority | Current area | Extraction target | Keep in TS | Reason |
-| --- | --- | --- | --- | --- |
-| 1 | `lib/satelliteHelpers.ts` | orbital/re-entry numerical kernels | formatting + app helpers | Small, pure, testable boundary |
-| 2 | `lib/explainReentryTrend.ts` | signal/confidence/re-entry model | API/result composition | Strong mathematical boundary |
-| 3 | `lib/jobs/computeObjectTrends.ts` | regression/weighting/statistics | queue + DB orchestration | Highest recurring analytical value |
-| 4 | collision-density logic | density/spatial calculations | job/UI orchestration | Batch/vectorization opportunity |
-| 5 | orbital-state utilities | state vectors/propagation | API + caching | Scientific ecosystem benefit |
-| 6 | future atmospheric models | thermosphere/drag models | environment-data acquisition | Expensive numerical modeling |
-
----
-
-## 30. What must not be extracted prematurely
-
-Do not create Python equivalents of every TypeScript utility just to make the architecture look symmetrical.
-
-Specifically avoid an early migration of:
-
-- Redis wrappers
-- database repositories
-- provider adapters
-- Space-Track sessions
-- TLE ingestion orchestration
-- partition management
-- API-only transformations
-- UI-specific helpers
-- small business rules with no numerical complexity
-
-A service should move only when at least one of these is true:
-
-1. the mathematics is significantly clearer in Python;
-2. a scientific library materially improves correctness/capability;
-3. vectorized/batch execution is needed;
-4. the same model must be reused by production and analysis tooling;
-5. the workload needs independent compute scaling.
-
----
-
-## 31. Local and CI commands
-
-The repository should eventually expose a small set of explicit commands.
-
-Example:
-
-```text
-# Next.js
-npm run dev
-npm test
-
-# Python
-cd python
-python -m pytest
-uvicorn app.main:app --reload --port 8000
-```
-
-CI should run both stacks independently.
-
-Recommended CI stages:
+The repository should test both application and Python services.
 
 ```text
 TypeScript lint/test
-        |
-        +-------------------+
-                            |
-Python lint/test            |
-        |                   |
-        +---------+---------+
-                  |
-           contract tests
-                  |
-           parity/golden tests
-                  |
-           build/deploy checks
+        │
+        ├──────────────┐
+        │              │
+Python test suite     │
+        │              │
+        └──────┬───────┘
+               ▼
+       contract/parity tests
+               │
+               ▼
+          deployment build
 ```
 
-Do not make a temporary experimental notebook dependency block the production TypeScript build.
+The first phase should not require every analysis notebook to pass as part of the web deployment. Production tests and research tooling should remain related but independently runnable.
+
+The Python dependency lock/configuration must be committed with the service so deploys are reproducible.
 
 ---
 
-## 32. CI quality gates for model changes
+## 31. Migration plan — start to finish
 
-A production model change should not be considered complete merely because unit tests pass.
+### Phase 0 — Architecture freeze
 
-Require:
+Document:
 
-- unit tests pass
-- golden tests pass
-- parity tests reviewed when replacing an existing model
-- contract tests pass
-- performance benchmark compared with baseline
-- model version bumped when outputs can change
-- calibration/parameter-set version updated when tuned parameters change
-- model documentation updated when assumptions change
-- rollback path verified
+- service boundaries
+- current cron endpoints
+- current job semantics
+- browser worker ownership
+- Python candidate functions
+
+Do not change production computation.
+
+### Phase 1 — Create the Compute Engine
+
+Add:
+
+```text
+backend/
+├── pyproject.toml
+├── main.py
+├── contracts.py
+└── compute/
+```
+
+Add only the minimum FastAPI/Pydantic/scientific dependencies needed by the first model.
+
+Expose a health endpoint.
+
+### Phase 2 — Add Vercel Service wiring
+
+Introduce the `backend` Vercel Service and a binding from the Next.js service.
+
+Verify:
+
+```text
+Next.js can reach FastAPI privately
+FastAPI is not client-facing
+/api/* still resolves to Next.js
+existing cron endpoints still execute normally
+```
+
+Use `vercel dev` / local Services development to exercise the two-service topology before production. Vercel documents local multi-service development for Services. citeturn639927search1
+
+### Phase 3 — Extract re-entry numerical primitives
+
+Port the smallest pure numerical functions first.
+
+Do not change formulas during this phase.
+
+### Phase 4 — Reconstruct the re-entry resolution model
+
+Port the model-level responsibilities spanning:
+
+```text
+satelliteHelpers.ts
+explainReentryTrend.ts
+objectTrendRisk.ts
+reentrySignals.ts
+```
+
+with `resolveReentryRisk()` represented explicitly as the composition/resolution model.
+
+### Phase 5 — Build parity suite
+
+Run TypeScript and Python against the same golden dataset.
+
+No production authority change yet.
+
+### Phase 6 — Introduce the Next.js compute client
+
+Create a small TypeScript adapter responsible only for:
+
+- building request payloads
+- applying request deadlines
+- calling `BACKEND_URL`
+- validating response envelopes
+- exposing typed errors
+
+It should not contain scientific formulas.
+
+### Phase 7 — Shadow execution
+
+Production TypeScript result remains authoritative. Python calculates the parallel result and records disagreement/latency telemetry.
+
+### Phase 8 — Canary
+
+Make Python authoritative for a controlled subset of requests while retaining an explicit legacy fallback.
+
+### Phase 9 — Full re-entry authority
+
+Switch the production path to Python once:
+
+- parity is proven
+- error rates are acceptable
+- latency fits the caller's budget
+- model metadata is persisted/observable
+- rollback is verified
+
+### Phase 10 — Decide whether trend mathematics should move
+
+Do not automatically migrate OLS.
+
+Move only the parts whose complexity or analysis lifecycle now justifies Python.
+
+### Phase 11 — Future compute services
+
+Introduce server-side orbit/collision/uncertainty services as independent model families when their workloads justify them.
 
 ---
 
-## 33. Definition of done for the first extraction
+## 32. Rollback strategy
 
-The first migration is complete when all of the following are true:
+Every migration phase must be reversible.
+
+### Service-level rollback
+
+If the Python service fails:
+
+```text
+Python disabled
+    ↓
+TypeScript path becomes authoritative
+```
+
+### Model-level rollback
+
+If a new model version produces unacceptable output:
+
+```text
+model registry
+   ↓
+previous version restored
+```
+
+### Deployment-level rollback
+
+Vercel deployment rollback remains available without changing the repository architecture.
+
+Do not rewrite historical data just because a new model version is rejected. Historical results and model versions should remain auditable.
+
+---
+
+## 33. Definition of done — first extraction
+
+The first Python production extraction is complete when:
 
 ### Architecture
 
-- `python/` is an isolated Compute Engine subsystem.
-- FastAPI exposes a health endpoint and at least one compute endpoint.
-- Next.js accesses Python through a configurable service URL.
-- No provider/storage responsibilities have been accidentally duplicated.
+- [ ] Next.js App Router remains unchanged at the API namespace level.
+- [ ] `app/api/*` remains 100% TypeScript.
+- [ ] `backend/` is a separate FastAPI service root.
+- [ ] Vercel Services binding works locally and in production.
+- [ ] Python is not client-facing.
 
 ### Scientific correctness
 
-- migrated model matches the TypeScript implementation within agreed numerical tolerances
-- categorical outputs match exactly for the golden dataset
-- known edge cases are tested
-- units are explicit
+- [ ] `resolveReentryRisk()` behavior is represented explicitly in the Python model.
+- [ ] solar-flux and geomagnetic inputs are explicit model inputs.
+- [ ] HEO and maneuver/raising-orbit gates are covered.
+- [ ] pessimistic-of-two resolution is covered.
+- [ ] tier boundaries are tested.
+- [ ] TypeScript/Python parity is established.
 
 ### Operations
 
-- existing cron schedules remain unchanged
-- ingestion remains independent of Python availability
-- trend failures still requeue correctly
-- Python timeout/error behavior is defined
-- rollback to TypeScript is available by configuration
+- [ ] Existing cron cadence is unchanged.
+- [ ] TLE ingestion does not depend on Python.
+- [ ] `trend_jobs` ownership remains in PostgreSQL/TypeScript.
+- [ ] Partial batch responses reconcile per object.
+- [ ] Python calls obey an outer deadline budget.
+- [ ] Python outages are retryable/isolated.
 
 ### Governance
 
-- model ID/version is returned with every result
-- parameter-set/calibration metadata exists
-- production model version is documented
-- analysis tooling uses the same production model module
-
-### Deployment
-
-- Python service is deployable independently
-- staging and production compute URLs are configurable
-- service authentication is enabled
-- logs expose request/model/version/timing metadata
+- [ ] model ID/version exists.
+- [ ] parameter/calibration version exists.
+- [ ] result provenance is observable.
+- [ ] rollback is tested.
 
 ---
 
-## 34. Suggested first implementation tree
-
-Do not create the complete future architecture on day one. The first implementation can be deliberately small:
+## 34. Long-term architecture
 
 ```text
-python/
-├── app/
-│   ├── main.py
-│   ├── api/
-│   │   ├── health.py
-│   │   └── reentry.py
-│   ├── models/
-│   │   └── reentry.py
-│   ├── core/
-│   │   ├── model_version.py
-│   │   └── configuration.py
-│   └── services/
-│       └── reentry/
-│           ├── tle.py
-│           ├── bstar.py
-│           ├── decay_rate.py
-│           ├── signals.py
-│           └── model.py
-│
-├── analysis/
-│   └── README.md
-│
-├── tests/
-│   ├── unit/
-│   ├── golden/
-│   └── contract/
-│
-├── pyproject.toml
-└── README.md
+                           DRAKON
+                              │
+         ┌────────────────────┼────────────────────┐
+         │                    │                    │
+         ▼                    ▼                    ▼
+ Browser Compute       Application Plane      Compute Plane
+ TypeScript Workers    Next.js / TypeScript   Python / FastAPI
+         │                    │                    │
+         │                    ├── API routes       ├── Re-entry
+         │                    ├── Providers       ├── Orbital models
+         │                    ├── Redis           ├── Collision analysis
+         │                    ├── PostgreSQL      ├── Uncertainty
+         │                    └── Cron jobs       ├── Simulation
+         │                                         └── Calibration
+         │
+         ├── SGP4
+         ├── interactive density
+         ├── tracks
+         └── real-time visualization
 ```
 
-Then expand only after the first model proves the architecture.
+The desired end state is not "Python everywhere." It is **clear placement of computation according to its execution characteristics**.
+
+The resulting architecture should allow DRAKON to grow from its current re-entry screening system into a broader orbital decision-intelligence platform without forcing a rewrite of the parts that already work.
 
 ---
 
-## 35. Recommended first migration in DRAKON
+## 35. Final architectural rules
 
-The first production candidate should be the **re-entry numerical model**, but it should be extracted in two logical stages:
-
-```text
-Stage A
-satelliteHelpers.ts
-    |
-    +--> pure Python numerical kernels
-
-Stage B
-satelliteHelpers.ts + explainReentryTrend.ts
-    |
-    +--> Python re-entry model
-```
-
-The reason to start there is that it gives DRAKON a meaningful scientific workload while keeping the surrounding application behavior stable. The current model already contains explicit physical approximations, calibrated constants, confidence/sanity guards, and tier logic; those are precisely the pieces that benefit from becoming a separately testable scientific module.
-
-After parity, the historical trend worker is the next high-value extraction because it can consume the same re-entry model and Python statistical primitives while leaving its durable PostgreSQL job machinery untouched.
+1. **`app/api/*` stays TypeScript.**
+2. **Browser real-time computation stays in Web Workers.**
+3. **Python is for server-side scientific computation, not every function that contains arithmetic.**
+4. **`resolveReentryRisk()` is a first-class re-entry model boundary.**
+5. **Environmental acquisition remains outside the model; environmental state is passed in explicitly.**
+6. **The current cron system remains the orchestration control plane.**
+7. **PostgreSQL/Redis ownership remains in TypeScript initially.**
+8. **Durable job state remains outside FastAPI.**
+9. **Batch APIs must support partial success with per-object status/error.**
+10. **Outer function deadlines must include the Python network/compute hop.**
+11. **Model version is distinct from API/service version.**
+12. **Production and calibration use the same Python model implementation.**
+13. **Vercel Services is the initial deployment; future hosting changes must not require model rewrites.**
+14. **Scientific behavior changes require explicit model/version decisions.**
 
 ---
 
-## 36. Long-term architecture
+## 36. References
 
-Once the system matures, DRAKON should conceptually look like this:
+Repository architecture references reviewed for this plan:
 
-```text
-                                DRAKON
+- `lib/objectTrendRisk.ts` — authoritative re-entry resolution/composition path.
+- `lib/satelliteHelpers.ts` — current re-entry and orbital numerical primitives.
+- `lib/explainReentryTrend.ts` — trend signal/confidence/model logic.
+- `lib/jobs/computeObjectTrends.ts` — durable trend-worker orchestration and current regression implementation.
+- `lib/workers/satellite.worker.ts` — browser-side SGP4/collision computation.
+- `lib/satelliteWorker.ts` — Comlink/browser-worker lifecycle and server fallback.
+- `app/api/internal/process-trends/route.ts` — existing 60-second trend-worker boundary.
+- `app/api/internal/ingest-tle/route.ts` — existing 60-second TLE ingestion boundary.
+- `app/api/internal/manage-tle-partitions/route.ts` — existing 60-second partition-maintenance boundary.
+- `docs/TLE_PIPELINE_ARCHITECTURE.md` — current ingestion invariants and storage architecture.
+- `docs/REENTRY_RISK.md` — current re-entry model architecture and limitations.
 
-            +-------------------------------------------+
-            |              Application Plane            |
-            |-------------------------------------------|
-            | Next.js / TypeScript                      |
-            | UI / APIs / Auth / Providers              |
-            | Redis / Postgres / Job orchestration      |
-            +----------------------+--------------------+
-                                   |
-                            Compute contract
-                                   |
-            +----------------------v--------------------+
-            |              Compute Plane                |
-            |-------------------------------------------|
-            | FastAPI                                    |
-            | Model registry / versions                  |
-            | Numerical kernels                          |
-            | Batch compute                              |
-            | Scientific domain libraries                |
-            +----------------------+--------------------+
-                                   |
-             +---------------------+----------------------+
-             |                     |                      |
-             v                     v                      v
-          Re-entry              Orbital              Collision
-          models                models               models
-             |                     |                      |
-             +---------------------+----------------------+
-                                   |
-                                   v
-                         Analysis / Calibration
-                                   |
-                      replay / sensitivity / fitting
-                                   |
-                                   v
-                         validated model versions
-```
+Current Vercel references:
 
-The critical property is **independence of change**:
+- Vercel Services overview: https://vercel.com/docs/services
+- Services routing and communication: https://vercel.com/docs/services/routing
+- Complete Guide to Vercel Services: https://vercel.com/kb/guide/vercel-services
+- Next.js + FastAPI Services example: https://vercel.com/templates/fast-api/next-js-fastapi-starter
 
-- UI changes should not require model changes.
-- Provider changes should not require model rewrites.
-- Model experiments should not require dashboard changes.
-- Model recalibration should not require scheduler migration.
-- Compute scaling should not require web-app scaling.
-- A failed Python deployment should not corrupt the TLE ingestion pipeline.
-
----
-
-## 37. Architectural principles to preserve
-
-1. **Compute is a subsystem, not a second application backend.**
-2. **Pure mathematics should remain independent of storage and network access.**
-3. **Production and analysis use the same model implementation.**
-4. **Model versions are explicit and immutable.**
-5. **Cron remains an orchestration concern.**
-6. **Storage ownership remains explicit.**
-7. **Batch computation is preferred for large workloads.**
-8. **Every migration has a parity phase and a rollback path.**
-9. **A scientific result must carry enough metadata to explain how it was produced.**
-10. **Do not migrate code merely to satisfy architectural symmetry; migrate where Python materially improves DRAKON.**
-
----
-
-## 38. External deployment references
-
-The following official Vercel references were used when defining the deployment options in this document:
-
-- Vercel — Next.js + FastAPI starter / monorepo: https://vercel.com/templates/fast-api/next-js-fastapi-starter
-- Vercel Academy — Python on Vercel: https://vercel.com/academy/python-on-vercel
-- Vercel Academy — Deploy Next.js + FastAPI to production: https://vercel.com/academy/python-on-vercel/deploy-to-prod
-- Vercel Knowledge Base — FastAPI: https://vercel.com/kb/fastapi
-
-As of this plan's baseline review, Vercel documents both single-project Next.js + FastAPI deployment and multi-service patterns. The recommended long-term DRAKON architecture still keeps the compute boundary independent so heavy numerical workloads can scale separately from the web application.
-
----
-
-## 39. Final implementation checklist
-
-### Foundation
-
-- [ ] Create `python/` subsystem
-- [ ] Add FastAPI application
-- [ ] Add Python dependency management
-- [ ] Add `/health`
-- [ ] Add model registry/version metadata
-- [ ] Add local two-process development workflow
-
-### Re-entry extraction
-
-- [ ] Identify all current TypeScript call sites
-- [ ] Extract TLE numerical primitives
-- [ ] Extract BSTAR/decay-rate calculations
-- [ ] Extract re-entry estimator
-- [ ] Add Python unit tests
-- [ ] Add golden fixtures
-- [ ] Add TypeScript/Python parity tests
-- [ ] Add `/compute/reentry`
-- [ ] Add shadow mode
-- [ ] Add canary rollout
-- [ ] Switch production authority only after parity review
-
-### Trend extraction
-
-- [ ] Extract regression kernels
-- [ ] Extract weighting/window calculations
-- [ ] Extract signal/confidence logic
-- [ ] Add batch compute endpoint
-- [ ] Keep job claim/retry/persistence in TypeScript
-- [ ] Add model version to persisted trend outputs
-- [ ] Validate background worker failure isolation
-
-### Analysis/calibration
-
-- [ ] Add `python/analysis/`
-- [ ] Add replay tooling
-- [ ] Add sensitivity/parameter sweeps
-- [ ] Add calibration datasets
-- [ ] Add calibration version IDs
-- [ ] Add reproducibility metadata
-- [ ] Add benchmarks
-
-### Deployment
-
-- [ ] Add staging Compute Engine
-- [ ] Add authenticated service-to-service requests
-- [ ] Add `COMPUTE_ENGINE_URL`
-- [ ] Add timeouts and retry semantics
-- [ ] Add compute telemetry
-- [ ] Decide on Vercel-only vs dedicated production service based on workload measurements
-- [ ] Keep cron endpoints and scheduler cadence unchanged during migration
-
-### Governance
-
-- [ ] Model version required on every result
-- [ ] Parameter/calibration version recorded
-- [ ] Model changes require version review
-- [ ] Production model has documented assumptions/limitations
-- [ ] Rollback path tested
-
----
-
-## 40. Architectural end state
-
-The success criterion is not "DRAKON now uses Python."
-
-The success criterion is:
-
-> **DRAKON has a stable application plane and a scientifically disciplined compute plane, where mathematically heavy models can evolve, validate, calibrate, benchmark, version, and scale independently without disturbing the operational data pipelines that keep the system alive.**
-
-That is the boundary this extraction should establish.
+Vercel currently documents Services as a multi-service project model for frontends/backends, with separate service roots, service-to-service bindings, and per-service runtime settings. citeturn639927search1turn639927search0turn639927search4
