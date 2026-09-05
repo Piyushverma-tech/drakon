@@ -1,9 +1,11 @@
 """Python side of the golden-fixture freeze (plan §17 Phase 1 / §22).
 
-This does NOT assert model output yet -- compute/reentry.py raises
-NotImplementedError until Phases 2-4 land. This test only proves the fixture
-file (generated from the real TypeScript implementation, see
-scripts/generate-reentry-golden-fixtures.ts and
+This does NOT assert resolveReentryRisk() output yet -- compute/reentry.py
+raises NotImplementedError until Phases 3-4 land (Phase 2's primitives are
+already ported and parity-tested in
+backend/tests/test_satellite_helpers_golden_fixtures.py). This test only
+proves the fixture file (generated from the real TypeScript implementation,
+see scripts/generate-reentry-golden-fixtures.ts and
 lib/reentryModel.goldenFixtures.test.ts) is present, parseable, and has the
 shape the eventual Phase 5 parity tests will depend on.
 
