@@ -1,0 +1,1851 @@
+{
+  "$comment": "GENERATED FILE. Produced by scripts/generate-reentry-golden-fixtures.ts from the real production TypeScript re-entry model. Do not hand-edit -- regenerate deliberately when the reference implementation changes, and record why in fixtures/reentry-model/README.md.",
+  "generatedAt": "2026-09-05T07:36:43.213Z",
+  "baselineCommit": "bf12871c7e712ac5a555bd354c879044406d8336",
+  "sourceModules": [
+    "lib/satelliteHelpers.ts",
+    "lib/explainReentryTrend.ts",
+    "lib/objectTrendRisk.ts"
+  ],
+  "primitives": {
+    "parseBSTAR": [
+      {
+        "id": "positive_mantissa_positive_exp",
+        "description": "Typical positive BSTAR, e.g. 50000-6 -> 0.5 * 10^-6",
+        "input": {
+          "l1": "                                                     50000-6 "
+        },
+        "output": 5e-7
+      },
+      {
+        "id": "negative_mantissa",
+        "description": "Negative BSTAR (raising-orbit signal)",
+        "input": {
+          "l1": "                                                     -11606-4"
+        },
+        "output": -0.000011605999999999999
+      },
+      {
+        "id": "zero_positive_form",
+        "description": "Explicit zero, positive-sign form",
+        "input": {
+          "l1": "                                                     00000-0 "
+        },
+        "output": 0
+      },
+      {
+        "id": "zero_negative_form",
+        "description": "Explicit zero, \"+0\" exponent form",
+        "input": {
+          "l1": "                                                     00000+0 "
+        },
+        "output": 0
+      },
+      {
+        "id": "blank_field",
+        "description": "Blank BSTAR field (malformed/short line)",
+        "input": {
+          "l1": "                                                             "
+        },
+        "output": 0
+      }
+    ],
+    "ndotIndicatesDecay": [
+      {
+        "id": "low_alt_small_positive",
+        "description": "Below 400km: small positive Ndot should not indicate decay yet",
+        "input": {
+          "nDot": 0.000005,
+          "decayAltKm": 250
+        },
+        "output": false
+      },
+      {
+        "id": "low_alt_above_threshold",
+        "description": "Below 400km: Ndot above the 1e-5 threshold indicates decay",
+        "input": {
+          "nDot": 0.00002,
+          "decayAltKm": 250
+        },
+        "output": true
+      },
+      {
+        "id": "mid_alt_band",
+        "description": "400-500km band uses the 2e-5 threshold",
+        "input": {
+          "nDot": 0.00003,
+          "decayAltKm": 450
+        },
+        "output": true
+      },
+      {
+        "id": "high_alt_band",
+        "description": "Above 500km uses the loosest 5e-5 threshold (TLE fit noise dominates)",
+        "input": {
+          "nDot": 0.00006,
+          "decayAltKm": 700
+        },
+        "output": true
+      },
+      {
+        "id": "negative_ndot",
+        "description": "Negative Ndot never indicates decay regardless of altitude",
+        "input": {
+          "nDot": -0.0001,
+          "decayAltKm": 250
+        },
+        "output": false
+      }
+    ],
+    "getReentryTierThresholds": [
+      {
+        "id": "band_le_300",
+        "description": "Lowest band, flat thresholds",
+        "input": {
+          "altKm": 250
+        },
+        "output": {
+          "critical": 30,
+          "warning": 180,
+          "nominal": 365
+        }
+      },
+      {
+        "id": "band_300_500_midpoint",
+        "description": "Interpolated 300-500km band",
+        "input": {
+          "altKm": 400
+        },
+        "output": {
+          "critical": 30,
+          "warning": 150,
+          "nominal": 302
+        }
+      },
+      {
+        "id": "band_500_800_midpoint",
+        "description": "Interpolated 500-800km band",
+        "input": {
+          "altKm": 650
+        },
+        "output": {
+          "critical": 30,
+          "warning": 105,
+          "nominal": 210
+        }
+      },
+      {
+        "id": "band_800_1000_midpoint",
+        "description": "Interpolated 800-1000km band",
+        "input": {
+          "altKm": 900
+        },
+        "output": {
+          "critical": 30,
+          "warning": 75,
+          "nominal": 150
+        }
+      },
+      {
+        "id": "band_gt_1000_clamped",
+        "description": "Above 1000km, clamped at the 2000km interpolation ceiling",
+        "input": {
+          "altKm": 2500
+        },
+        "output": {
+          "critical": 30,
+          "warning": 45,
+          "nominal": 90
+        }
+      }
+    ],
+    "assignReentryTier": [
+      {
+        "id": "critical",
+        "description": "10 days at 250km",
+        "input": {
+          "days": 10,
+          "altKm": 250
+        },
+        "output": "critical"
+      },
+      {
+        "id": "warning",
+        "description": "60 days at 250km",
+        "input": {
+          "days": 60,
+          "altKm": 250
+        },
+        "output": "warning"
+      },
+      {
+        "id": "nominal",
+        "description": "200 days at 250km",
+        "input": {
+          "days": 200,
+          "altKm": 250
+        },
+        "output": "nominal"
+      },
+      {
+        "id": "stable",
+        "description": "999 days at 250km",
+        "input": {
+          "days": 999,
+          "altKm": 250
+        },
+        "output": "stable"
+      }
+    ],
+    "applyConfidenceCeiling": [
+      {
+        "id": "low_confidence_downgrades_critical",
+        "description": "confidence < 0.75 downgrades critical to nominal",
+        "input": {
+          "tier": "critical",
+          "confidence": 0.5
+        },
+        "output": "nominal"
+      },
+      {
+        "id": "mid_confidence_downgrades_critical_to_warning",
+        "description": "0.75 <= confidence < 0.85 downgrades critical to warning only",
+        "input": {
+          "tier": "critical",
+          "confidence": 0.8
+        },
+        "output": "warning"
+      },
+      {
+        "id": "high_confidence_no_change",
+        "description": "confidence >= 0.85 leaves tier unchanged",
+        "input": {
+          "tier": "critical",
+          "confidence": 0.9
+        },
+        "output": "critical"
+      },
+      {
+        "id": "stable_always_stable",
+        "description": "stable tier is never upgraded regardless of confidence",
+        "input": {
+          "tier": "stable",
+          "confidence": 0.99
+        },
+        "output": "stable"
+      },
+      {
+        "id": "percent_scale_input",
+        "description": "confidence passed on a 0-100 scale is normalized",
+        "input": {
+          "tier": "critical",
+          "confidence": 50
+        },
+        "output": "nominal"
+      }
+    ],
+    "altitudeBasedReentryEstimate": [
+      {
+        "id": "very_low_altitude_solar_baseline",
+        "description": "150km perigee, solar-flux multiplier 1.0",
+        "input": {
+          "perigeeKm": 150,
+          "solarFluxMultiplier": 1
+        },
+        "output": {
+          "decayRateKmPerDay": 41.72733883598096,
+          "estimatedDaysRemaining": 1,
+          "tier": "critical"
+        }
+      },
+      {
+        "id": "boundary_220km",
+        "description": "220km perigee -- acceleration-factor boundary (0.5 vs 2/3)",
+        "input": {
+          "perigeeKm": 220,
+          "solarFluxMultiplier": 1
+        },
+        "output": {
+          "decayRateKmPerDay": 5.647181220077593,
+          "estimatedDaysRemaining": 9,
+          "tier": "critical"
+        }
+      },
+      {
+        "id": "near_stable_280km",
+        "description": "280km perigee, near the point where decay rate goes to ~0",
+        "input": {
+          "perigeeKm": 280,
+          "solarFluxMultiplier": 1
+        },
+        "output": {
+          "decayRateKmPerDay": 1.0170139230422683,
+          "estimatedDaysRemaining": 105,
+          "tier": "warning"
+        }
+      },
+      {
+        "id": "solar_minimum",
+        "description": "200km perigee at solar minimum (weak multiplier)",
+        "input": {
+          "perigeeKm": 200,
+          "solarFluxMultiplier": 0.7
+        },
+        "output": {
+          "decayRateKmPerDay": 7,
+          "estimatedDaysRemaining": 6,
+          "tier": "critical"
+        }
+      },
+      {
+        "id": "strong_solar_flux",
+        "description": "200km perigee at strong solar-max conditions",
+        "input": {
+          "perigeeKm": 200,
+          "solarFluxMultiplier": 2.5
+        },
+        "output": {
+          "decayRateKmPerDay": 25,
+          "estimatedDaysRemaining": 2,
+          "tier": "critical"
+        }
+      },
+      {
+        "id": "composed_environmental_multiplier",
+        "description": "200km perigee with a pre-composed solar x geomagnetic multiplier (1.18 x 0.92)",
+        "input": {
+          "perigeeKm": 200,
+          "solarFluxMultiplier": 1.0856
+        },
+        "output": {
+          "decayRateKmPerDay": 10.855999999999998,
+          "estimatedDaysRemaining": 4,
+          "tier": "critical"
+        }
+      }
+    ],
+    "getReentryRisk": [
+      {
+        "id": "debris_decaying_positive_bstar",
+        "description": "Debris object, meaningfully large positive BSTAR, low altitude -> decaying",
+        "input": {
+          "entry": {
+            "id": 25544,
+            "name": "DEBRIS TEST",
+            "operator": "TEST",
+            "l1": "                                                     50000-4 ",
+            "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+            "inclination": 51.6,
+            "raan": 0,
+            "argPerigee": 0,
+            "meanAnomaly": 0,
+            "meanMotion": 16.19834963702965,
+            "meanMotionDot": 0.00002182,
+            "ecc": 0,
+            "perigeeKm": 220,
+            "apogeeKm": 230,
+            "semiMajorAxisKm": 6565,
+            "tleEpoch": "2026-01-01T00:00:00.000Z",
+            "isDebris": true
+          },
+          "solarFluxMultiplier": 1
+        },
+        "output": {
+          "satId": 25544,
+          "bstar": 0.000049999999999999996,
+          "meanMotionDot": 0.00002182,
+          "signalsAgree": true,
+          "confidence": "high",
+          "perigeeKm": 220,
+          "decayAltKm": 219.99999999999727,
+          "decayRateKmPerDay": 7.30704057613966,
+          "estimatedDaysRemaining": 10,
+          "tier": "critical",
+          "source": "single_epoch"
+        }
+      },
+      {
+        "id": "debris_raising_orbit_negative_bstar",
+        "description": "Debris object with negative BSTAR and negative Ndot -> stable",
+        "input": {
+          "entry": {
+            "id": 25544,
+            "name": "DEBRIS TEST",
+            "operator": "TEST",
+            "l1": "                                                     -11606-4",
+            "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+            "inclination": 51.6,
+            "raan": 0,
+            "argPerigee": 0,
+            "meanAnomaly": 0,
+            "meanMotion": 16.19834963702965,
+            "meanMotionDot": -0.000002,
+            "ecc": 0,
+            "perigeeKm": 220,
+            "apogeeKm": 230,
+            "semiMajorAxisKm": 6565,
+            "tleEpoch": "2026-01-01T00:00:00.000Z",
+            "isDebris": true
+          },
+          "solarFluxMultiplier": 1
+        },
+        "output": {
+          "satId": 25544,
+          "bstar": -0.000011605999999999999,
+          "meanMotionDot": -0.000002,
+          "signalsAgree": false,
+          "confidence": "low",
+          "decayAltKm": 219.99999999999727,
+          "perigeeKm": 220,
+          "decayRateKmPerDay": 0,
+          "estimatedDaysRemaining": null,
+          "tier": "stable",
+          "source": "single_epoch"
+        }
+      },
+      {
+        "id": "non_debris_always_stable",
+        "description": "getReentryRisk() only screens debris -- payloads always come back stable",
+        "input": {
+          "entry": {
+            "id": 25544,
+            "name": "TEST PAYLOAD",
+            "operator": "TEST",
+            "l1": "                                                     50000-6        ",
+            "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+            "inclination": 51.6,
+            "raan": 0,
+            "argPerigee": 0,
+            "meanAnomaly": 0,
+            "meanMotion": 16.19834963702965,
+            "meanMotionDot": 0.00002182,
+            "ecc": 0,
+            "perigeeKm": 220,
+            "apogeeKm": 230,
+            "semiMajorAxisKm": 6565,
+            "tleEpoch": "2026-01-01T00:00:00.000Z",
+            "isDebris": false
+          },
+          "solarFluxMultiplier": 1
+        },
+        "output": {
+          "satId": 25544,
+          "bstar": 5e-7,
+          "meanMotionDot": 0.00002182,
+          "signalsAgree": false,
+          "confidence": "low",
+          "decayAltKm": 219.99999999999727,
+          "perigeeKm": 220,
+          "decayRateKmPerDay": 0,
+          "estimatedDaysRemaining": null,
+          "tier": "stable",
+          "source": "single_epoch"
+        }
+      },
+      {
+        "id": "high_perigee_sanity_gate",
+        "description": "Perigee > 2000km is gated to stable regardless of BSTAR (gate trips on the perigeeKm field itself, before meanMotion-derived altitude is ever computed)",
+        "input": {
+          "entry": {
+            "id": 25544,
+            "name": "DEBRIS TEST",
+            "operator": "TEST",
+            "l1": "                                                     50000-6        ",
+            "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+            "inclination": 51.6,
+            "raan": 0,
+            "argPerigee": 0,
+            "meanAnomaly": 0,
+            "meanMotion": 10.927310782578738,
+            "meanMotionDot": 0.00002182,
+            "ecc": 0,
+            "perigeeKm": 2200,
+            "apogeeKm": 2300,
+            "semiMajorAxisKm": 6565,
+            "tleEpoch": "2026-01-01T00:00:00.000Z",
+            "isDebris": true
+          },
+          "solarFluxMultiplier": 1
+        },
+        "output": {
+          "satId": 25544,
+          "bstar": 5e-7,
+          "meanMotionDot": 0.00002182,
+          "signalsAgree": false,
+          "confidence": "low",
+          "decayAltKm": 2199.9999999999955,
+          "perigeeKm": 2200,
+          "decayRateKmPerDay": 0,
+          "estimatedDaysRemaining": null,
+          "tier": "stable",
+          "source": "single_epoch"
+        }
+      },
+      {
+        "id": "strong_solar_flux_debris",
+        "description": "Debris object under a strong solar-flux multiplier -- large enough BSTAR that the multiplier visibly changes the tier",
+        "input": {
+          "entry": {
+            "id": 25544,
+            "name": "DEBRIS TEST",
+            "operator": "TEST",
+            "l1": "                                                     50000-4 ",
+            "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+            "inclination": 51.6,
+            "raan": 0,
+            "argPerigee": 0,
+            "meanAnomaly": 0,
+            "meanMotion": 15.73115183553871,
+            "meanMotionDot": 0.00002182,
+            "ecc": 0,
+            "perigeeKm": 350,
+            "apogeeKm": 360,
+            "semiMajorAxisKm": 6565,
+            "tleEpoch": "2026-01-01T00:00:00.000Z",
+            "isDebris": true
+          },
+          "solarFluxMultiplier": 2.5
+        },
+        "output": {
+          "satId": 25544,
+          "bstar": 0.000049999999999999996,
+          "meanMotionDot": 0.00002182,
+          "signalsAgree": true,
+          "confidence": "high",
+          "perigeeKm": 350,
+          "decayAltKm": 349.99999999999636,
+          "decayRateKmPerDay": 2.0723991311652195,
+          "estimatedDaysRemaining": 74,
+          "tier": "warning",
+          "source": "single_epoch"
+        }
+      }
+    ]
+  },
+  "explainReentryTrend": [
+    {
+      "id": "clear_decay_full_agreement",
+      "description": "BSTAR, Ndot, and altitude all agree on decay -- unambiguous decaying case",
+      "input": {
+        "bstarReg": {
+          "slope": 5e-7,
+          "rSquared": 0.8,
+          "mean": 0.000003,
+          "stddev": 1e-7,
+          "n": 10
+        },
+        "ndotReg": {
+          "slope": 0.00003,
+          "rSquared": 0.7,
+          "mean": 0.00002,
+          "stddev": 0.000005,
+          "n": 10
+        },
+        "perigeeReg": {
+          "slope": -0.5,
+          "rSquared": 0.9,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "perigeeReg7d": {
+          "slope": -0.8,
+          "rSquared": 0.85,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "smaReg": {
+          "slope": -0.4,
+          "rSquared": 0.88,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "smaReg7d": {
+          "slope": -0.7,
+          "rSquared": 0.8,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "ndotLatest": 0.00003,
+        "ndotMean14d": 0.000025,
+        "decayAltKm": 300,
+        "objectType": "debris",
+        "perigeeLatest": 280,
+        "nowMs": 1767225600000
+      },
+      "output": {
+        "signal": "decaying",
+        "decayConfidence": 0.815,
+        "maneuverLikelihood": 0,
+        "signals": [
+          {
+            "name": "bstar",
+            "strength": 0.8,
+            "weight": 0.35,
+            "contribution": 0.27999999999999997,
+            "agrees": true
+          },
+          {
+            "name": "ndot",
+            "strength": 0.7,
+            "weight": 0.25,
+            "contribution": 0.175,
+            "agrees": true
+          },
+          {
+            "name": "altitude",
+            "strength": 0.9,
+            "weight": 0.4,
+            "contribution": 0.36000000000000004,
+            "agrees": true
+          }
+        ],
+        "consensus": {
+          "required": "partial",
+          "met": true
+        },
+        "reentry": {
+          "estimatedDaysRemaining": 134,
+          "estimatedReentryAt": "2026-05-15T00:00:00.000Z",
+          "reentryTier": "warning",
+          "decayRateKmPerDay": 0.8
+        }
+      }
+    },
+    {
+      "id": "stable_low_noise",
+      "description": "Low, near-flat slopes with a well-populated BSTAR series -> stable",
+      "input": {
+        "bstarReg": {
+          "slope": 1e-9,
+          "rSquared": 0.1,
+          "mean": 1e-7,
+          "stddev": 1e-8,
+          "n": 8
+        },
+        "ndotReg": {
+          "slope": 1e-8,
+          "rSquared": 0.05,
+          "mean": 0,
+          "stddev": 0,
+          "n": 8
+        },
+        "perigeeReg": {
+          "slope": 0.001,
+          "rSquared": 0.05,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "perigeeReg7d": {
+          "slope": 0.001,
+          "rSquared": 0.05,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "smaReg": {
+          "slope": 0.001,
+          "rSquared": 0.05,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "smaReg7d": {
+          "slope": 0.001,
+          "rSquared": 0.05,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "ndotLatest": 1e-8,
+        "ndotMean14d": 1e-8,
+        "decayAltKm": 700,
+        "objectType": "payload",
+        "perigeeLatest": 690,
+        "nowMs": 1767225600000
+      },
+      "output": {
+        "signal": "stable",
+        "decayConfidence": 0.8,
+        "maneuverLikelihood": 0,
+        "signals": [
+          {
+            "name": "bstar",
+            "strength": 0.001,
+            "weight": 0.35,
+            "contribution": 0.00035,
+            "agrees": false
+          },
+          {
+            "name": "ndot",
+            "strength": 0.00005,
+            "weight": 0.25,
+            "contribution": 0.0000125,
+            "agrees": false
+          },
+          {
+            "name": "altitude",
+            "strength": 0,
+            "weight": 0.4,
+            "contribution": 0,
+            "agrees": false
+          }
+        ],
+        "consensus": {
+          "required": "full",
+          "met": false
+        },
+        "reentry": {
+          "estimatedDaysRemaining": null,
+          "estimatedReentryAt": null,
+          "reentryTier": "stable",
+          "decayRateKmPerDay": null
+        }
+      }
+    },
+    {
+      "id": "maneuvering_high_bstar_variance",
+      "description": "High BSTAR coefficient of variation with weak altitude signal -> maneuvering",
+      "input": {
+        "bstarReg": {
+          "slope": 2e-8,
+          "rSquared": 0.2,
+          "mean": 1e-7,
+          "stddev": 3e-7,
+          "n": 10
+        },
+        "ndotReg": {
+          "slope": 1e-7,
+          "rSquared": 0.1,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "perigeeReg": {
+          "slope": -0.02,
+          "rSquared": 0.1,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "perigeeReg7d": {
+          "slope": -0.02,
+          "rSquared": 0.1,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "smaReg": {
+          "slope": -0.02,
+          "rSquared": 0.1,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "smaReg7d": {
+          "slope": -0.02,
+          "rSquared": 0.1,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "ndotLatest": 1e-7,
+        "ndotMean14d": 1e-7,
+        "decayAltKm": 500,
+        "objectType": "payload",
+        "perigeeLatest": 480,
+        "nowMs": 1767225600000
+      },
+      "output": {
+        "signal": "maneuvering",
+        "decayConfidence": 0.0009925000000000001,
+        "maneuverLikelihood": 1,
+        "signals": [
+          {
+            "name": "bstar",
+            "strength": 0.04000000000000001,
+            "weight": 0.35,
+            "contribution": 0.014000000000000002,
+            "agrees": false
+          },
+          {
+            "name": "ndot",
+            "strength": 0.0009999999999999998,
+            "weight": 0.25,
+            "contribution": 0.00024999999999999995,
+            "agrees": false
+          },
+          {
+            "name": "altitude",
+            "strength": 0.013999999999999999,
+            "weight": 0.4,
+            "contribution": 0.0056,
+            "agrees": false
+          }
+        ],
+        "consensus": {
+          "required": "full",
+          "met": true
+        },
+        "reentry": {
+          "estimatedDaysRemaining": null,
+          "estimatedReentryAt": null,
+          "reentryTier": "stable",
+          "decayRateKmPerDay": null
+        }
+      }
+    },
+    {
+      "id": "insufficient_data_short_series",
+      "description": "Short/weak series that satisfies neither the decaying nor stable threshold",
+      "input": {
+        "bstarReg": {
+          "slope": 5e-8,
+          "rSquared": 0.2,
+          "mean": 1e-7,
+          "stddev": 5e-8,
+          "n": 3
+        },
+        "ndotReg": null,
+        "perigeeReg": {
+          "slope": -0.05,
+          "rSquared": 0.15,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "perigeeReg7d": null,
+        "smaReg": {
+          "slope": -0.05,
+          "rSquared": 0.15,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "smaReg7d": null,
+        "ndotLatest": null,
+        "ndotMean14d": null,
+        "decayAltKm": 600,
+        "objectType": "unknown",
+        "perigeeLatest": 590,
+        "nowMs": 1767225600000
+      },
+      "output": {
+        "signal": "insufficient_data",
+        "decayConfidence": 0.048999999999999995,
+        "maneuverLikelihood": 0,
+        "signals": [
+          {
+            "name": "bstar",
+            "strength": 0.1,
+            "weight": 0.35,
+            "contribution": 0.034999999999999996,
+            "agrees": false
+          },
+          {
+            "name": "ndot",
+            "strength": 0,
+            "weight": 0.25,
+            "contribution": 0,
+            "agrees": false
+          },
+          {
+            "name": "altitude",
+            "strength": 0.034999999999999996,
+            "weight": 0.4,
+            "contribution": 0.013999999999999999,
+            "agrees": false
+          }
+        ],
+        "consensus": {
+          "required": "full",
+          "met": false
+        },
+        "reentry": {
+          "estimatedDaysRemaining": null,
+          "estimatedReentryAt": null,
+          "reentryTier": "stable",
+          "decayRateKmPerDay": null
+        }
+      }
+    },
+    {
+      "id": "contradictory_signals_payload_full_consensus_blocked",
+      "description": "Payload at 250-300km requires full consensus; altitude decays but BSTAR/Ndot do not agree",
+      "input": {
+        "bstarReg": {
+          "slope": -1e-8,
+          "rSquared": 0.3,
+          "mean": 1e-7,
+          "stddev": 2e-8,
+          "n": 10
+        },
+        "ndotReg": {
+          "slope": -0.000001,
+          "rSquared": 0.2,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "perigeeReg": {
+          "slope": -0.3,
+          "rSquared": 0.7,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "perigeeReg7d": {
+          "slope": -0.4,
+          "rSquared": 0.7,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "smaReg": {
+          "slope": -0.3,
+          "rSquared": 0.7,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "smaReg7d": {
+          "slope": -0.4,
+          "rSquared": 0.7,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "ndotLatest": -0.000001,
+        "ndotMean14d": -0.000001,
+        "decayAltKm": 260,
+        "objectType": "payload",
+        "perigeeLatest": 260,
+        "nowMs": 1767225600000
+      },
+      "output": {
+        "signal": "insufficient_data",
+        "decayConfidence": 0.168,
+        "maneuverLikelihood": 0,
+        "signals": [
+          {
+            "name": "bstar",
+            "strength": 0,
+            "weight": 0.35,
+            "contribution": 0,
+            "agrees": false
+          },
+          {
+            "name": "ndot",
+            "strength": 0,
+            "weight": 0.25,
+            "contribution": 0,
+            "agrees": false
+          },
+          {
+            "name": "altitude",
+            "strength": 0.42,
+            "weight": 0.4,
+            "contribution": 0.168,
+            "agrees": true
+          }
+        ],
+        "consensus": {
+          "required": "partial",
+          "met": true
+        },
+        "reentry": {
+          "estimatedDaysRemaining": null,
+          "estimatedReentryAt": null,
+          "reentryTier": "stable",
+          "decayRateKmPerDay": null
+        }
+      }
+    },
+    {
+      "id": "below_220km_no_consensus_required",
+      "description": "Below 220km, altitude drop alone is sufficient -- no consensus required",
+      "input": {
+        "bstarReg": {
+          "slope": -1e-8,
+          "rSquared": 0.3,
+          "mean": 1e-7,
+          "stddev": 2e-8,
+          "n": 10
+        },
+        "ndotReg": {
+          "slope": -0.000001,
+          "rSquared": 0.2,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "perigeeReg": {
+          "slope": -0.6,
+          "rSquared": 0.9,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "perigeeReg7d": {
+          "slope": -0.9,
+          "rSquared": 0.9,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "smaReg": {
+          "slope": -0.6,
+          "rSquared": 0.9,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "smaReg7d": {
+          "slope": -0.9,
+          "rSquared": 0.9,
+          "mean": 0,
+          "stddev": 0,
+          "n": 10
+        },
+        "ndotLatest": -0.000001,
+        "ndotMean14d": -0.000001,
+        "decayAltKm": 200,
+        "objectType": "payload",
+        "perigeeLatest": 200,
+        "nowMs": 1767225600000
+      },
+      "output": {
+        "signal": "decaying",
+        "decayConfidence": 0.36000000000000004,
+        "maneuverLikelihood": 0,
+        "signals": [
+          {
+            "name": "bstar",
+            "strength": 0,
+            "weight": 0.35,
+            "contribution": 0,
+            "agrees": false
+          },
+          {
+            "name": "ndot",
+            "strength": 0,
+            "weight": 0.25,
+            "contribution": 0,
+            "agrees": false
+          },
+          {
+            "name": "altitude",
+            "strength": 0.9,
+            "weight": 0.4,
+            "contribution": 0.36000000000000004,
+            "agrees": true
+          }
+        ],
+        "consensus": {
+          "required": "none",
+          "met": true
+        },
+        "reentry": {
+          "estimatedDaysRemaining": 60,
+          "estimatedReentryAt": "2026-03-02T00:00:00.000Z",
+          "reentryTier": "warning",
+          "decayRateKmPerDay": 0.9
+        }
+      }
+    }
+  ],
+  "resolveReentryRisk": [
+    {
+      "id": "normal_decaying_debris",
+      "description": "Debris object with an actionable, agreeing decaying trend",
+      "input": {
+        "entry": {
+          "id": 40001,
+          "name": "DEBRIS TEST",
+          "operator": "TEST",
+          "l1": "                                                     50000-6        ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 16,
+          "meanMotionDot": 0.00002182,
+          "ecc": 0,
+          "perigeeKm": 260,
+          "apogeeKm": 270,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": true
+        },
+        "trend": {
+          "noradId": 40001,
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "trendVersion": 4,
+          "epochsAvailable": 10,
+          "historyDaysAvailable": 12,
+          "bstarLatest": 5e-7,
+          "bstarSlope7d": null,
+          "bstarSlope14d": 5e-7,
+          "bstarSlope30d": null,
+          "bstarMean14d": null,
+          "bstarStddev14d": null,
+          "bstarRsq14d": null,
+          "bstarSignalStrength": null,
+          "perigeeLatest": 260,
+          "perigeeSlope7d": null,
+          "perigeeSlope14d": -0.5,
+          "perigeeSlope30d": null,
+          "apogeeLatest": null,
+          "apogeeSlope14d": null,
+          "smaLatest": null,
+          "smaSlope7d": null,
+          "smaSlope14d": -0.4,
+          "meanMotionDotLatest": 0.00003,
+          "meanMotionDotMean14d": null,
+          "ndotSignalStrength": null,
+          "altitudeSignalStrength": null,
+          "consensusRequired": null,
+          "consensusMet": null,
+          "decaySignal": "decaying",
+          "maneuverLikelihood": 0,
+          "decayConfidence": 0.8,
+          "estimatedDaysRemaining": 45,
+          "estimatedReentryAt": null,
+          "reentryTier": "warning",
+          "objectType": "debris",
+          "isDebris": true
+        },
+        "solarFluxMultiplier": 1
+      },
+      "output": {
+        "satId": 40001,
+        "bstar": 5e-7,
+        "meanMotionDot": 0.00002182,
+        "signalsAgree": true,
+        "confidence": "medium",
+        "perigeeKm": 260,
+        "decayAltKm": 260,
+        "decayRateKmPerDay": 1.800923121479524,
+        "estimatedDaysRemaining": 42,
+        "tier": "nominal",
+        "source": "single_epoch",
+        "decaySignal": "decaying"
+      }
+    },
+    {
+      "id": "stable_debris_no_actionable_signal",
+      "description": "Debris object whose trend is flat/stable",
+      "input": {
+        "entry": {
+          "id": 40002,
+          "name": "DEBRIS TEST",
+          "operator": "TEST",
+          "l1": "                                                     50000-6        ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 16,
+          "meanMotionDot": 0.00002182,
+          "ecc": 0,
+          "perigeeKm": 500,
+          "apogeeKm": 520,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": true
+        },
+        "trend": {
+          "noradId": 40002,
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "trendVersion": 4,
+          "epochsAvailable": 10,
+          "historyDaysAvailable": 12,
+          "bstarLatest": 5e-7,
+          "bstarSlope7d": null,
+          "bstarSlope14d": null,
+          "bstarSlope30d": null,
+          "bstarMean14d": null,
+          "bstarStddev14d": null,
+          "bstarRsq14d": null,
+          "bstarSignalStrength": null,
+          "perigeeLatest": 500,
+          "perigeeSlope7d": null,
+          "perigeeSlope14d": null,
+          "perigeeSlope30d": null,
+          "apogeeLatest": null,
+          "apogeeSlope14d": null,
+          "smaLatest": null,
+          "smaSlope7d": null,
+          "smaSlope14d": null,
+          "meanMotionDotLatest": null,
+          "meanMotionDotMean14d": null,
+          "ndotSignalStrength": null,
+          "altitudeSignalStrength": null,
+          "consensusRequired": null,
+          "consensusMet": null,
+          "decaySignal": "stable",
+          "maneuverLikelihood": 0,
+          "decayConfidence": 0.9,
+          "estimatedDaysRemaining": null,
+          "estimatedReentryAt": null,
+          "reentryTier": "stable",
+          "objectType": "debris",
+          "isDebris": true
+        },
+        "solarFluxMultiplier": 1
+      },
+      "output": {
+        "satId": 40002,
+        "bstar": 5e-7,
+        "meanMotionDot": 0.00002182,
+        "signalsAgree": false,
+        "confidence": "high",
+        "perigeeKm": 500,
+        "decayAltKm": 500,
+        "decayRateKmPerDay": 0,
+        "estimatedDaysRemaining": null,
+        "tier": "stable",
+        "source": "multi_epoch",
+        "decaySignal": "stable",
+        "decayConfidence": 0.9,
+        "maneuverLikelihood": 0,
+        "epochsAvailable": 10,
+        "historyDaysAvailable": 12,
+        "estimatedReentryAt": null
+      }
+    },
+    {
+      "id": "low_altitude_no_trend_single_epoch",
+      "description": "No trend row at all -- pure altitude-driven single-epoch fallback",
+      "input": {
+        "entry": {
+          "id": 40003,
+          "name": "TEST PAYLOAD",
+          "operator": "TEST",
+          "l1": "                                                     50000-6        ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 16,
+          "meanMotionDot": 0.00002182,
+          "ecc": 0,
+          "perigeeKm": 180,
+          "apogeeKm": 195,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": false
+        },
+        "solarFluxMultiplier": 1
+      },
+      "output": {
+        "satId": 40003,
+        "bstar": 5e-7,
+        "meanMotionDot": 0.00002182,
+        "signalsAgree": true,
+        "confidence": "high",
+        "perigeeKm": 180,
+        "decayAltKm": 180,
+        "decayRateKmPerDay": 17.707949524351548,
+        "estimatedDaysRemaining": 2,
+        "tier": "critical",
+        "source": "single_epoch",
+        "decaySignal": "decaying"
+      }
+    },
+    {
+      "id": "heo_object",
+      "description": "Highly eccentric orbit (apogee >> perigee) -- gated stable regardless of everything else",
+      "input": {
+        "entry": {
+          "id": 40004,
+          "name": "HEO TEST",
+          "operator": "TEST",
+          "l1": "                                                     50000-6        ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 2,
+          "meanMotionDot": 0.00002182,
+          "ecc": 0,
+          "perigeeKm": 500,
+          "apogeeKm": 35000,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": false
+        },
+        "solarFluxMultiplier": 1
+      },
+      "output": {
+        "satId": 40004,
+        "bstar": 5e-7,
+        "meanMotionDot": 0.00002182,
+        "signalsAgree": false,
+        "confidence": "low",
+        "perigeeKm": 500,
+        "decayAltKm": 500,
+        "decayRateKmPerDay": 0,
+        "estimatedDaysRemaining": null,
+        "tier": "stable",
+        "source": "single_epoch"
+      }
+    },
+    {
+      "id": "raising_orbit_negative_ndot",
+      "description": "Negative Ndot below the -1e-6 raising-orbit threshold -> stable regardless of BSTAR",
+      "input": {
+        "entry": {
+          "id": 40005,
+          "name": "TEST PAYLOAD",
+          "operator": "TEST",
+          "l1": "                                                     50000-6        ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 16,
+          "meanMotionDot": -0.000002,
+          "ecc": 0,
+          "perigeeKm": 200,
+          "apogeeKm": 210,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": false
+        },
+        "solarFluxMultiplier": 1
+      },
+      "output": {
+        "satId": 40005,
+        "bstar": 5e-7,
+        "meanMotionDot": -0.000002,
+        "signalsAgree": false,
+        "confidence": "low",
+        "perigeeKm": 200,
+        "decayAltKm": 200,
+        "decayRateKmPerDay": 0,
+        "estimatedDaysRemaining": null,
+        "tier": "stable",
+        "source": "single_epoch"
+      }
+    },
+    {
+      "id": "raising_orbit_negative_bstar_and_ndot",
+      "description": "Negative BSTAR combined with any negative Ndot -> stable",
+      "input": {
+        "entry": {
+          "id": 40006,
+          "name": "TEST PAYLOAD",
+          "operator": "TEST",
+          "l1": "                                                     -11606-4",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 16,
+          "meanMotionDot": -1e-7,
+          "ecc": 0,
+          "perigeeKm": 200,
+          "apogeeKm": 210,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": false
+        },
+        "solarFluxMultiplier": 1
+      },
+      "output": {
+        "satId": 40006,
+        "bstar": -0.000011605999999999999,
+        "meanMotionDot": -1e-7,
+        "signalsAgree": false,
+        "confidence": "low",
+        "perigeeKm": 200,
+        "decayAltKm": 200,
+        "decayRateKmPerDay": 0,
+        "estimatedDaysRemaining": null,
+        "tier": "stable",
+        "source": "single_epoch"
+      }
+    },
+    {
+      "id": "maneuver_like_behavior_payload",
+      "description": "Payload with a \"maneuvering\" trend read at low altitude -- short-circuits before altitude fallback",
+      "input": {
+        "entry": {
+          "id": 40007,
+          "name": "TEST PAYLOAD",
+          "operator": "TEST",
+          "l1": "                                                     50000-6        ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 16,
+          "meanMotionDot": 0.00002182,
+          "ecc": 0,
+          "perigeeKm": 180,
+          "apogeeKm": 195,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": false
+        },
+        "trend": {
+          "noradId": 40007,
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "trendVersion": 4,
+          "epochsAvailable": 6,
+          "historyDaysAvailable": 12,
+          "bstarLatest": 5e-7,
+          "bstarSlope7d": null,
+          "bstarSlope14d": null,
+          "bstarSlope30d": null,
+          "bstarMean14d": null,
+          "bstarStddev14d": null,
+          "bstarRsq14d": null,
+          "bstarSignalStrength": null,
+          "perigeeLatest": 180,
+          "perigeeSlope7d": null,
+          "perigeeSlope14d": null,
+          "perigeeSlope30d": null,
+          "apogeeLatest": null,
+          "apogeeSlope14d": null,
+          "smaLatest": null,
+          "smaSlope7d": null,
+          "smaSlope14d": null,
+          "meanMotionDotLatest": null,
+          "meanMotionDotMean14d": null,
+          "ndotSignalStrength": null,
+          "altitudeSignalStrength": null,
+          "consensusRequired": null,
+          "consensusMet": null,
+          "decaySignal": "maneuvering",
+          "maneuverLikelihood": 0.8,
+          "decayConfidence": 0.5,
+          "estimatedDaysRemaining": 30,
+          "estimatedReentryAt": null,
+          "reentryTier": "warning",
+          "objectType": "payload",
+          "isDebris": false
+        },
+        "solarFluxMultiplier": 1
+      },
+      "output": {
+        "satId": 40007,
+        "bstar": 5e-7,
+        "meanMotionDot": 0.00002182,
+        "signalsAgree": false,
+        "confidence": "low",
+        "perigeeKm": 180,
+        "decayAltKm": 180,
+        "decayRateKmPerDay": 0,
+        "estimatedDaysRemaining": null,
+        "tier": "stable",
+        "source": "single_epoch"
+      }
+    },
+    {
+      "id": "contradictory_trend_signals_above_threshold",
+      "description": "Perigee above the debris/payload threshold, actionable trend, but signals do not all agree",
+      "input": {
+        "entry": {
+          "id": 40008,
+          "name": "TEST PAYLOAD",
+          "operator": "TEST",
+          "l1": "                                                     50000-6        ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 16,
+          "meanMotionDot": 0.00002182,
+          "ecc": 0,
+          "perigeeKm": 400,
+          "apogeeKm": 420,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": false
+        },
+        "trend": {
+          "noradId": 40008,
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "trendVersion": 4,
+          "epochsAvailable": 10,
+          "historyDaysAvailable": 12,
+          "bstarLatest": 5e-7,
+          "bstarSlope7d": null,
+          "bstarSlope14d": -1e-8,
+          "bstarSlope30d": null,
+          "bstarMean14d": null,
+          "bstarStddev14d": null,
+          "bstarRsq14d": null,
+          "bstarSignalStrength": null,
+          "perigeeLatest": 400,
+          "perigeeSlope7d": null,
+          "perigeeSlope14d": -0.3,
+          "perigeeSlope30d": null,
+          "apogeeLatest": null,
+          "apogeeSlope14d": null,
+          "smaLatest": null,
+          "smaSlope7d": null,
+          "smaSlope14d": -0.3,
+          "meanMotionDotLatest": -0.000001,
+          "meanMotionDotMean14d": null,
+          "ndotSignalStrength": null,
+          "altitudeSignalStrength": null,
+          "consensusRequired": null,
+          "consensusMet": null,
+          "decaySignal": "decaying",
+          "maneuverLikelihood": 0,
+          "decayConfidence": 0.4,
+          "estimatedDaysRemaining": 120,
+          "estimatedReentryAt": null,
+          "reentryTier": "nominal",
+          "objectType": "payload",
+          "isDebris": false
+        },
+        "solarFluxMultiplier": 1
+      },
+      "output": {
+        "satId": 40008,
+        "bstar": 5e-7,
+        "meanMotionDot": 0.00002182,
+        "signalsAgree": false,
+        "confidence": "low",
+        "perigeeKm": 400,
+        "decayAltKm": 400,
+        "decayRateKmPerDay": 0,
+        "estimatedDaysRemaining": null,
+        "tier": "stable",
+        "source": "single_epoch"
+      }
+    },
+    {
+      "id": "trend_more_pessimistic_than_altitude",
+      "description": "Actionable trend estimate is sooner than the altitude fallback -- trend wins (source: multi_epoch)",
+      "input": {
+        "entry": {
+          "id": 40009,
+          "name": "TEST PAYLOAD",
+          "operator": "TEST",
+          "l1": "                                                     50000-6        ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 16,
+          "meanMotionDot": 0.00002182,
+          "ecc": 0,
+          "perigeeKm": 180,
+          "apogeeKm": 195,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": false
+        },
+        "trend": {
+          "noradId": 40009,
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "trendVersion": 4,
+          "epochsAvailable": 10,
+          "historyDaysAvailable": 12,
+          "bstarLatest": 5e-7,
+          "bstarSlope7d": null,
+          "bstarSlope14d": null,
+          "bstarSlope30d": null,
+          "bstarMean14d": null,
+          "bstarStddev14d": null,
+          "bstarRsq14d": null,
+          "bstarSignalStrength": null,
+          "perigeeLatest": 180,
+          "perigeeSlope7d": null,
+          "perigeeSlope14d": null,
+          "perigeeSlope30d": null,
+          "apogeeLatest": null,
+          "apogeeSlope14d": null,
+          "smaLatest": null,
+          "smaSlope7d": null,
+          "smaSlope14d": null,
+          "meanMotionDotLatest": null,
+          "meanMotionDotMean14d": null,
+          "ndotSignalStrength": null,
+          "altitudeSignalStrength": null,
+          "consensusRequired": null,
+          "consensusMet": null,
+          "decaySignal": "decaying",
+          "maneuverLikelihood": 0,
+          "decayConfidence": 0.9,
+          "estimatedDaysRemaining": 1,
+          "estimatedReentryAt": null,
+          "reentryTier": "critical",
+          "objectType": "payload",
+          "isDebris": false
+        },
+        "solarFluxMultiplier": 1
+      },
+      "output": {
+        "satId": 40009,
+        "bstar": 5e-7,
+        "meanMotionDot": 0.00002182,
+        "signalsAgree": false,
+        "confidence": "high",
+        "perigeeKm": 180,
+        "decayAltKm": 180,
+        "decayRateKmPerDay": 0,
+        "estimatedDaysRemaining": 1,
+        "tier": "critical",
+        "source": "multi_epoch",
+        "decaySignal": "decaying",
+        "decayConfidence": 0.9,
+        "maneuverLikelihood": 0,
+        "epochsAvailable": 10,
+        "historyDaysAvailable": 12,
+        "estimatedReentryAt": null
+      }
+    },
+    {
+      "id": "altitude_overrides_too_calm_trend",
+      "description": "Thin/noisy low-confidence trend read is overridden by the altitude fallback (source: single_epoch)",
+      "input": {
+        "entry": {
+          "id": 40010,
+          "name": "TEST PAYLOAD",
+          "operator": "TEST",
+          "l1": "                                                     50000-6        ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 16,
+          "meanMotionDot": 0.00002182,
+          "ecc": 0,
+          "perigeeKm": 180,
+          "apogeeKm": 195,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": false
+        },
+        "trend": {
+          "noradId": 40010,
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "trendVersion": 4,
+          "epochsAvailable": 5,
+          "historyDaysAvailable": 4,
+          "bstarLatest": 5e-7,
+          "bstarSlope7d": null,
+          "bstarSlope14d": null,
+          "bstarSlope30d": null,
+          "bstarMean14d": null,
+          "bstarStddev14d": null,
+          "bstarRsq14d": null,
+          "bstarSignalStrength": null,
+          "perigeeLatest": 180,
+          "perigeeSlope7d": null,
+          "perigeeSlope14d": null,
+          "perigeeSlope30d": null,
+          "apogeeLatest": null,
+          "apogeeSlope14d": null,
+          "smaLatest": null,
+          "smaSlope7d": null,
+          "smaSlope14d": null,
+          "meanMotionDotLatest": null,
+          "meanMotionDotMean14d": null,
+          "ndotSignalStrength": null,
+          "altitudeSignalStrength": null,
+          "consensusRequired": null,
+          "consensusMet": null,
+          "decaySignal": "decaying",
+          "maneuverLikelihood": 0,
+          "decayConfidence": 0.3,
+          "estimatedDaysRemaining": 45,
+          "estimatedReentryAt": null,
+          "reentryTier": "nominal",
+          "objectType": "payload",
+          "isDebris": false
+        },
+        "solarFluxMultiplier": 1
+      },
+      "output": {
+        "satId": 40010,
+        "bstar": 5e-7,
+        "meanMotionDot": 0.00002182,
+        "signalsAgree": true,
+        "confidence": "high",
+        "perigeeKm": 180,
+        "decayAltKm": 180,
+        "decayRateKmPerDay": 17.707949524351548,
+        "estimatedDaysRemaining": 2,
+        "tier": "critical",
+        "source": "single_epoch",
+        "decaySignal": "decaying"
+      }
+    },
+    {
+      "id": "strong_solar_flux_debris_single_epoch",
+      "description": "Debris object above the actionable-trend path, resolved via getReentryRisk() under strong solar flux -- large enough BSTAR that the multiplier visibly changes the tier",
+      "input": {
+        "entry": {
+          "id": 40011,
+          "name": "DEBRIS TEST",
+          "operator": "TEST",
+          "l1": "                                                     50000-4 ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 15.73115183553871,
+          "meanMotionDot": 0.00002182,
+          "ecc": 0,
+          "perigeeKm": 350,
+          "apogeeKm": 360,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": true
+        },
+        "solarFluxMultiplier": 2.5
+      },
+      "output": {
+        "satId": 40011,
+        "bstar": 0.000049999999999999996,
+        "meanMotionDot": 0.00002182,
+        "signalsAgree": true,
+        "confidence": "high",
+        "perigeeKm": 350,
+        "decayAltKm": 349.99999999999636,
+        "decayRateKmPerDay": 2.0723991311652195,
+        "estimatedDaysRemaining": 74,
+        "tier": "warning",
+        "source": "single_epoch"
+      }
+    },
+    {
+      "id": "composed_environmental_multiplier_debris",
+      "description": "Debris object with a pre-composed solar x geomagnetic multiplier (1.18 x 0.92), same BSTAR as strong_solar_flux_debris_single_epoch for a direct comparison",
+      "input": {
+        "entry": {
+          "id": 40012,
+          "name": "DEBRIS TEST",
+          "operator": "TEST",
+          "l1": "                                                     50000-4 ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 15.73115183553871,
+          "meanMotionDot": 0.00002182,
+          "ecc": 0,
+          "perigeeKm": 350,
+          "apogeeKm": 360,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": true
+        },
+        "solarFluxMultiplier": 1.0856
+      },
+      "output": {
+        "satId": 40012,
+        "bstar": 0.000049999999999999996,
+        "meanMotionDot": 0.00002182,
+        "signalsAgree": true,
+        "confidence": "high",
+        "perigeeKm": 350,
+        "decayAltKm": 349.99999999999636,
+        "decayRateKmPerDay": 0.8999185987171847,
+        "estimatedDaysRemaining": 171,
+        "tier": "nominal",
+        "source": "single_epoch"
+      }
+    },
+    {
+      "id": "insufficient_data_non_debris",
+      "description": "Perigee above threshold, no debris, no actionable trend -> stable by default",
+      "input": {
+        "entry": {
+          "id": 40013,
+          "name": "TEST PAYLOAD",
+          "operator": "TEST",
+          "l1": "                                                     50000-6        ",
+          "l2": "2 25544  51.6000 000.0000 0000000 000.0000 000.0000 16.00000000",
+          "inclination": 51.6,
+          "raan": 0,
+          "argPerigee": 0,
+          "meanAnomaly": 0,
+          "meanMotion": 16,
+          "meanMotionDot": 0.00002182,
+          "ecc": 0,
+          "perigeeKm": 500,
+          "apogeeKm": 520,
+          "semiMajorAxisKm": 6565,
+          "tleEpoch": "2026-01-01T00:00:00.000Z",
+          "isDebris": false
+        },
+        "trend": {
+          "noradId": 40013,
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "trendVersion": 4,
+          "epochsAvailable": 2,
+          "historyDaysAvailable": 0.5,
+          "bstarLatest": 5e-7,
+          "bstarSlope7d": null,
+          "bstarSlope14d": null,
+          "bstarSlope30d": null,
+          "bstarMean14d": null,
+          "bstarStddev14d": null,
+          "bstarRsq14d": null,
+          "bstarSignalStrength": null,
+          "perigeeLatest": 180,
+          "perigeeSlope7d": null,
+          "perigeeSlope14d": null,
+          "perigeeSlope30d": null,
+          "apogeeLatest": null,
+          "apogeeSlope14d": null,
+          "smaLatest": null,
+          "smaSlope7d": null,
+          "smaSlope14d": null,
+          "meanMotionDotLatest": null,
+          "meanMotionDotMean14d": null,
+          "ndotSignalStrength": null,
+          "altitudeSignalStrength": null,
+          "consensusRequired": null,
+          "consensusMet": null,
+          "decaySignal": "insufficient_data",
+          "maneuverLikelihood": 0,
+          "decayConfidence": 0.05,
+          "estimatedDaysRemaining": null,
+          "estimatedReentryAt": null,
+          "reentryTier": "stable",
+          "objectType": "payload",
+          "isDebris": false
+        },
+        "solarFluxMultiplier": 1
+      },
+      "output": {
+        "satId": 40013,
+        "bstar": 5e-7,
+        "meanMotionDot": 0.00002182,
+        "signalsAgree": false,
+        "confidence": "low",
+        "perigeeKm": 500,
+        "decayAltKm": 500,
+        "decayRateKmPerDay": 0,
+        "estimatedDaysRemaining": null,
+        "tier": "stable",
+        "source": "single_epoch"
+      }
+    }
+  ]
+}
