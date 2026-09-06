@@ -9,7 +9,6 @@ dict/list shape are compared exactly -- a tier or signal flipping is a real
 bug, not a rounding artifact.
 """
 import json
-import math
 from pathlib import Path
 
 import pytest
@@ -23,6 +22,7 @@ from compute.satellite_helpers import (
     ndot_indicates_decay,
     parse_bstar,
 )
+from tests._golden_compare import assert_matches_golden
 
 FIXTURE_PATH = (
     Path(__file__).resolve().parents[2] / "fixtures" / "reentry-model" / "golden_cases.json"
@@ -30,33 +30,6 @@ FIXTURE_PATH = (
 
 with open(FIXTURE_PATH, encoding="utf-8") as f:
     GOLDEN = json.load(f)
-
-
-def assert_matches_golden(actual, expected, path: str = "$") -> None:
-    if isinstance(expected, dict):
-        assert isinstance(actual, dict), f"{path}: expected dict, got {type(actual)}"
-        assert actual.keys() == expected.keys(), (
-            f"{path}: key mismatch — actual={sorted(actual.keys())} "
-            f"expected={sorted(expected.keys())}"
-        )
-        for key in expected:
-            assert_matches_golden(actual[key], expected[key], f"{path}.{key}")
-    elif isinstance(expected, list):
-        assert isinstance(actual, list), f"{path}: expected list, got {type(actual)}"
-        assert len(actual) == len(expected), f"{path}: length mismatch"
-        for i, (a, e) in enumerate(zip(actual, expected)):
-            assert_matches_golden(a, e, f"{path}[{i}]")
-    elif isinstance(expected, bool) or expected is None:
-        assert actual is expected, f"{path}: expected {expected!r}, got {actual!r}"
-    elif isinstance(expected, (int, float)):
-        assert isinstance(actual, (int, float)) and not isinstance(actual, bool), (
-            f"{path}: expected number, got {type(actual)}"
-        )
-        assert math.isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-9), (
-            f"{path}: expected {expected!r}, got {actual!r}"
-        )
-    else:
-        assert actual == expected, f"{path}: expected {expected!r}, got {actual!r}"
 
 
 @pytest.mark.parametrize(

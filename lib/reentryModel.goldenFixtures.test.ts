@@ -23,7 +23,19 @@ import {
   ndotIndicatesDecay,
   parseBSTAR,
 } from './satelliteHelpers';
-import { explainReentryTrend } from './explainReentryTrend';
+import {
+  altitudeSignalStrength,
+  bstarSignalStrength,
+  classifyDecaySignal,
+  computeManeuverLikelihood,
+  explainReentryTrend,
+  ndotSignalStrength,
+  partialConsensusRequired,
+  payloadConsensusRequired,
+  type ObjectType,
+  type RegressionResult,
+} from './explainReentryTrend';
+import { allSignalsAgreeFromSlopes } from './reentrySignals';
 import { resolveReentryRisk } from './objectTrendRisk';
 import type { ObjectTrend, ReentryRisk, TleEntry } from './types';
 
@@ -58,6 +70,37 @@ type PrimitiveInputs = {
   getReentryRisk: { entry: TleEntry; solarFluxMultiplier: number };
 };
 
+type ReentryTrendHelperInputs = {
+  bstarSignalStrength: { bstarReg: RegressionResult };
+  ndotSignalStrength: {
+    ndotReg: RegressionResult;
+    ndotLatest: number | null;
+    decayAltKm: number;
+  };
+  altitudeSignalStrength: {
+    perigeeReg: RegressionResult;
+    smaReg: RegressionResult;
+  };
+  computeManeuverLikelihood: {
+    bstarReg: RegressionResult;
+    altitudeSignal: number;
+  };
+  classifyDecaySignal: {
+    bstarReg: RegressionResult;
+    ndotReg: RegressionResult;
+    perigeeReg: RegressionResult;
+    smaReg: RegressionResult;
+    ndotLatest: number | null;
+    decayAltKm: number;
+  };
+  payloadConsensusRequired: {
+    objectType: ObjectType;
+    perigeeLatest: number | null;
+  };
+  partialConsensusRequired: { perigeeLatest: number | null };
+  allSignalsAgreeFromSlopes: Parameters<typeof allSignalsAgreeFromSlopes>[0];
+};
+
 // Round-trip through JSON the same way the fixture generator did, so Date
 // objects, NaN/Infinity edge cases, and key ordering compare the same way
 // they were frozen.
@@ -74,6 +117,20 @@ function describePrimitiveFixtures<K extends keyof PrimitiveInputs>(
   const cases = goldenFixtures.primitives[group] as unknown as GoldenCase<
     PrimitiveInputs[K]
   >[];
+
+  describe(group, () => {
+    it.each(cases.map((c) => [c.id, c]))('%s', (_id, testCase) => {
+      expect(normalize(fn(testCase.input))).toEqual(testCase.output);
+    });
+  });
+}
+
+function describeReentryTrendHelperFixtures<
+  K extends keyof ReentryTrendHelperInputs,
+>(group: K, fn: (input: ReentryTrendHelperInputs[K]) => unknown) {
+  const cases = goldenFixtures.reentryTrendHelpers[
+    group
+  ] as unknown as GoldenCase<ReentryTrendHelperInputs[K]>[];
 
   describe(group, () => {
     it.each(cases.map((c) => [c.id, c]))('%s', (_id, testCase) => {
@@ -105,6 +162,50 @@ describe('re-entry model golden fixtures — primitives (satelliteHelpers.ts)', 
     'getReentryRisk',
     ({ entry, solarFluxMultiplier }) =>
       getReentryRisk(entry, undefined, solarFluxMultiplier)
+  );
+});
+
+describe('re-entry model golden fixtures — explainReentryTrend/reentrySignals sub-functions', () => {
+  describeReentryTrendHelperFixtures('bstarSignalStrength', ({ bstarReg }) =>
+    bstarSignalStrength(bstarReg)
+  );
+  describeReentryTrendHelperFixtures(
+    'ndotSignalStrength',
+    ({ ndotReg, ndotLatest, decayAltKm }) =>
+      ndotSignalStrength(ndotReg, ndotLatest, decayAltKm)
+  );
+  describeReentryTrendHelperFixtures(
+    'altitudeSignalStrength',
+    ({ perigeeReg, smaReg }) => altitudeSignalStrength(perigeeReg, smaReg)
+  );
+  describeReentryTrendHelperFixtures(
+    'computeManeuverLikelihood',
+    ({ bstarReg, altitudeSignal }) =>
+      computeManeuverLikelihood(bstarReg, altitudeSignal)
+  );
+  describeReentryTrendHelperFixtures(
+    'classifyDecaySignal',
+    ({ bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm }) =>
+      classifyDecaySignal(
+        bstarReg,
+        ndotReg,
+        perigeeReg,
+        smaReg,
+        ndotLatest,
+        decayAltKm
+      )
+  );
+  describeReentryTrendHelperFixtures(
+    'payloadConsensusRequired',
+    ({ objectType, perigeeLatest }) =>
+      payloadConsensusRequired(objectType, perigeeLatest)
+  );
+  describeReentryTrendHelperFixtures(
+    'partialConsensusRequired',
+    ({ perigeeLatest }) => partialConsensusRequired(perigeeLatest)
+  );
+  describeReentryTrendHelperFixtures('allSignalsAgreeFromSlopes', (input) =>
+    allSignalsAgreeFromSlopes(input)
   );
 });
 

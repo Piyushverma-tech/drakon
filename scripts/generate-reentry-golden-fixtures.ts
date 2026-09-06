@@ -28,10 +28,18 @@ import {
   parseBSTAR,
 } from '../lib/satelliteHelpers';
 import {
+  altitudeSignalStrength,
+  bstarSignalStrength,
+  classifyDecaySignal,
+  computeManeuverLikelihood,
   explainReentryTrend,
+  ndotSignalStrength,
+  partialConsensusRequired,
+  payloadConsensusRequired,
   type ObjectType,
   type RegressionResult,
 } from '../lib/explainReentryTrend';
+import { allSignalsAgreeFromSlopes } from '../lib/reentrySignals';
 import { resolveReentryRisk } from '../lib/objectTrendRisk';
 import type { ObjectTrend, TleEntry } from '../lib/types';
 
@@ -457,7 +465,316 @@ const primitives = {
 };
 
 // ---------------------------------------------------------------------------
-// Section 2 — signal/model functions (explainReentryTrend.ts)
+// Section 2 — signal/model sub-functions (explainReentryTrend.ts,
+// reentrySignals.ts). Plan §17 Phase 3. Isolated from the end-to-end
+// explainReentryTrend() cases below so a mismatch is diagnosable at the
+// sub-function level, not just "the composed output differs somehow".
+// ---------------------------------------------------------------------------
+
+const reentryTrendHelpers = {
+  bstarSignalStrength: [
+    makeCase('null_reg', 'No BSTAR regression at all -> 0', { bstarReg: null }, ({ bstarReg }) =>
+      bstarSignalStrength(bstarReg)
+    ),
+    makeCase(
+      'non_positive_slope',
+      'Non-positive slope never indicates decay',
+      { bstarReg: reg({ slope: -1e-8, rSquared: 0.9 }) },
+      ({ bstarReg }) => bstarSignalStrength(bstarReg)
+    ),
+    makeCase(
+      'saturating_slope',
+      'Slope at/above the 1e-7 saturation point -> capped by rSquared alone',
+      { bstarReg: reg({ slope: 2e-7, rSquared: 0.9 }) },
+      ({ bstarReg }) => bstarSignalStrength(bstarReg)
+    ),
+    makeCase(
+      'sub_saturation_slope',
+      'Slope below the 1e-7 saturation point -> scaled down proportionally',
+      { bstarReg: reg({ slope: 5e-8, rSquared: 0.8 }) },
+      ({ bstarReg }) => bstarSignalStrength(bstarReg)
+    ),
+  ],
+
+  ndotSignalStrength: [
+    makeCase(
+      'no_trend_no_instant',
+      'No regression, no instantaneous reading -> 0',
+      { ndotReg: null, ndotLatest: null, decayAltKm: 300 },
+      ({ ndotReg, ndotLatest, decayAltKm }) =>
+        ndotSignalStrength(ndotReg, ndotLatest, decayAltKm)
+    ),
+    makeCase(
+      'trend_dominant',
+      'Strong positive trend regression dominates over a weak instant reading',
+      {
+        ndotReg: reg({ slope: 2e-5, rSquared: 0.9 }),
+        ndotLatest: 1e-8,
+        decayAltKm: 300,
+      },
+      ({ ndotReg, ndotLatest, decayAltKm }) =>
+        ndotSignalStrength(ndotReg, ndotLatest, decayAltKm)
+    ),
+    makeCase(
+      'instant_dominant',
+      'No usable trend regression, but instant Ndot indicates decay -> flat 0.65',
+      { ndotReg: null, ndotLatest: 2e-5, decayAltKm: 250 },
+      ({ ndotReg, ndotLatest, decayAltKm }) =>
+        ndotSignalStrength(ndotReg, ndotLatest, decayAltKm)
+    ),
+  ],
+
+  altitudeSignalStrength: [
+    makeCase(
+      'both_null',
+      'No perigee or SMA regression -> 0',
+      { perigeeReg: null, smaReg: null },
+      ({ perigeeReg, smaReg }) => altitudeSignalStrength(perigeeReg, smaReg)
+    ),
+    makeCase(
+      'perigee_only_strong',
+      'Only perigee regression, strong decaying slope',
+      { perigeeReg: reg({ slope: -0.6, rSquared: 0.9 }), smaReg: null },
+      ({ perigeeReg, smaReg }) => altitudeSignalStrength(perigeeReg, smaReg)
+    ),
+    makeCase(
+      'both_present_takes_max',
+      'Both regressions present -- takes the stronger of the two',
+      {
+        perigeeReg: reg({ slope: -0.05, rSquared: 0.4 }),
+        smaReg: reg({ slope: -0.6, rSquared: 0.9 }),
+      },
+      ({ perigeeReg, smaReg }) => altitudeSignalStrength(perigeeReg, smaReg)
+    ),
+    makeCase(
+      'shallow_slope_filtered_out',
+      'Slope shallower than -0.01 does not count as agreeing',
+      { perigeeReg: reg({ slope: -0.005, rSquared: 0.9 }), smaReg: null },
+      ({ perigeeReg, smaReg }) => altitudeSignalStrength(perigeeReg, smaReg)
+    ),
+  ],
+
+  computeManeuverLikelihood: [
+    makeCase(
+      'null_reg',
+      'No BSTAR regression -> 0',
+      { bstarReg: null, altitudeSignal: 0 },
+      ({ bstarReg, altitudeSignal }) =>
+        computeManeuverLikelihood(bstarReg, altitudeSignal)
+    ),
+    makeCase(
+      'zero_mean',
+      'Zero mean BSTAR (coefficient of variation undefined) -> 0',
+      { bstarReg: reg({ mean: 0, stddev: 1e-7 }), altitudeSignal: 0 },
+      ({ bstarReg, altitudeSignal }) =>
+        computeManeuverLikelihood(bstarReg, altitudeSignal)
+    ),
+    makeCase(
+      'high_cv_low_altitude_signal',
+      'High BSTAR coefficient of variation with a weak altitude signal -> flagged',
+      { bstarReg: reg({ mean: 1e-7, stddev: 3e-7 }), altitudeSignal: 0.1 },
+      ({ bstarReg, altitudeSignal }) =>
+        computeManeuverLikelihood(bstarReg, altitudeSignal)
+    ),
+    makeCase(
+      'high_cv_but_altitude_agrees',
+      'High CV but the altitude signal is already decaying -- not maneuvering',
+      { bstarReg: reg({ mean: 1e-7, stddev: 3e-7 }), altitudeSignal: 0.5 },
+      ({ bstarReg, altitudeSignal }) =>
+        computeManeuverLikelihood(bstarReg, altitudeSignal)
+    ),
+    makeCase(
+      'low_cv',
+      'Low coefficient of variation -- consistent BSTAR, not maneuvering',
+      { bstarReg: reg({ mean: 1e-7, stddev: 5e-8 }), altitudeSignal: 0.1 },
+      ({ bstarReg, altitudeSignal }) =>
+        computeManeuverLikelihood(bstarReg, altitudeSignal)
+    ),
+  ],
+
+  classifyDecaySignal: [
+    makeCase(
+      'clear_decay',
+      'All three signals agree strongly -> decaying',
+      {
+        bstarReg: reg({ slope: 5e-7, rSquared: 0.8, mean: 3e-6, stddev: 1e-7 }),
+        ndotReg: reg({ slope: 3e-5, rSquared: 0.7 }),
+        perigeeReg: reg({ slope: -0.5, rSquared: 0.9 }),
+        smaReg: reg({ slope: -0.4, rSquared: 0.88 }),
+        ndotLatest: 3e-5,
+        decayAltKm: 300,
+      },
+      ({ bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm }) =>
+        classifyDecaySignal(bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm)
+    ),
+    makeCase(
+      'stable_well_populated',
+      'Flat slopes with a well-populated BSTAR series -> stable',
+      {
+        bstarReg: reg({ slope: 1e-9, rSquared: 0.1, mean: 1e-7, stddev: 1e-8, n: 8 }),
+        ndotReg: reg({ slope: 1e-8, rSquared: 0.05, n: 8 }),
+        perigeeReg: reg({ slope: 0.001, rSquared: 0.05 }),
+        smaReg: reg({ slope: 0.001, rSquared: 0.05 }),
+        ndotLatest: 1e-8,
+        decayAltKm: 700,
+      },
+      ({ bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm }) =>
+        classifyDecaySignal(bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm)
+    ),
+    makeCase(
+      'maneuvering_high_variance',
+      'High BSTAR coefficient of variation with a weak altitude signal -> maneuvering',
+      {
+        bstarReg: reg({ slope: 2e-8, rSquared: 0.2, mean: 1e-7, stddev: 3e-7, n: 10 }),
+        ndotReg: reg({ slope: 1e-7, rSquared: 0.1 }),
+        perigeeReg: reg({ slope: -0.02, rSquared: 0.1 }),
+        smaReg: reg({ slope: -0.02, rSquared: 0.1 }),
+        ndotLatest: 1e-7,
+        decayAltKm: 500,
+      },
+      ({ bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm }) =>
+        classifyDecaySignal(bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm)
+    ),
+    makeCase(
+      'insufficient_data_short_series',
+      'Short, weak series -- satisfies neither the decaying nor the stable threshold',
+      {
+        bstarReg: reg({ slope: 5e-8, rSquared: 0.2, mean: 1e-7, stddev: 5e-8, n: 3 }),
+        ndotReg: null,
+        perigeeReg: reg({ slope: -0.05, rSquared: 0.15 }),
+        smaReg: reg({ slope: -0.05, rSquared: 0.15 }),
+        ndotLatest: null,
+        decayAltKm: 600,
+      },
+      ({ bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm }) =>
+        classifyDecaySignal(bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm)
+    ),
+  ],
+
+  payloadConsensusRequired: [
+    makeCase(
+      'below_220_never_required',
+      'Below 220km, altitude drop alone is sufficient -- never required regardless of object type',
+      { objectType: 'payload' as ObjectType, perigeeLatest: 180 },
+      ({ objectType, perigeeLatest }) =>
+        payloadConsensusRequired(objectType, perigeeLatest)
+    ),
+    makeCase(
+      '220_to_300_never_required',
+      '220-300km band -- full consensus never required here either (partial consensus governs instead)',
+      { objectType: 'payload' as ObjectType, perigeeLatest: 260 },
+      ({ objectType, perigeeLatest }) =>
+        payloadConsensusRequired(objectType, perigeeLatest)
+    ),
+    makeCase(
+      'above_300_payload_required',
+      'Above 300km, a payload or unknown object type requires full consensus',
+      { objectType: 'payload' as ObjectType, perigeeLatest: 400 },
+      ({ objectType, perigeeLatest }) =>
+        payloadConsensusRequired(objectType, perigeeLatest)
+    ),
+    makeCase(
+      'above_300_debris_not_required',
+      'Above 300km, a debris object type does not require full consensus',
+      { objectType: 'debris' as ObjectType, perigeeLatest: 400 },
+      ({ objectType, perigeeLatest }) =>
+        payloadConsensusRequired(objectType, perigeeLatest)
+    ),
+    makeCase(
+      'null_perigee_unknown_type',
+      'No perigee reading, unknown object type -- both early-exit checks are skipped',
+      { objectType: 'unknown' as ObjectType, perigeeLatest: null },
+      ({ objectType, perigeeLatest }) =>
+        payloadConsensusRequired(objectType, perigeeLatest)
+    ),
+  ],
+
+  partialConsensusRequired: [
+    makeCase('null_perigee', 'No perigee reading -> false', { perigeeLatest: null }, ({ perigeeLatest }) =>
+      partialConsensusRequired(perigeeLatest)
+    ),
+    makeCase(
+      'in_band',
+      '250km sits inside the 220-300km partial-consensus band',
+      { perigeeLatest: 250 },
+      ({ perigeeLatest }) => partialConsensusRequired(perigeeLatest)
+    ),
+    makeCase(
+      'below_band',
+      '180km is below the band -- not required (handled by altitude alone)',
+      { perigeeLatest: 180 },
+      ({ perigeeLatest }) => partialConsensusRequired(perigeeLatest)
+    ),
+    makeCase(
+      'at_upper_boundary_excluded',
+      'Exactly 300km is outside the band (exclusive upper bound)',
+      { perigeeLatest: 300 },
+      ({ perigeeLatest }) => partialConsensusRequired(perigeeLatest)
+    ),
+  ],
+
+  allSignalsAgreeFromSlopes: [
+    makeCase(
+      'all_agree',
+      'BSTAR, Ndot, and altitude slopes all agree on decay',
+      {
+        bstarSlope14d: 5e-7,
+        ndotSlope14d: null,
+        ndotLatest: 3e-5,
+        ndotMean14d: 2.5e-5,
+        perigeeSlope14d: -0.5,
+        smaSlope14d: -0.4,
+        decayAltKm: 300,
+      },
+      (input) => allSignalsAgreeFromSlopes(input)
+    ),
+    makeCase(
+      'bstar_disagrees',
+      'BSTAR slope is non-positive -- breaks full agreement even though Ndot and altitude agree',
+      {
+        bstarSlope14d: -1e-8,
+        ndotSlope14d: null,
+        ndotLatest: 3e-5,
+        ndotMean14d: 2.5e-5,
+        perigeeSlope14d: -0.5,
+        smaSlope14d: -0.4,
+        decayAltKm: 300,
+      },
+      (input) => allSignalsAgreeFromSlopes(input)
+    ),
+    makeCase(
+      'ndot_agrees_via_instant_reading_only',
+      'No Ndot slope at all, but the instantaneous reading alone is enough to agree',
+      {
+        bstarSlope14d: 5e-7,
+        ndotSlope14d: null,
+        ndotLatest: 2e-5,
+        ndotMean14d: null,
+        perigeeSlope14d: -0.5,
+        smaSlope14d: -0.4,
+        decayAltKm: 250,
+      },
+      (input) => allSignalsAgreeFromSlopes(input)
+    ),
+    makeCase(
+      'altitude_disagrees',
+      'Perigee and SMA slopes both too shallow to count as decaying',
+      {
+        bstarSlope14d: 5e-7,
+        ndotSlope14d: null,
+        ndotLatest: 3e-5,
+        ndotMean14d: 2.5e-5,
+        perigeeSlope14d: -0.005,
+        smaSlope14d: -0.005,
+        decayAltKm: 300,
+      },
+      (input) => allSignalsAgreeFromSlopes(input)
+    ),
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Section 3 — signal/model functions (explainReentryTrend.ts) end-to-end
 // Plan §17 Phase 3.
 // ---------------------------------------------------------------------------
 
@@ -579,7 +896,7 @@ const explainReentryTrendCases = [
 ];
 
 // ---------------------------------------------------------------------------
-// Section 3 — resolveReentryRisk() end-to-end (objectTrendRisk.ts)
+// Section 4 — resolveReentryRisk() end-to-end (objectTrendRisk.ts)
 // Plan §17 Phase 4. Categories per plan §17 Phase 1's required coverage list.
 // ---------------------------------------------------------------------------
 
@@ -859,9 +1176,11 @@ async function main() {
     sourceModules: [
       'lib/satelliteHelpers.ts',
       'lib/explainReentryTrend.ts',
+      'lib/reentrySignals.ts',
       'lib/objectTrendRisk.ts',
     ],
     primitives,
+    reentryTrendHelpers,
     explainReentryTrend: explainReentryTrendCases,
     resolveReentryRisk: resolveReentryRiskCases,
   };
@@ -871,6 +1190,7 @@ async function main() {
 
   const total =
     Object.values(primitives).reduce((sum, arr) => sum + arr.length, 0) +
+    Object.values(reentryTrendHelpers).reduce((sum, arr) => sum + arr.length, 0) +
     explainReentryTrendCases.length +
     resolveReentryRiskCases.length;
 
