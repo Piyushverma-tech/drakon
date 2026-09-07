@@ -12,14 +12,23 @@ the Next.js caller's side, by design -- see backend/README.md.
 Route handlers stay thin: HTTP -> validate -> call a compute/ function ->
 serialize. No scientific/model logic belongs here directly (plan §6).
 
-No /compute/* routes are wired yet. They land once a model function
-actually exists behind them (Phase 4 for re-entry) -- see compute/reentry.py.
-Adding a route ahead of its model would mean serving fabricated results.
+/compute/reentry (Phase 4, done) is the first model route. It exists now
+because resolve_reentry_risk() exists and is parity-tested -- routes only
+get added once a real model backs them (see compute/reentry.py). This is
+still `reentry_resolution`'s "experimental" status: shadow-mode comparison
+against the TypeScript reference (Phase 6+) hasn't run yet.
 """
 from fastapi import FastAPI
 
-from contracts import HealthResponse, ModelInfo, ModelsResponse
+from contracts import (
+    HealthResponse,
+    ModelInfo,
+    ModelsResponse,
+    ReentryRequest,
+    ReentryRiskModel,
+)
 from compute.registry import MODEL_REGISTRY
+from compute.reentry import resolve_reentry_risk
 
 app = FastAPI(title="DRAKON Compute Engine", version="0.1.0")
 
@@ -37,3 +46,15 @@ def models() -> ModelsResponse:
             for model_id, meta in MODEL_REGISTRY.items()
         ]
     )
+
+
+@app.post(
+    "/compute/reentry",
+    response_model=ReentryRiskModel,
+    response_model_exclude_unset=True,
+)
+def compute_reentry(payload: ReentryRequest) -> ReentryRiskModel:
+    entry = payload.entry.model_dump()
+    trend = payload.trend.model_dump() if payload.trend is not None else None
+    result = resolve_reentry_risk(entry, trend, payload.solarFluxMultiplier)
+    return ReentryRiskModel(**result)

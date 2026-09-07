@@ -1,18 +1,12 @@
-"""Python side of the golden-fixture freeze (plan §17 Phase 1 / §22).
+"""Python side of the golden-fixture freeze (plan §17 Phase 1 / §22): shape
+and category-coverage guards for fixtures/reentry-model/golden_cases.json
+itself, independent of any single consumer module.
 
-This does NOT assert resolveReentryRisk() output yet -- compute/reentry.py
-raises NotImplementedError until Phase 4 lands (Phases 2-3's pieces are
-already ported and parity-tested in
-backend/tests/test_satellite_helpers_golden_fixtures.py and
-backend/tests/test_reentry_trend_golden_fixtures.py). This test only
-proves the fixture file (generated from the real TypeScript implementation,
-see scripts/generate-reentry-golden-fixtures.ts and
-lib/reentryModel.goldenFixtures.test.ts) is present, parseable, and has the
-shape the eventual Phase 5 parity tests will depend on.
-
-Once compute/reentry.py implements resolve_reentry_risk(), extend this file
-to loop over golden["resolveReentryRisk"] the same way the TS test does and
-assert exact equality against each case's "output" -- that IS Phase 5.
+The real per-case assertions against resolve_reentry_risk() output live in
+backend/tests/test_resolve_reentry_risk_golden_fixtures.py (Phase 4, done).
+This file just guards that the fixture file's shape and required category
+coverage (plan §17 Phase 1's list) doesn't silently erode if the generator
+script is edited again later.
 """
 import json
 from pathlib import Path
