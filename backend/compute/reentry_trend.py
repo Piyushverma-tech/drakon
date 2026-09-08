@@ -6,6 +6,23 @@ compute/satellite_helpers.py's module docstring for the general
 float-tolerance caveat that applies here too (this module also calls
 assign_reentry_tier / apply_confidence_ceiling from that module).
 
+WHAT THIS MODULE DOES NOT DO -- the TS/Python boundary, stated explicitly
+so it doesn't get misread later as "trend computation was migrated":
+
+  TypeScript computes the historical OLS regression. regression() and
+  weightedRegression() in lib/jobs/computeObjectTrends.ts fit ordinary
+  least squares over each object's TLE history (BSTAR, Ndot, perigee, SMA
+  over time) and produce RegressionResult objects (slope, rSquared, mean,
+  stddev, n). That computation -- the actual curve-fitting over historical
+  epochs -- stays in TypeScript. Plan §11 is explicit that it is not
+  planned to move; nothing in this module changes that.
+
+  Python interprets already-computed regression outputs. Every function
+  below (classify_decay_signal, bstar_signal_strength, etc.) takes
+  RegressionResult objects as inputs it does not produce itself -- it
+  scores and classifies what TypeScript already fit, it does not fit
+  anything from raw history. There is no OLS math anywhere in this file.
+
 RegressionResult objects are plain dicts (or None) with keys: slope,
 rSquared, mean, stddev, n -- matching the TS RegressionResult shape
 exactly (camelCase keys preserved so parity tests can compare directly

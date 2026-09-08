@@ -36,7 +36,9 @@ with open(FIXTURE_PATH, encoding="utf-8") as f:
     "case", GOLDEN["primitives"]["parseBSTAR"], ids=lambda c: c["id"]
 )
 def test_parse_bstar(case):
-    assert_matches_golden(parse_bstar(case["input"]["l1"]), case["output"])
+    assert_matches_golden(
+        parse_bstar(case["input"]["l1"]), case["output"], path="bstar"
+    )
 
 
 @pytest.mark.parametrize(

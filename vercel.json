@@ -16,13 +16,13 @@
     "compute-engine": {
       "root": "backend",
       "framework": "fastapi",
-      "entrypoint": "main:app"
+      "entrypoint": "main:app",
+      "functions": {
+        "**/*.py": { "maxDuration": 60 }
+      }
     }
   },
   "rewrites": [
     { "source": "/(.*)", "destination": { "service": "web" } }
-  ],
-  "functions": {
-    "backend/main.py": { "maxDuration": 60 }
-  }
+  ]
 }

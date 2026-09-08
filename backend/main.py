@@ -17,20 +17,28 @@ because resolve_reentry_risk() exists and is parity-tested -- routes only
 get added once a real model backs them (see compute/reentry.py). This is
 still `reentry_resolution`'s "experimental" status: shadow-mode comparison
 against the TypeScript reference (Phase 6+) hasn't run yet.
+
+Every /compute/* route returns a ComputeResponse envelope (result +
+provenance), never a naked result object -- decided now, before Next.js
+starts depending on the shape, specifically so the response contract
+doesn't need redesigning once a real caller exists. See contracts.py.
 """
 from fastapi import FastAPI
 
 from contracts import (
+    ComputeResponse,
+    EngineInfo,
     HealthResponse,
     ModelInfo,
+    ModelProvenance,
     ModelsResponse,
-    ReentryRequest,
+    ReentryComputeInput,
     ReentryRiskModel,
 )
-from compute.registry import MODEL_REGISTRY
+from compute.registry import ENGINE_VERSION, MODEL_REGISTRY
 from compute.reentry import resolve_reentry_risk
 
-app = FastAPI(title="DRAKON Compute Engine", version="0.1.0")
+app = FastAPI(title="DRAKON Compute Engine", version=ENGINE_VERSION)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -50,11 +58,22 @@ def models() -> ModelsResponse:
 
 @app.post(
     "/compute/reentry",
-    response_model=ReentryRiskModel,
+    response_model=ComputeResponse,
     response_model_exclude_unset=True,
 )
-def compute_reentry(payload: ReentryRequest) -> ReentryRiskModel:
+def compute_reentry(payload: ReentryComputeInput) -> ComputeResponse:
     entry = payload.entry.model_dump()
     trend = payload.trend.model_dump() if payload.trend is not None else None
     result = resolve_reentry_risk(entry, trend, payload.solarFluxMultiplier)
-    return ReentryRiskModel(**result)
+
+    registry_entry = MODEL_REGISTRY["reentry_resolution"]
+    return ComputeResponse(
+        result=ReentryRiskModel(**result),
+        model=ModelProvenance(
+            id="reentry_resolution",
+            version=registry_entry["version"],
+            parameterSet=registry_entry["parameter_set"],
+            calibrationVersion=None,
+        ),
+        engine=EngineInfo(version=ENGINE_VERSION),
+    )

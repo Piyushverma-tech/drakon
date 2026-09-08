@@ -13,8 +13,15 @@
  * deliberately -- never hand-edit the JSON.
  *
  * Run with: npx tsx scripts/generate-reentry-golden-fixtures.ts
- * Output:   fixtures/reentry-model/golden_cases.json
+ * Output:   fixtures/reentry-model/golden_cases.json (override with
+ *           --out=<path> or GOLDEN_FIXTURES_OUT)
+ * Baseline: auto-derived from `git rev-parse HEAD` (override with
+ *           --baseline-commit=<sha> or BASELINE_COMMIT env var); refuses to
+ *           run against uncommitted changes to the reference source files
+ *           unless --allow-dirty is passed. See the BASELINE_COMMIT
+ *           resolution block below for why.
  */
+import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -43,17 +50,83 @@ import { allSignalsAgreeFromSlopes } from '../lib/reentrySignals';
 import { resolveReentryRisk } from '../lib/objectTrendRisk';
 import type { ObjectTrend, TleEntry } from '../lib/types';
 
-const OUTPUT_PATH = path.join(
-  process.cwd(),
-  'fixtures',
-  'reentry-model',
-  'golden_cases.json'
-);
+// ---------------------------------------------------------------------------
+// Output path and baseline commit — both resolved from the environment
+// (CLI args / env vars) rather than hardcoded, for two different reasons:
+//
+// OUTPUT_PATH: overridable so a CI guard can regenerate into a scratch file
+// and diff it against the committed fixture without touching the tracked
+// file itself (see lib/reentryModel.goldenFixtures.baseline.test.ts).
+//
+// BASELINE_COMMIT: previously a hardcoded literal, which is exactly the
+// staleness risk it was meant to document — nothing forced it to be updated
+// when the reference TS files changed. Auto-deriving it from `git rev-parse
+// HEAD` at generation time means it can only ever describe the truth as of
+// generation, not what someone forgot to update. Refuses to run against a
+// dirty working tree touching the reference source files (see below) unless
+// --allow-dirty is passed, since a baseline label is meaningless if the
+// files it's supposed to describe have uncommitted changes.
+// ---------------------------------------------------------------------------
 
-// A commit hash, filled in by the caller of this script (kept out of the
-// generator itself so re-running it doesn't silently drift the baseline
-// pointer). See fixtures/reentry-model/README.md.
-const BASELINE_COMMIT = 'bf12871c7e712ac5a555bd354c879044406d8336';
+const REFERENCE_SOURCE_FILES = [
+  'lib/satelliteHelpers.ts',
+  'lib/explainReentryTrend.ts',
+  'lib/reentrySignals.ts',
+  'lib/objectTrendRisk.ts',
+];
+
+function parseCliArg(flag: string): string | undefined {
+  const prefix = `--${flag}=`;
+  const arg = process.argv.find((a) => a.startsWith(prefix));
+  return arg ? arg.slice(prefix.length) : undefined;
+}
+
+const OUTPUT_PATH =
+  parseCliArg('out') ??
+  process.env.GOLDEN_FIXTURES_OUT ??
+  path.join(process.cwd(), 'fixtures', 'reentry-model', 'golden_cases.json');
+
+function resolveBaselineCommit(): string {
+  const override = parseCliArg('baseline-commit') ?? process.env.BASELINE_COMMIT;
+  if (override) return override;
+
+  let head: string;
+  try {
+    head = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+    }).trim();
+  } catch (err) {
+    throw new Error(
+      'Could not resolve HEAD via `git rev-parse HEAD` to stamp baselineCommit. ' +
+        'Pass --baseline-commit=<sha> or set BASELINE_COMMIT explicitly. ' +
+        `Underlying error: ${(err as Error).message}`
+    );
+  }
+
+  const allowDirty = process.argv.includes('--allow-dirty');
+  if (!allowDirty) {
+    const dirty = execFileSync(
+      'git',
+      ['status', '--porcelain', '--', ...REFERENCE_SOURCE_FILES],
+      { cwd: process.cwd(), encoding: 'utf-8' }
+    ).trim();
+    if (dirty) {
+      throw new Error(
+        'Reference source files have uncommitted changes -- regenerating now ' +
+          'would stamp a baselineCommit that does not actually describe the ' +
+          'model these fixtures were generated from:\n' +
+          dirty +
+          '\nCommit first, or pass --allow-dirty if this is deliberate ' +
+          '(e.g. local iteration before committing).'
+      );
+    }
+  }
+
+  return head;
+}
+
+const BASELINE_COMMIT = resolveBaselineCommit();
 
 // ---------------------------------------------------------------------------
 // Builders — mirror the helpers already used in lib/objectTrendRisk.test.ts

@@ -46,68 +46,75 @@ class ModelsResponse(BaseModel):
 
 
 # --- Re-entry model wire contract (plan §17 Phase 4/6) ----------------------
-# Mirrors lib/types.ts's TleEntry / ObjectTrend / ReentryRisk. Only the
-# fields resolve_reentry_risk() and its dependents actually read are
-# required; the rest are accepted (Next.js's real objects carry them) but
-# unused by this model.
+#
+# ReentryComputeEntry / ReentryComputeTrend are deliberately NOT mirrors of
+# lib/types.ts's TleEntry / ObjectTrend. Those are the application's
+# persistence models (~16 and ~30 fields respectively); this model only
+# needs 8 and 17 of them. Coupling this contract to the full persistence
+# schema would mean every unrelated column Next.js adds to its `object_trend`
+# table is a potential (accidental) change to the compute engine's wire
+# contract. ReentryComputeInput is a scientific model input -- it should
+# stay stable even when the database schema changes, and it should be
+# obvious from reading it alone what resolve_reentry_risk() actually needs,
+# without cross-referencing lib/types.ts. The Next.js caller (Phase 6) maps
+# its own TleEntry/ObjectTrend records down to this shape before calling;
+# that mapping lives entirely on the Next.js side, not here.
+#
+# Field selection here is exhaustive and traceable: every field below is
+# read somewhere in compute/reentry.py or compute/reentry_signals.py's
+# ObjectTrend-facing functions (grep for entry["..."] / trend["..."] /
+# trend.get("...") if this ever needs re-auditing after a compute/ change).
 
-class TleEntryModel(BaseModel):
+class ReentryComputeEntry(BaseModel):
     id: int
     name: str
-    operator: str
     l1: str
-    l2: str
-    inclination: float
-    raan: float
-    argPerigee: float
-    meanAnomaly: float
     meanMotion: float
     meanMotionDot: float
-    tleEpoch: str
-    isDebris: bool = False
-    ecc: float
     perigeeKm: float
     apogeeKm: float
-    semiMajorAxisKm: float
+    isDebris: bool = False
 
 
-class ObjectTrendModel(BaseModel):
+class ReentryComputeTrend(BaseModel):
     noradId: int
-    updatedAt: str
-    trendVersion: int
     epochsAvailable: int
     historyDaysAvailable: float
+    decaySignal: Literal["decaying", "stable", "maneuvering", "insufficient_data"]
+    reentryTier: Literal["critical", "warning", "nominal", "stable"]
+    decayConfidence: float | None = None
+    maneuverLikelihood: float | None = None
     bstarLatest: float | None = None
-    bstarSlope7d: float | None = None
     bstarSlope14d: float | None = None
-    bstarSlope30d: float | None = None
-    bstarMean14d: float | None = None
-    bstarStddev14d: float | None = None
-    bstarRsq14d: float | None = None
     perigeeLatest: float | None = None
-    perigeeSlope7d: float | None = None
     perigeeSlope14d: float | None = None
-    perigeeSlope30d: float | None = None
-    apogeeLatest: float | None = None
-    apogeeSlope14d: float | None = None
     smaLatest: float | None = None
-    smaSlope7d: float | None = None
     smaSlope14d: float | None = None
     meanMotionDotLatest: float | None = None
     meanMotionDotMean14d: float | None = None
-    decaySignal: Literal["decaying", "stable", "maneuvering", "insufficient_data"]
-    maneuverLikelihood: float | None = None
-    decayConfidence: float | None = None
-    bstarSignalStrength: float | None = None
-    ndotSignalStrength: float | None = None
-    altitudeSignalStrength: float | None = None
-    consensusRequired: Literal["full", "partial", "none"] | None = None
-    consensusMet: bool | None = None
     estimatedDaysRemaining: float | None = None
     estimatedReentryAt: str | None = None
-    reentryTier: Literal["critical", "warning", "nominal", "stable"]
-    objectType: Literal["debris", "rocket_body", "payload", "unknown"] | None = None
-    isDebris: bool
+
+
+class ReentryComputeInput(BaseModel):
+    entry: ReentryComputeEntry
+    trend: ReentryComputeTrend | None = None
+    # Single combined atmospheric-density multiplier. Currently the ONLY
+    # environmental input this model accepts -- solar-flux and geomagnetic
+    # corrections are composed into one number upstream of this boundary
+    # (see plan §8.3 and compute/satellite_helpers.py's
+    # 'composed_environmental_multiplier' golden fixture case).
+    #
+    # Geomagnetic-correction work is underway in parallel on the TS side.
+    # Once it lands, the future shape of this input is
+    # solarFluxMultiplier x geomagneticCorrection -> re-entry model, i.e.
+    # two separate named fields instead of one pre-multiplied number. That
+    # is NOT implemented here yet -- no geomagnetic logic before this
+    # model has full parity with its TS reference (Phase 5/6). When it
+    # does land, it's a model-version bump: 0.1.0 (this port, exact TS
+    # migration) -> 0.2.0 (geomagnetic-aware), not a silent field addition.
+    # See compute/registry.py.
+    solarFluxMultiplier: float
 
 
 class ReentryRiskModel(BaseModel):
@@ -130,7 +137,31 @@ class ReentryRiskModel(BaseModel):
     estimatedReentryAt: str | None = None
 
 
-class ReentryRequest(BaseModel):
-    entry: TleEntryModel
-    trend: ObjectTrendModel | None = None
-    solarFluxMultiplier: float
+class ModelProvenance(BaseModel):
+    """Result provenance, not just service metadata. Every model result
+    should be traceable to the (id, version, parameterSet,
+    calibrationVersion) tuple that produced it (plan §18-19) -- this is
+    what makes that traceable on the wire, not just in the /models
+    listing. calibrationVersion is None until there's an actual
+    calibration step to version; the field exists now so adding one later
+    doesn't change the response shape."""
+
+    id: str
+    version: str
+    parameterSet: str
+    calibrationVersion: str | None = None
+
+
+class EngineInfo(BaseModel):
+    version: str
+
+
+class ComputeResponse(BaseModel):
+    """Envelope every /compute/* route returns: the actual model result
+    plus its provenance. Deliberately decided now rather than after
+    Next.js starts depending on a naked result shape -- see plan §6 and
+    backend/README.md."""
+
+    result: ReentryRiskModel
+    model: ModelProvenance
+    engine: EngineInfo
