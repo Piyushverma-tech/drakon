@@ -37,7 +37,14 @@ Two fields describe provenance, both resolved automatically:
 
 - `generatedAt` — wall-clock time of generation. Expected to change on
   every run; ignored by the baseline-integrity check below.
-- `baselineCommit` — auto-derived from `git rev-parse HEAD`. The generator
+- `baselineCommit` — auto-derived from the most recent commit that touched
+  `lib/satelliteHelpers.ts`, `lib/explainReentryTrend.ts`,
+  `lib/reentrySignals.ts`, or `lib/objectTrendRisk.ts` (`git log -1 --
+  <those paths>`) -- deliberately NOT `git rev-parse HEAD`. An unrelated
+  commit elsewhere in the repo (docs, `backend/`, anything outside those
+  four files) must never change this value or the CI guard below would
+  fail on every such commit even though the reference model hadn't
+  changed. The generator
   **refuses to run** if `lib/satelliteHelpers.ts`, `lib/explainReentryTrend.ts`,
   `lib/reentrySignals.ts`, or `lib/objectTrendRisk.ts` have uncommitted
   changes, since a baseline label is meaningless if the files it's supposed

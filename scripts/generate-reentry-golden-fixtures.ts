@@ -60,12 +60,23 @@ import type { ObjectTrend, TleEntry } from '../lib/types';
 //
 // BASELINE_COMMIT: previously a hardcoded literal, which is exactly the
 // staleness risk it was meant to document — nothing forced it to be updated
-// when the reference TS files changed. Auto-deriving it from `git rev-parse
-// HEAD` at generation time means it can only ever describe the truth as of
-// generation, not what someone forgot to update. Refuses to run against a
-// dirty working tree touching the reference source files (see below) unless
-// --allow-dirty is passed, since a baseline label is meaningless if the
-// files it's supposed to describe have uncommitted changes.
+// when the reference TS files changed. Auto-derived instead, from `git log
+// -1 -- <reference files>`: the most recent commit that actually touched
+// one of REFERENCE_SOURCE_FILES, NOT `git rev-parse HEAD`. Using repo HEAD
+// was tried first and was a real bug (caught in review): HEAD advances on
+// every commit to the repo, including ones that touch nothing under
+// lib/ — e.g. a docs-only or backend/-only commit — so a HEAD-based
+// baseline would drift, and the CI integrity check (which regenerates and
+// diffs against the committed fixture) would fail on every such commit
+// even though the reference model hadn't changed at all: a guaranteed
+// false positive, not a real integrity signal. `git log -1 -- <paths>`
+// only changes when one of those specific paths actually changes, so an
+// unrelated commit leaves baselineCommit (and therefore the regenerated
+// fixture) untouched, while a real change to the reference model still
+// updates it correctly. Refuses to run against a dirty working tree
+// touching the reference source files (see below) unless --allow-dirty is
+// passed, since a baseline label is meaningless if the files it's supposed
+// to describe have uncommitted changes.
 // ---------------------------------------------------------------------------
 
 const REFERENCE_SOURCE_FILES = [
@@ -90,17 +101,27 @@ function resolveBaselineCommit(): string {
   const override = parseCliArg('baseline-commit') ?? process.env.BASELINE_COMMIT;
   if (override) return override;
 
-  let head: string;
+  let sha: string;
   try {
-    head = execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: process.cwd(),
-      encoding: 'utf-8',
-    }).trim();
+    sha = execFileSync(
+      'git',
+      ['log', '-1', '--format=%H', '--', ...REFERENCE_SOURCE_FILES],
+      { cwd: process.cwd(), encoding: 'utf-8' }
+    ).trim();
   } catch (err) {
     throw new Error(
-      'Could not resolve HEAD via `git rev-parse HEAD` to stamp baselineCommit. ' +
+      'Could not resolve the most recent commit touching the reference ' +
+        'source files via `git log -1 -- <paths>` to stamp baselineCommit. ' +
         'Pass --baseline-commit=<sha> or set BASELINE_COMMIT explicitly. ' +
         `Underlying error: ${(err as Error).message}`
+    );
+  }
+  if (!sha) {
+    throw new Error(
+      'git log found no commit touching any of REFERENCE_SOURCE_FILES: ' +
+        REFERENCE_SOURCE_FILES.join(', ') +
+        '. This should not happen for tracked files with real history — ' +
+        'check the path list is still correct, or pass --baseline-commit=<sha>.'
     );
   }
 
@@ -123,7 +144,7 @@ function resolveBaselineCommit(): string {
     }
   }
 
-  return head;
+  return sha;
 }
 
 const BASELINE_COMMIT = resolveBaselineCommit();

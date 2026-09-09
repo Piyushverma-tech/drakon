@@ -1,0 +1,40 @@
+name: CI
+
+# Plan §17 Phase 5: the golden-fixture parity tests (lib/*.goldenFixtures*.test.ts
+# and backend/tests/test_*_golden_fixtures.py) and the baseline-integrity guard
+# (lib/reentryModel.goldenFixtures.baseline.test.ts) only mean anything if they
+# actually run on every change, not just when someone remembers to run them
+# locally. This workflow is that enforcement -- it doesn't add new checks, it
+# makes the ones already written in this branch non-optional.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-typescript:
+    name: TypeScript (Jest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  test-python-compute-engine:
+    name: Python (pytest) — DRAKON Compute Engine
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: backend/.python-version
+      - run: pip install -e ".[dev]"
+      - run: pytest -v

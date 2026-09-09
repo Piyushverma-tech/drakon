@@ -145,11 +145,12 @@ for `vercel.json`'s `services` key to take effect at all.
 
 `fixtures/reentry-model/golden_cases.json` is generated, never hand-edited,
 by `scripts/generate-reentry-golden-fixtures.ts`. Its `baselineCommit`
-field is auto-derived from `git rev-parse HEAD` at generation time (not a
-hardcoded literal -- that was a real staleness bug in an earlier version of
-this file, since fixed) and the generator refuses to run against
-uncommitted changes to the reference TS source files unless `--allow-dirty`
-is passed. `lib/reentryModel.goldenFixtures.baseline.test.ts` is a CI guard
+field is auto-derived at generation time from the most recent commit that
+touched the reference TS source files (`git log -1 -- <those files>`, not
+`git rev-parse HEAD` -- see the generator script for why that distinction
+matters). It was previously a hardcoded literal -- a real staleness bug,
+since fixed -- and the generator refuses to run against uncommitted
+changes to the reference TS source files unless `--allow-dirty` is passed. `lib/reentryModel.goldenFixtures.baseline.test.ts` is a CI guard
 that regenerates into a scratch file and diffs it against the committed
 fixture (ignoring only the timestamp) -- it fails if the fixture is stale
 relative to current source, or if `baselineCommit` (or anything else) was
