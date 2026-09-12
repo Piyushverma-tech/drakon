@@ -30,17 +30,22 @@ describeIfBackend('reentryComputeClient — live compute engine', () => {
       solarFluxMultiplier: number;
     };
 
-    const result = await resolveReentryRiskViaComputeEngine(
+    const response = await resolveReentryRiskViaComputeEngine(
       entry,
       trend,
-      solarFluxMultiplier
+      solarFluxMultiplier,
+      { expectedModelVersion: '0.1.0' }
     );
+
+    expect(response.model.id).toBe('reentry_resolution');
+    expect(response.model.version).toBe('0.1.0');
+    expect(response.engine.version).toBe('0.1.0');
 
     // Same tolerance as backend/tests/_golden_compare.py: exact except the
     // three named fields with measured cross-runtime pow()-rounding noise.
     const TOLERANT_FIELDS = new Set(['bstar', 'decayRateKmPerDay', 'decayAltKm']);
     for (const [key, expected] of Object.entries(testCase.output)) {
-      const actual = (result as Record<string, unknown>)[key];
+      const actual = (response.result as Record<string, unknown>)[key];
       if (
         typeof expected === 'number' &&
         typeof actual === 'number' &&
@@ -53,9 +58,37 @@ describeIfBackend('reentryComputeClient — live compute engine', () => {
     }
   });
 
+  it('rejects with MODEL_MISMATCH when expecting a model id the engine does not serve', async () => {
+    const [testCase] = goldenFixtures.resolveReentryRisk;
+    const { entry, trend, solarFluxMultiplier } = testCase.input as {
+      entry: TleEntry;
+      trend: ObjectTrend | undefined;
+      solarFluxMultiplier: number;
+    };
+    await expect(
+      resolveReentryRiskViaComputeEngine(entry, trend, solarFluxMultiplier, {
+        expectedModelId: 'some_other_model',
+      })
+    ).rejects.toMatchObject({ name: 'ComputeEngineError', code: 'MODEL_MISMATCH' });
+  });
+
+  it('rejects with MODEL_VERSION_MISMATCH when expecting a version the engine is not running', async () => {
+    const [testCase] = goldenFixtures.resolveReentryRisk;
+    const { entry, trend, solarFluxMultiplier } = testCase.input as {
+      entry: TleEntry;
+      trend: ObjectTrend | undefined;
+      solarFluxMultiplier: number;
+    };
+    await expect(
+      resolveReentryRiskViaComputeEngine(entry, trend, solarFluxMultiplier, {
+        expectedModelVersion: '99.0.0',
+      })
+    ).rejects.toMatchObject({ name: 'ComputeEngineError', code: 'MODEL_VERSION_MISMATCH' });
+  });
+
   it.each(
     goldenFixtures.resolveReentryRisk.map((c) => [c.id, c] as const)
-  )('%s: shadowCompareReentryRisk reports a match', async (_id, testCase) => {
+  )('%s: shadowCompareReentryRisk reports a match with full telemetry', async (_id, testCase) => {
     const { entry, trend, solarFluxMultiplier } = testCase.input as {
       entry: TleEntry;
       trend: ObjectTrend | undefined;
@@ -65,8 +98,16 @@ describeIfBackend('reentryComputeClient — live compute engine', () => {
     const comparison = await shadowCompareReentryRisk(entry, trend, solarFluxMultiplier);
 
     expect(comparison.pythonError).toBeNull();
+    expect(comparison.pythonFailureType).toBeNull();
     expect(comparison.differences).toEqual([]);
-    expect(comparison.matches).toBe(true);
+    expect(comparison.differenceCount).toBe(0);
+    expect(comparison.matched).toBe(true);
+    expect(comparison.requestId).toEqual(expect.any(String));
+    expect(comparison.durationMs).toBeGreaterThan(0);
+    expect(comparison.expectedModelId).toBe('reentry_resolution');
+    expect(comparison.expectedModelVersion).toBe('0.1.0');
+    expect(comparison.actualModelId).toBe('reentry_resolution');
+    expect(comparison.actualModelVersion).toBe('0.1.0');
   });
 });
 

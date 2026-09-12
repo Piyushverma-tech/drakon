@@ -10,6 +10,7 @@ import {
   unique,
   index,
   serial,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 
 // ─── tle_history ──────────────────────────────────────────────────────────────
@@ -270,5 +271,79 @@ export const geomagneticShadowObjectDeltas = pgTable(
     index('idx_geomagnetic_shadow_deltas_run_id').on(table.runId),
     // "History of this object's shadow deltas" queries
     index('idx_geomagnetic_shadow_deltas_norad_id').on(table.noradId),
+  ]
+);
+
+// ─── python_compute_shadow_runs ─────────────────────────────────────────────
+// Live shadow-mode evaluation of the ported Python re-entry model against
+// the TypeScript reference (plan §17 Phase 6). Same isolation guarantee as
+// geomagnetic_shadow_runs above: this table is written only by
+// lib/pythonComputeShadowStore.ts, and nothing in the production risk path
+// reads from it. See docs/PYTHON_COMPUTE_SHADOW_ROLLOUT.md for what this
+// data is actually used to decide.
+
+export const pythonComputeShadowRuns = pgTable(
+  'python_compute_shadow_runs',
+  {
+    id: serial('id').primaryKey(),
+    generatedAt: timestamp('generated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expectedModelId: text('expected_model_id').notNull(),
+    expectedModelVersion: text('expected_model_version').notNull(),
+    catalogSize: integer('catalog_size').notNull(),
+    eligibleCount: integer('eligible_count').notNull(),
+    sampledCount: integer('sampled_count').notNull(),
+    successCount: integer('success_count').notNull(),
+    matchedCount: integer('matched_count').notNull(),
+    valueMismatchCount: integer('value_mismatch_count').notNull(),
+    failureCount: integer('failure_count').notNull(),
+    // e.g. {"TIMEOUT": 2, "NETWORK_ERROR": 1} -- see ShadowFailureType in
+    // lib/shadowCompareReentryRisk.ts for the possible keys.
+    failuresByType: jsonb('failures_by_type').notNull(),
+    durationMsP50: doublePrecision('duration_ms_p50'),
+    durationMsP95: doublePrecision('duration_ms_p95'),
+    durationMsP99: doublePrecision('duration_ms_p99'),
+    sampleRate: doublePrecision('sample_rate').notNull(),
+    maxSampleSize: integer('max_sample_size').notNull(),
+  },
+  (table) => [
+    // Recent-runs / rollout-window queries (e.g. "runs from the last 14 days")
+    index('idx_python_compute_shadow_runs_generated_at').on(table.generatedAt),
+  ]
+);
+
+// ─── python_compute_shadow_object_deltas ────────────────────────────────────
+// One row per (run, object) that did NOT cleanly match -- either a real
+// value/categorical mismatch or a failed compute-engine call. Objects that
+// matched are not stored, mirroring geomagnetic_shadow_object_deltas: a
+// fully-agreeing run should produce zero rows here, not a wall of
+// identical "matched" rows.
+
+export const pythonComputeShadowObjectDeltas = pgTable(
+  'python_compute_shadow_object_deltas',
+  {
+    id: serial('id').primaryKey(),
+    runId: integer('run_id').notNull(),
+    noradId: integer('norad_id').notNull(),
+    requestId: text('request_id').notNull(),
+    durationMs: doublePrecision('duration_ms').notNull(),
+    pythonFailureType: text('python_failure_type'), // ShadowFailureType | null
+    differenceCount: integer('difference_count').notNull(),
+    // FieldDifference[] from lib/shadowCompareReentryRisk.ts -- variable
+    // shape (which fields differ varies per object), so this is the one
+    // deliberate jsonb column in this schema rather than an all-flat-column
+    // layout (see geomagnetic_shadow_object_deltas for the alternative,
+    // which works there only because that comparison has a small fixed set
+    // of fields to diff).
+    differences: jsonb('differences').notNull(),
+    tsTier: text('ts_tier').notNull(),
+    pythonTier: text('python_tier'), // null when the call failed
+  },
+  (table) => [
+    // Fetch all deltas for one run (join key)
+    index('idx_python_compute_shadow_deltas_run_id').on(table.runId),
+    // "History of this object's shadow deltas" queries
+    index('idx_python_compute_shadow_deltas_norad_id').on(table.noradId),
   ]
 );
