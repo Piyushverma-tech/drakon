@@ -15,9 +15,10 @@
  * Run with: npx tsx scripts/generate-reentry-golden-fixtures.ts
  * Output:   fixtures/reentry-model/golden_cases.json (override with
  *           --out=<path> or GOLDEN_FIXTURES_OUT)
- * Baseline: auto-derived from `git rev-parse HEAD` (override with
- *           --baseline-commit=<sha> or BASELINE_COMMIT env var); refuses to
- *           run against uncommitted changes to the reference source files
+ * Baseline: Baseline: auto-derived from the most recent non-merge commit touching
+ *           the reference source files (override with --baseline-commit=<sha> or
+ *           BASELINE_COMMIT env var).; refuses to run against uncommitted changes
+ *           to the reference source files
  *           unless --allow-dirty is passed. See the BASELINE_COMMIT
  *           resolution block below for why.
  */
@@ -58,18 +59,9 @@ import type { ObjectTrend, TleEntry } from '../lib/types';
 // and diff it against the committed fixture without touching the tracked
 // file itself (see lib/reentryModel.goldenFixtures.baseline.test.ts).
 //
-// BASELINE_COMMIT: previously a hardcoded literal, which is exactly the
-// staleness risk it was meant to document — nothing forced it to be updated
-// when the reference TS files changed. Auto-derived instead, from `git log
-// -1 -- <reference files>`: the most recent commit that actually touched
-// one of REFERENCE_SOURCE_FILES, NOT `git rev-parse HEAD`. Using repo HEAD
-// was tried first and was a real bug (caught in review): HEAD advances on
-// every commit to the repo, including ones that touch nothing under
-// lib/ — e.g. a docs-only or backend/-only commit — so a HEAD-based
-// baseline would drift, and the CI integrity check (which regenerates and
-// diffs against the committed fixture) would fail on every such commit
-// even though the reference model hadn't changed at all: a guaranteed
-// false positive, not a real integrity signal. `git log -1 -- <paths>`
+// BASELINE_COMMIT: auto-resolved from the most recent non-merge commit
+// via `git log --no-merges -1 -- <paths>` against the reference source files (the ones imported above).
+// This is deliberately NOT `git rev-parse HEAD`, since the baselineCommit
 // only changes when one of those specific paths actually changes, so an
 // unrelated commit leaves baselineCommit (and therefore the regenerated
 // fixture) untouched, while a real change to the reference model still
@@ -98,14 +90,22 @@ const OUTPUT_PATH =
   path.join(process.cwd(), 'fixtures', 'reentry-model', 'golden_cases.json');
 
 function resolveBaselineCommit(): string {
-  const override = parseCliArg('baseline-commit') ?? process.env.BASELINE_COMMIT;
+  const override =
+    parseCliArg('baseline-commit') ?? process.env.BASELINE_COMMIT;
   if (override) return override;
 
   let sha: string;
   try {
     sha = execFileSync(
       'git',
-      ['log', '-1', '--format=%H', '--', ...REFERENCE_SOURCE_FILES],
+      [
+        'log',
+        '--no-merges',
+        '-1',
+        '--format=%H',
+        '--',
+        ...REFERENCE_SOURCE_FILES,
+      ],
       { cwd: process.cwd(), encoding: 'utf-8' }
     ).trim();
   } catch (err) {
@@ -243,7 +243,9 @@ function bstarLine1(raw: string): string {
   return ' '.repeat(53) + raw.padEnd(8, ' ');
 }
 
-function reg(overrides: Partial<NonNullable<RegressionResult>>): RegressionResult {
+function reg(
+  overrides: Partial<NonNullable<RegressionResult>>
+): RegressionResult {
   return {
     slope: 0,
     rSquared: 0,
@@ -343,8 +345,11 @@ const primitives = {
   ],
 
   getReentryTierThresholds: [
-    makeCase('band_le_300', 'Lowest band, flat thresholds', { altKm: 250 }, ({ altKm }) =>
-      getReentryTierThresholds(altKm)
+    makeCase(
+      'band_le_300',
+      'Lowest band, flat thresholds',
+      { altKm: 250 },
+      ({ altKm }) => getReentryTierThresholds(altKm)
     ),
     makeCase(
       'band_300_500_midpoint',
@@ -373,17 +378,29 @@ const primitives = {
   ],
 
   assignReentryTier: [
-    makeCase('critical', '10 days at 250km', { days: 10, altKm: 250 }, ({ days, altKm }) =>
-      assignReentryTier(days, altKm)
+    makeCase(
+      'critical',
+      '10 days at 250km',
+      { days: 10, altKm: 250 },
+      ({ days, altKm }) => assignReentryTier(days, altKm)
     ),
-    makeCase('warning', '60 days at 250km', { days: 60, altKm: 250 }, ({ days, altKm }) =>
-      assignReentryTier(days, altKm)
+    makeCase(
+      'warning',
+      '60 days at 250km',
+      { days: 60, altKm: 250 },
+      ({ days, altKm }) => assignReentryTier(days, altKm)
     ),
-    makeCase('nominal', '200 days at 250km', { days: 200, altKm: 250 }, ({ days, altKm }) =>
-      assignReentryTier(days, altKm)
+    makeCase(
+      'nominal',
+      '200 days at 250km',
+      { days: 200, altKm: 250 },
+      ({ days, altKm }) => assignReentryTier(days, altKm)
     ),
-    makeCase('stable', '999 days at 250km', { days: 999, altKm: 250 }, ({ days, altKm }) =>
-      assignReentryTier(days, altKm)
+    makeCase(
+      'stable',
+      '999 days at 250km',
+      { days: 999, altKm: 250 },
+      ({ days, altKm }) => assignReentryTier(days, altKm)
     ),
   ],
 
@@ -567,8 +584,11 @@ const primitives = {
 
 const reentryTrendHelpers = {
   bstarSignalStrength: [
-    makeCase('null_reg', 'No BSTAR regression at all -> 0', { bstarReg: null }, ({ bstarReg }) =>
-      bstarSignalStrength(bstarReg)
+    makeCase(
+      'null_reg',
+      'No BSTAR regression at all -> 0',
+      { bstarReg: null },
+      ({ bstarReg }) => bstarSignalStrength(bstarReg)
     ),
     makeCase(
       'non_positive_slope',
@@ -699,13 +719,26 @@ const reentryTrendHelpers = {
         decayAltKm: 300,
       },
       ({ bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm }) =>
-        classifyDecaySignal(bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm)
+        classifyDecaySignal(
+          bstarReg,
+          ndotReg,
+          perigeeReg,
+          smaReg,
+          ndotLatest,
+          decayAltKm
+        )
     ),
     makeCase(
       'stable_well_populated',
       'Flat slopes with a well-populated BSTAR series -> stable',
       {
-        bstarReg: reg({ slope: 1e-9, rSquared: 0.1, mean: 1e-7, stddev: 1e-8, n: 8 }),
+        bstarReg: reg({
+          slope: 1e-9,
+          rSquared: 0.1,
+          mean: 1e-7,
+          stddev: 1e-8,
+          n: 8,
+        }),
         ndotReg: reg({ slope: 1e-8, rSquared: 0.05, n: 8 }),
         perigeeReg: reg({ slope: 0.001, rSquared: 0.05 }),
         smaReg: reg({ slope: 0.001, rSquared: 0.05 }),
@@ -713,13 +746,26 @@ const reentryTrendHelpers = {
         decayAltKm: 700,
       },
       ({ bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm }) =>
-        classifyDecaySignal(bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm)
+        classifyDecaySignal(
+          bstarReg,
+          ndotReg,
+          perigeeReg,
+          smaReg,
+          ndotLatest,
+          decayAltKm
+        )
     ),
     makeCase(
       'maneuvering_high_variance',
       'High BSTAR coefficient of variation with a weak altitude signal -> maneuvering',
       {
-        bstarReg: reg({ slope: 2e-8, rSquared: 0.2, mean: 1e-7, stddev: 3e-7, n: 10 }),
+        bstarReg: reg({
+          slope: 2e-8,
+          rSquared: 0.2,
+          mean: 1e-7,
+          stddev: 3e-7,
+          n: 10,
+        }),
         ndotReg: reg({ slope: 1e-7, rSquared: 0.1 }),
         perigeeReg: reg({ slope: -0.02, rSquared: 0.1 }),
         smaReg: reg({ slope: -0.02, rSquared: 0.1 }),
@@ -727,13 +773,26 @@ const reentryTrendHelpers = {
         decayAltKm: 500,
       },
       ({ bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm }) =>
-        classifyDecaySignal(bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm)
+        classifyDecaySignal(
+          bstarReg,
+          ndotReg,
+          perigeeReg,
+          smaReg,
+          ndotLatest,
+          decayAltKm
+        )
     ),
     makeCase(
       'insufficient_data_short_series',
       'Short, weak series -- satisfies neither the decaying nor the stable threshold',
       {
-        bstarReg: reg({ slope: 5e-8, rSquared: 0.2, mean: 1e-7, stddev: 5e-8, n: 3 }),
+        bstarReg: reg({
+          slope: 5e-8,
+          rSquared: 0.2,
+          mean: 1e-7,
+          stddev: 5e-8,
+          n: 3,
+        }),
         ndotReg: null,
         perigeeReg: reg({ slope: -0.05, rSquared: 0.15 }),
         smaReg: reg({ slope: -0.05, rSquared: 0.15 }),
@@ -741,7 +800,14 @@ const reentryTrendHelpers = {
         decayAltKm: 600,
       },
       ({ bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm }) =>
-        classifyDecaySignal(bstarReg, ndotReg, perigeeReg, smaReg, ndotLatest, decayAltKm)
+        classifyDecaySignal(
+          bstarReg,
+          ndotReg,
+          perigeeReg,
+          smaReg,
+          ndotLatest,
+          decayAltKm
+        )
     ),
   ],
 
@@ -784,8 +850,11 @@ const reentryTrendHelpers = {
   ],
 
   partialConsensusRequired: [
-    makeCase('null_perigee', 'No perigee reading -> false', { perigeeLatest: null }, ({ perigeeLatest }) =>
-      partialConsensusRequired(perigeeLatest)
+    makeCase(
+      'null_perigee',
+      'No perigee reading -> false',
+      { perigeeLatest: null },
+      ({ perigeeLatest }) => partialConsensusRequired(perigeeLatest)
     ),
     makeCase(
       'in_band',
@@ -896,7 +965,13 @@ const explainReentryTrendCases = [
     'stable_low_noise',
     'Low, near-flat slopes with a well-populated BSTAR series -> stable',
     {
-      bstarReg: reg({ slope: 1e-9, rSquared: 0.1, mean: 1e-7, stddev: 1e-8, n: 8 }),
+      bstarReg: reg({
+        slope: 1e-9,
+        rSquared: 0.1,
+        mean: 1e-7,
+        stddev: 1e-8,
+        n: 8,
+      }),
       ndotReg: reg({ slope: 1e-8, rSquared: 0.05, n: 8 }),
       perigeeReg: reg({ slope: 0.001, rSquared: 0.05 }),
       perigeeReg7d: reg({ slope: 0.001, rSquared: 0.05 }),
@@ -915,7 +990,13 @@ const explainReentryTrendCases = [
     'maneuvering_high_bstar_variance',
     'High BSTAR coefficient of variation with weak altitude signal -> maneuvering',
     {
-      bstarReg: reg({ slope: 2e-8, rSquared: 0.2, mean: 1e-7, stddev: 3e-7, n: 10 }),
+      bstarReg: reg({
+        slope: 2e-8,
+        rSquared: 0.2,
+        mean: 1e-7,
+        stddev: 3e-7,
+        n: 10,
+      }),
       ndotReg: reg({ slope: 1e-7, rSquared: 0.1 }),
       perigeeReg: reg({ slope: -0.02, rSquared: 0.1 }),
       perigeeReg7d: reg({ slope: -0.02, rSquared: 0.1 }),
@@ -934,7 +1015,13 @@ const explainReentryTrendCases = [
     'insufficient_data_short_series',
     'Short/weak series that satisfies neither the decaying nor stable threshold',
     {
-      bstarReg: reg({ slope: 5e-8, rSquared: 0.2, mean: 1e-7, stddev: 5e-8, n: 3 }),
+      bstarReg: reg({
+        slope: 5e-8,
+        rSquared: 0.2,
+        mean: 1e-7,
+        stddev: 5e-8,
+        n: 3,
+      }),
       ndotReg: null,
       perigeeReg: reg({ slope: -0.05, rSquared: 0.15 }),
       perigeeReg7d: null,
@@ -1280,11 +1367,18 @@ async function main() {
   };
 
   await mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
-  await writeFile(OUTPUT_PATH, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
+  await writeFile(
+    OUTPUT_PATH,
+    JSON.stringify(payload, null, 2) + '\n',
+    'utf-8'
+  );
 
   const total =
     Object.values(primitives).reduce((sum, arr) => sum + arr.length, 0) +
-    Object.values(reentryTrendHelpers).reduce((sum, arr) => sum + arr.length, 0) +
+    Object.values(reentryTrendHelpers).reduce(
+      (sum, arr) => sum + arr.length,
+      0
+    ) +
     explainReentryTrendCases.length +
     resolveReentryRiskCases.length;
 
