@@ -18,6 +18,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, not the default shallow (depth 1) clone.
+          # lib/reentryModel.goldenFixtures.baseline.test.ts regenerates
+          # the golden fixture, which stamps baselineCommit via
+          # `git log -1 -- <reference source files>` (see
+          # scripts/generate-reentry-golden-fixtures.ts). With a shallow
+          # clone there is no parent history to walk, so git can't
+          # determine which commit last touched those files and instead
+          # reports the current checkout's own commit -- which is a
+          # different, wrong SHA on every single run (the PR's synthetic
+          # merge commit, or whatever main/the branch tip happens to be at
+          # checkout time), causing this test to fail nondeterministically
+          # regardless of whether the reference model actually changed.
+          # Reproduced locally with `git clone --depth 1` against the real
+          # repo before applying this fix, and confirmed `fetch-depth: 0`
+          # resolves it back to the correct, stable commit.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
