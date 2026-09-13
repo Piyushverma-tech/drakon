@@ -61,7 +61,7 @@ The dashboard also contains **Proximity Timeline**, **Critical Alerts**, and rel
 | **Database**          | Neon PostgreSQL (serverless HTTP driver) via Drizzle ORM -- `tle_history`, `object_trends`, `trend_snapshots`, `geomagnetic_shadow_runs`, `geomagnetic_shadow_object_deltas`, etc.               |
 | **Cache**             | Upstash Redis (HTTP-based, serverless-compatible) -- 2h live TTL + permanent stale fallback                                                                                                 |
 | **TLE Source**        | Space-Track `gp` class (primary, payload + rocket-body) with CelesTrak NORAD GP catalog as fallback and as the permanent source for iridium-33-debris, cosmos-2251-debris, fengyun-1c-debris |
-| **Scheduling**        | cron-job.org (hourly TLE ingest via `/api/internal/ingest-tle`, 15min trend worker, partition maintenance, daily solar flux refresh, hourly geomagnetic index + shadow observation refresh)   |
+| **Scheduling**        | cron-job.org (hourly TLE ingest via `/api/internal/ingest-tle`, 15min trend worker, partition maintenance, daily solar flux refresh, hourly geomagnetic index + shadow observation refresh, 15-30min Python compute shadow sampling during live rollout) |
 | **CI/CD**             | GitHub Actions -> Vercel                                                                                                                                                                     |
 
 ---
@@ -350,6 +350,8 @@ Full column-level detail: [docs/TLE_HISTORY_PIPELINE.md](./docs/TLE_HISTORY_PIPE
 | `GET`  | `/api/internal/geomagnetic-shadow`       | Read persisted Stage 2 shadow-mode observations (`?runId=` for one run's per-object deltas; `?source=`/`?limit=`/`?sinceHours=` to filter the list). `x-internal-secret` auth |
 | `POST` | `/api/internal/geomagnetic-shadow`       | Run a live shadow comparison against the current catalog + current geomagnetic state, persist it, does not affect production risk scoring (cron-job.org, recommended hourly). `x-internal-secret` auth |
 | `POST` | `/api/internal/geomagnetic-shadow/replay`| Replay a historical Kp/ap scenario (default: the real May 2024 Gannon storm) against the current catalog and persist the result (`?label=`, `?asOf=`). `x-internal-secret` auth |
+| `GET`  | `/api/internal/python-compute-shadow`    | Read persisted Python compute engine shadow runs (`?runId=` for one run's per-object deltas; `?limit=` to filter the list; `?sinceDays=` for a rollup over a window, used against the rollout exit criteria). `x-internal-secret` auth |
+| `POST` | `/api/internal/python-compute-shadow`    | Run a live, SAMPLED shadow comparison of `resolveReentryRisk()` (TS, authoritative) vs the Python compute engine against the current catalog, persist it, does not affect production risk scoring (cron-job.org, recommended every 15-30 min during live rollout; see docs/PYTHON_COMPUTE_SHADOW_ROLLOUT.md). `?sampleRate=` (default 0.15), `?maxSampleSize=` (default 20, hard-capped at 25). `x-internal-secret` auth |
 | `POST` | `/api/internal/process-trends`           | Trend worker drain (cron-job.org, every 15 min, `x-internal-secret` auth) |
 | `POST` | `/api/internal/requeue-stale`            | Re-enqueue `object_trends` rows on a stale `trend_version` |
 | `POST` | `/api/internal/ingest-tle`               | Space-Track (primary) + CelesTrak (debris, always; payload/rocket-body fallback) merge cycle, writes `tle:combined`/`tle:combined:stale` and per-source `tle_history` rows. `x-internal-secret` auth. |

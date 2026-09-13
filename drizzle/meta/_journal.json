@@ -43,6 +43,13 @@
       "when": 1787852303744,
       "tag": "0005_soft_husk",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789235289410,
+      "tag": "0006_peaceful_payback",
+      "breakpoints": true
     }
   ]
 }
