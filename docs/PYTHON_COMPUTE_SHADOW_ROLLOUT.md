@@ -27,11 +27,15 @@ existing cron (cron-job.org, every 15-30 min)
       v
 POST /api/internal/python-compute-shadow
       |
-      +-- load current catalog (lib/geomagneticShadowCatalog.ts's
-      |   loadCurrentCatalogForShadow() -- same catalog source the
-      |   geomagnetic shadow already uses)
+      +-- load + sample (lib/shadowCatalog.ts) -- deliberately narrow,
+      |   see "Efficiency" below: loadCurrentTLECatalog (Redis, cheap),
+      |   loadCurrentTrendSample (Postgres, two-phase -- samples BEFORE
+      |   pulling full rows), loadSolarFlux (Redis, cheap). Does NOT
+      |   call loadTIP -- TIP is a geomagnetic-shadow-only input this
+      |   route has no use for.
       |
-      +-- stratified sample (lib/pythonComputeShadowSampling.ts)
+      +-- stratified sample (lib/pythonComputeShadowSampling.ts, pushed
+      |   down into the trend query itself via loadCurrentTrendSample)
       |   10-20% rate, hard-capped at 20-25 objects/run,
       |   stratified by (reentryTier, decaySignal) so rare-but-important
       |   branches (critical tier, maneuvering candidates) aren't missed
@@ -60,6 +64,57 @@ architecture was specifically built to protect (see
 `backend/vercel.json`'s per-service `maxDuration` and this route's own
 `PERSISTENCE_RESERVE_MS`-based budget calculation in
 `app/api/internal/python-compute-shadow/route.ts`).
+
+## Efficiency: don't load what the sample won't use
+
+The first two live runs surfaced a real inefficiency: `catalogSize: 23627`
+to select 20 objects. The route was loading the entire eligible trend
+population (a full-width `SELECT *` across every current-version,
+non-insufficient-data row) just to sample from it in memory, and also
+loading TIP prediction data -- a geomagnetic-shadow-only input this route
+never uses at all -- via the shared `loadCurrentCatalogForShadow()`
+helper. Both are wasteful, and the trend-population load in particular is
+meaningful egress against a constrained Neon plan.
+
+Fixed by splitting the catalog loader (`lib/shadowCatalog.ts`) into
+independent, composable pieces instead of one bundle that always loads
+everything:
+
+- `loadCurrentTLECatalog()` -- Redis-backed, cheap regardless.
+- `loadCurrentTrendSample(options)` -- the actual fix. A two-phase query:
+  first pulls only `(noradId, reentryTier, decaySignal)` across the
+  eligible population (still touches every row, but at a fraction of the
+  bytes of the full 36-column row), stratifies and samples *those*
+  lightweight rows (`selectStratifiedNoradIds`, the same tested algorithm
+  `selectStratifiedShadowSample` uses), then issues a second query for
+  full rows filtered to only the ~20-25 winning `noradId`s. The expensive
+  full payload is now paid for exactly the objects that get used, not the
+  other ~23,600.
+- `loadSolarFlux()` -- Redis-backed, cheap regardless.
+- `loadTIP()` -- exists for the geomagnetic shadow; the Python-shadow
+  route never calls it.
+
+`loadCurrentCatalogForShadow()` (in `lib/geomagneticShadowCatalog.ts`)
+still exists, unchanged in behavior, composed from the same four
+primitives -- the geomagnetic shadow genuinely does need the full
+population (it evaluates the whole catalog locally, with no per-object
+network cost, so loading everything is the right call there). The two
+shadow evaluators now have loading strategies that match what each
+actually needs, rather than sharing one loader sized for the more
+expensive case.
+
+### Per-stage timing
+
+Every run now measures and persists four stage durations, both in the
+POST response's `timing` field and on the `python_compute_shadow_runs`
+row (`catalogLoadMs`, `pythonComputeMs`, `persistenceMs`, `totalRouteMs`)
+-- see `lib/pythonComputeShadowStore.ts`. This is what exit criterion 5
+(latency vs. the cron's execution budget) and criterion 6 (no pipeline
+regression) actually get evaluated against going forward, instead of only
+the end-to-end `durationMsP50/P95/P99` per-object numbers, which don't
+distinguish "the catalog load got slow" from "the Python calls got slow"
+from "persistence got slow." Runs recorded before this was added simply
+have `null` for these four columns.
 
 ## Rollout steps
 
@@ -109,12 +164,17 @@ else must match exactly.
 every timeout/network failure individually. For a private internal
 compute service, prefer ≥99.9% before treating it as authoritative.
 
-**5. Latency.** Measure p50/p95/p99 (`durationMsP50/P95/P99` per run) and
-compare against the existing cron's runtime. The criterion isn't an
-absolute number — it's that shadowing must not materially erode the
-existing cron's execution margin. The trend-computation cron has a
+**5. Latency.** Measure p50/p95/p99 (`durationMsP50/P95/P99` per run --
+per-object compute-engine call latency) and the four per-stage timings
+(`catalogLoadMs`/`pythonComputeMs`/`persistenceMs`/`totalRouteMs`, see
+"Efficiency" above) against the existing cron's runtime. The criterion
+isn't an absolute number — it's that shadowing must not materially erode
+the existing cron's execution margin. The trend-computation cron has a
 60-second cap with a 45-50s soft budget; the shadowed route should stay
-comfortably below its own budget with no new timeout trend.
+comfortably below its own budget with no new timeout trend. The per-stage
+breakdown is what makes a regression here diagnosable (a slow run because
+the catalog query got slow is a different problem than one caused by
+Python itself, or by persistence).
 
 **6. No pipeline regression.** During the shadow window, trend jobs
 completed/retried/dropped and cron invocation duration/timeout count

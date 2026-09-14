@@ -2,9 +2,10 @@
  * Durable persistence for Python compute shadow evaluations (plan §17
  * Phase 6). Two new, isolated tables -- python_compute_shadow_runs and
  * python_compute_shadow_object_deltas (see lib/db/schema.ts) -- record
- * what evaluatePythonComputeShadow() produced, so shadow-mode output
- * survives past a single HTTP response and can be reviewed later against
- * the exit criteria in docs/PYTHON_COMPUTE_SHADOW_ROLLOUT.md.
+ * what runShadowComparisons()/evaluatePythonComputeShadow() produced, so
+ * shadow-mode output survives past a single HTTP response and can be
+ * reviewed later against the exit criteria in
+ * docs/PYTHON_COMPUTE_SHADOW_ROLLOUT.md.
  *
  * This file is the ONLY place that writes or reads these two tables.
  * Nothing in the production risk path (satelliteHelpers.ts,
@@ -20,6 +21,21 @@ import {
   pythonComputeShadowRuns,
 } from './db/schema';
 import type { PythonComputeShadowSummary } from './pythonComputeShadow';
+
+export type PythonComputeShadowRunTiming = {
+  /** Time spent loading/sampling the catalog (lib/shadowCatalog.ts's
+   * loadCurrentTLECatalog + loadCurrentTrendSample + loadSolarFlux). */
+  catalogLoadMs: number | null;
+  /** Time spent on the actual sampled compute-engine comparisons
+   * (runShadowComparisons). */
+  pythonComputeMs: number | null;
+  /** Time spent persisting this very run (necessarily measured just
+   * before the persist call itself, so it can't include its own write --
+   * see the route for how this is estimated). */
+  persistenceMs: number | null;
+  /** Wall-clock time for the whole route handler. */
+  totalRouteMs: number | null;
+};
 
 export type PersistedPythonComputeShadowRun = {
   id: number;
@@ -39,7 +55,7 @@ export type PersistedPythonComputeShadowRun = {
   durationMsP99: number | null;
   sampleRate: number;
   maxSampleSize: number;
-};
+} & PythonComputeShadowRunTiming;
 
 export type PersistedPythonComputeShadowDelta = {
   id: number;
@@ -57,12 +73,20 @@ export type PersistedPythonComputeShadowDelta = {
 /**
  * Persist one shadow evaluation: a single run row, plus one delta row per
  * object actually present in summary.rows (objects that matched are not
- * stored -- see evaluatePythonComputeShadow's rows doc). Two inserts; not
- * a transaction spanning anything else in the schema, since nothing else
- * in the schema is involved.
+ * stored -- see the summary type's rows doc). Two inserts; not a
+ * transaction spanning anything else in the schema, since nothing else in
+ * the schema is involved.
+ *
+ * Timing is a separate parameter, not part of PythonComputeShadowSummary,
+ * since it describes the ROUTE's own stage durations (catalog load,
+ * Python compute, persistence, total) rather than anything about the
+ * comparison result itself -- the route measures these around its own
+ * calls and passes them straight through. All optional/nullable: older
+ * runs (persisted before this was added) simply don't have them.
  */
 export async function persistPythonComputeShadowRun(
-  summary: PythonComputeShadowSummary
+  summary: PythonComputeShadowSummary,
+  timing: Partial<PythonComputeShadowRunTiming> = {}
 ): Promise<number> {
   const [run] = await db
     .insert(pythonComputeShadowRuns)
@@ -83,6 +107,10 @@ export async function persistPythonComputeShadowRun(
       durationMsP99: summary.durationMsP99,
       sampleRate: summary.sampleRate,
       maxSampleSize: summary.maxSampleSize,
+      catalogLoadMs: timing.catalogLoadMs ?? null,
+      pythonComputeMs: timing.pythonComputeMs ?? null,
+      persistenceMs: timing.persistenceMs ?? null,
+      totalRouteMs: timing.totalRouteMs ?? null,
     })
     .returning({ id: pythonComputeShadowRuns.id });
 
@@ -103,6 +131,27 @@ export async function persistPythonComputeShadowRun(
   }
 
   return run.id;
+}
+
+/**
+ * Records persistence/total timing for a run already inserted by
+ * persistPythonComputeShadowRun(). Split out because persistenceMs can't
+ * be known until after the initial insert completes -- see the route's
+ * call site for why this two-step shape (insert, then a fast
+ * single-row update) is how persistenceMs/totalRouteMs actually end up
+ * in the durable run record rather than only in the HTTP response.
+ */
+export async function recordPythonComputeShadowRunTiming(
+  runId: number,
+  timing: { persistenceMs: number; totalRouteMs: number }
+): Promise<void> {
+  await db
+    .update(pythonComputeShadowRuns)
+    .set({
+      persistenceMs: timing.persistenceMs,
+      totalRouteMs: timing.totalRouteMs,
+    })
+    .where(eq(pythonComputeShadowRuns.id, runId));
 }
 
 function toPersistedRun(
@@ -126,6 +175,10 @@ function toPersistedRun(
     durationMsP99: row.durationMsP99,
     sampleRate: row.sampleRate,
     maxSampleSize: row.maxSampleSize,
+    catalogLoadMs: row.catalogLoadMs,
+    pythonComputeMs: row.pythonComputeMs,
+    persistenceMs: row.persistenceMs,
+    totalRouteMs: row.totalRouteMs,
   };
 }
 

@@ -306,6 +306,14 @@ export const pythonComputeShadowRuns = pgTable(
     durationMsP99: doublePrecision('duration_ms_p99'),
     sampleRate: doublePrecision('sample_rate').notNull(),
     maxSampleSize: integer('max_sample_size').notNull(),
+    // Per-stage timing breakdown (added after the first live run showed
+    // an inefficient catalog load; nullable since existing rows predate
+    // this and "we didn't measure this yet" is the honest state for them,
+    // not a fabricated 0 or a required backfill).
+    catalogLoadMs: doublePrecision('catalog_load_ms'),
+    pythonComputeMs: doublePrecision('python_compute_ms'),
+    persistenceMs: doublePrecision('persistence_ms'),
+    totalRouteMs: doublePrecision('total_route_ms'),
   },
   (table) => [
     // Recent-runs / rollout-window queries (e.g. "runs from the last 14 days")

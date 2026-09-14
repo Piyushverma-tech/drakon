@@ -15,6 +15,16 @@
  * object costs one HTTP call to the compute engine, and this runs inside
  * a cron job with a bounded execution budget shared with everything else
  * the job does -- see docs/PYTHON_COMPUTE_SHADOW_ROLLOUT.md.
+ *
+ * The core algorithm (stratifiedSample) is generic over anything with a
+ * stratumKey, so it serves two shapes: full in-memory candidates
+ * (selectStratifiedShadowSample, used when a catalog is already loaded --
+ * e.g. tests) and bare {noradId, stratumKey} pairs
+ * (selectStratifiedNoradIds, used by lib/shadowCatalog.ts's
+ * loadCurrentTrendSample() to pick a sample from a lightweight query
+ * BEFORE paying for the full row payload of the whole eligible
+ * population -- see that function's docstring for why this split
+ * matters).
  */
 import type { ObjectTrend, TleEntry } from './types';
 
@@ -39,7 +49,7 @@ export type ShadowSampleOptions = {
   random?: () => number;
 };
 
-function stratumKey(trend: ObjectTrend | undefined): string {
+export function trendStratumKey(trend: ObjectTrend | undefined): string {
   return trend ? `${trend.reentryTier}:${trend.decaySignal}` : 'no_trend';
 }
 
@@ -53,31 +63,30 @@ function shuffled<T>(items: T[], random: () => number): T[] {
 }
 
 /**
- * Groups candidates by (reentryTier, decaySignal) [or 'no_trend'],
- * targets max(1, round(stratumSize * sampleRate)) from each non-empty
- * stratum, then scales down (by repeatedly trimming the currently-largest
- * target) if the sum exceeds maxSampleSize. When maxSampleSize is smaller
- * than the number of non-empty strata, some strata are dropped entirely
+ * Generic stratified sample: groups items by stratumKey, targets
+ * max(1, round(stratumSize * sampleRate)) from each non-empty stratum,
+ * then scales down (by repeatedly trimming the currently-largest target)
+ * if the sum exceeds maxSampleSize. When maxSampleSize is smaller than
+ * the number of non-empty strata, some strata are dropped entirely
  * rather than sampled fractionally -- an edge case that shouldn't occur
  * in practice (the cap is expected to comfortably exceed the number of
  * (tier, signal) combinations a real catalog produces).
  */
-export function selectStratifiedShadowSample(
-  candidates: ShadowSampleCandidate[],
+function stratifiedSample<T extends { stratumKey: string }>(
+  items: T[],
   options: ShadowSampleOptions
-): ShadowSampleCandidate[] {
+): T[] {
   const { sampleRate, maxSampleSize, random = Math.random } = options;
-  if (candidates.length === 0 || maxSampleSize <= 0 || sampleRate <= 0) return [];
+  if (items.length === 0 || maxSampleSize <= 0 || sampleRate <= 0) return [];
 
-  const strata = new Map<string, ShadowSampleCandidate[]>();
-  for (const candidate of candidates) {
-    const key = stratumKey(candidate.trend);
-    const list = strata.get(key);
-    if (list) list.push(candidate);
-    else strata.set(key, [candidate]);
+  const strata = new Map<string, T[]>();
+  for (const item of items) {
+    const list = strata.get(item.stratumKey);
+    if (list) list.push(item);
+    else strata.set(item.stratumKey, [item]);
   }
 
-  const shuffledStrata = new Map<string, ShadowSampleCandidate[]>();
+  const shuffledStrata = new Map<string, T[]>();
   for (const [key, list] of strata) {
     shuffledStrata.set(key, shuffled(list, random));
   }
@@ -106,11 +115,39 @@ export function selectStratifiedShadowSample(
     total -= 1;
   }
 
-  const result: ShadowSampleCandidate[] = [];
+  const result: T[] = [];
   for (const key of keys) {
     const take = targets.get(key)!;
     if (take <= 0) continue;
     result.push(...shuffledStrata.get(key)!.slice(0, take));
   }
   return result;
+}
+
+/** Full in-memory candidates already paired with their TleEntry/ObjectTrend
+ * -- use when a catalog is already fully loaded (tests, or a caller that
+ * has one for other reasons). Prefer loadCurrentTrendSample() in
+ * lib/shadowCatalog.ts when loading fresh from the database, since that
+ * avoids materializing the full population at all. */
+export function selectStratifiedShadowSample(
+  candidates: ShadowSampleCandidate[],
+  options: ShadowSampleOptions
+): ShadowSampleCandidate[] {
+  const withKeys = candidates.map((c) => ({ ...c, stratumKey: trendStratumKey(c.trend) }));
+  const selected = stratifiedSample(withKeys, options);
+  return selected.map((item) => ({
+    noradId: item.noradId,
+    entry: item.entry,
+    trend: item.trend,
+  }));
+}
+
+/** Bare {noradId, stratumKey} pairs -- the lightweight path used by
+ * loadCurrentTrendSample() to pick a sample from a narrow query before
+ * ever fetching full rows. Returns just the selected noradIds. */
+export function selectStratifiedNoradIds(
+  items: { noradId: number; stratumKey: string }[],
+  options: ShadowSampleOptions
+): number[] {
+  return stratifiedSample(items, options).map((item) => item.noradId);
 }
