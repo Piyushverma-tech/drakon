@@ -14,6 +14,23 @@
  * lib/jobs/computeObjectTrends.ts caps its own DB-bound work, so this
  * doesn't open more simultaneous connections to the compute engine than
  * is reasonable for a single internal service instance.
+ *
+ * Two entry points, split deliberately:
+ *   - runShadowComparisons() takes an ALREADY-SELECTED sample and just
+ *     runs + aggregates comparisons. Used by the production route, which
+ *     samples via lib/shadowCatalog.ts's loadCurrentTrendSample() --
+ *     pushed down to the database query itself so the full trend
+ *     population is never materialized in memory (see that function's
+ *     docstring for why: the first live run loaded all ~23,600 eligible
+ *     objects in full just to pick 20).
+ *   - evaluatePythonComputeShadow() is the older, still-supported entry
+ *     point: given a FULLY LOADED catalog (e.g. in tests, or a caller
+ *     that already has one for other reasons), it samples in-memory via
+ *     selectStratifiedShadowSample() and then calls
+ *     runShadowComparisons(). Not what the production route uses
+ *     anymore, but kept because loading a full catalog and letting this
+ *     function sample it is still a legitimate, simpler shape for
+ *     smaller inputs.
  */
 import type { ObjectTrend, ReentryRisk, TleEntry } from './types';
 import {
@@ -45,8 +62,8 @@ export type PythonComputeShadowSummary = {
   expectedModelId: string;
   expectedModelVersion: string;
   catalogSize: number;
-  /** Candidates actually available for sampling (== catalogSize; kept
-   * distinct in case future filtering narrows this before sampling). */
+  /** Size of the eligible population the sample was drawn from -- not
+   * necessarily materialized in full (see loadCurrentTrendSample()). */
   eligibleCount: number;
   sampledCount: number;
   /** matchedCount + valueMismatchCount -- calls that got a real response. */
@@ -68,17 +85,24 @@ export type PythonComputeShadowSummary = {
   rows: PythonComputeShadowRow[];
 };
 
-export type EvaluatePythonComputeShadowOptions = {
-  sampleRate: number;
-  maxSampleSize: number;
+export type RunShadowComparisonsOptions = {
   /** Per-call timeout -- should be derived from the caller's remaining
    * execution budget, not a fixed constant. See
    * resolveReentryRiskViaComputeEngine's option docs. */
   timeoutMs?: number;
   expectedModelVersion?: string;
   concurrency?: number;
-  random?: () => number;
   nowMs?: number;
+  /** Reported in the summary as-is -- the caller already knows these
+   * from however it loaded/sampled, so this function doesn't need (and
+   * shouldn't need) the full catalog just to report their sizes. */
+  catalogSize: number;
+  eligibleCount: number;
+  /** Reported in the summary; the sampling parameters that were actually
+   * used to produce `sample`, even though this function didn't do the
+   * sampling itself. */
+  sampleRate: number;
+  maxSampleSize: number;
 };
 
 async function mapWithConcurrency<T, R>(
@@ -106,27 +130,17 @@ function percentile(sortedDurations: number[], p: number): number | null {
   return sortedDurations[idx];
 }
 
-export async function evaluatePythonComputeShadow(
-  entries: TleEntry[],
-  objectTrendsById: Map<number, ObjectTrend> | undefined,
+/** Runs shadow comparisons against an already-selected sample and
+ * aggregates the result. Does no sampling of its own -- see this
+ * module's docstring for why that split matters. */
+export async function runShadowComparisons(
+  sample: ShadowSampleCandidate[],
   solarFluxMultiplier: number,
-  options: EvaluatePythonComputeShadowOptions
+  options: RunShadowComparisonsOptions
 ): Promise<PythonComputeShadowSummary> {
   const nowMs = options.nowMs ?? Date.now();
   const expectedModelVersion = options.expectedModelVersion ?? '0.1.0';
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
-
-  const candidates: ShadowSampleCandidate[] = entries.map((entry) => ({
-    noradId: entry.id,
-    entry,
-    trend: objectTrendsById?.get(entry.id),
-  }));
-
-  const sample = selectStratifiedShadowSample(candidates, {
-    sampleRate: options.sampleRate,
-    maxSampleSize: options.maxSampleSize,
-    random: options.random,
-  });
 
   const comparisons = await mapWithConcurrency(sample, concurrency, (candidate) =>
     shadowCompareReentryRisk(candidate.entry, candidate.trend, solarFluxMultiplier, {
@@ -179,8 +193,8 @@ export async function evaluatePythonComputeShadow(
     generatedAt: new Date(nowMs).toISOString(),
     expectedModelId: 'reentry_resolution',
     expectedModelVersion,
-    catalogSize: entries.length,
-    eligibleCount: candidates.length,
+    catalogSize: options.catalogSize,
+    eligibleCount: options.eligibleCount,
     sampledCount: sample.length,
     successCount: matchedCount + valueMismatchCount,
     matchedCount,
@@ -194,4 +208,49 @@ export async function evaluatePythonComputeShadow(
     maxSampleSize: options.maxSampleSize,
     rows,
   };
+}
+
+export type EvaluatePythonComputeShadowOptions = {
+  sampleRate: number;
+  maxSampleSize: number;
+  timeoutMs?: number;
+  expectedModelVersion?: string;
+  concurrency?: number;
+  random?: () => number;
+  nowMs?: number;
+};
+
+/** Given a FULLY LOADED catalog, samples it in-memory and runs
+ * comparisons. See this module's docstring: the production route no
+ * longer uses this (it samples at the database layer instead via
+ * lib/shadowCatalog.ts), but this remains a legitimate entry point when
+ * a full catalog is already available. */
+export async function evaluatePythonComputeShadow(
+  entries: TleEntry[],
+  objectTrendsById: Map<number, ObjectTrend> | undefined,
+  solarFluxMultiplier: number,
+  options: EvaluatePythonComputeShadowOptions
+): Promise<PythonComputeShadowSummary> {
+  const candidates: ShadowSampleCandidate[] = entries.map((entry) => ({
+    noradId: entry.id,
+    entry,
+    trend: objectTrendsById?.get(entry.id),
+  }));
+
+  const sample = selectStratifiedShadowSample(candidates, {
+    sampleRate: options.sampleRate,
+    maxSampleSize: options.maxSampleSize,
+    random: options.random,
+  });
+
+  return runShadowComparisons(sample, solarFluxMultiplier, {
+    timeoutMs: options.timeoutMs,
+    expectedModelVersion: options.expectedModelVersion,
+    concurrency: options.concurrency,
+    nowMs: options.nowMs,
+    catalogSize: entries.length,
+    eligibleCount: candidates.length,
+    sampleRate: options.sampleRate,
+    maxSampleSize: options.maxSampleSize,
+  });
 }

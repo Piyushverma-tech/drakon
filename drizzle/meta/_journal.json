@@ -50,6 +50,13 @@
       "when": 1789235289410,
       "tag": "0006_peaceful_payback",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789398536507,
+      "tag": "0007_nasty_brother_voodoo",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,8 @@
-import { selectStratifiedShadowSample, type ShadowSampleCandidate } from './pythonComputeShadowSampling';
+import {
+  selectStratifiedNoradIds,
+  selectStratifiedShadowSample,
+  type ShadowSampleCandidate,
+} from './pythonComputeShadowSampling';
 import type { ObjectTrend, TleEntry } from './types';
 
 function makeEntry(id: number): TleEntry {
@@ -226,5 +230,99 @@ describe('selectStratifiedShadowSample', () => {
       expect(seen.has(c.noradId)).toBe(false); // no duplicates
       seen.add(c.noradId);
     }
+  });
+});
+
+describe('selectStratifiedNoradIds', () => {
+  function buildLightRows(
+    spec: [ObjectTrend['reentryTier'], ObjectTrend['decaySignal'], number][]
+  ): { noradId: number; stratumKey: string }[] {
+    const rows: { noradId: number; stratumKey: string }[] = [];
+    let id = 1;
+    for (const [tier, signal, count] of spec) {
+      for (let i = 0; i < count; i++) {
+        rows.push({ noradId: id, stratumKey: `${tier}:${signal}` });
+        id++;
+      }
+    }
+    return rows;
+  }
+
+  it('never exceeds maxSampleSize', () => {
+    const rows = buildLightRows([
+      ['stable', 'stable', 1000],
+      ['critical', 'decaying', 20],
+    ]);
+    const ids = selectStratifiedNoradIds(rows, {
+      sampleRate: 0.15,
+      maxSampleSize: 25,
+      random: seededRandom(1),
+    });
+    expect(ids.length).toBeLessThanOrEqual(25);
+  });
+
+  it('returns unique, valid noradIds only', () => {
+    const rows = buildLightRows([
+      ['critical', 'decaying', 5],
+      ['stable', 'stable', 300],
+    ]);
+    const ids = selectStratifiedNoradIds(rows, {
+      sampleRate: 0.2,
+      maxSampleSize: 25,
+      random: seededRandom(9),
+    });
+    const validIds = new Set(rows.map((r) => r.noradId));
+    const seen = new Set<number>();
+    for (const id of ids) {
+      expect(validIds.has(id)).toBe(true);
+      expect(seen.has(id)).toBe(false);
+      seen.add(id);
+    }
+  });
+
+  it('produces the same selection as selectStratifiedShadowSample given equivalent data and seed', () => {
+    // Two views of the same underlying population: the lightweight
+    // {noradId, stratumKey} rows loadCurrentTrendSample() queries for,
+    // and the full ShadowSampleCandidate shape selectStratifiedShadowSample
+    // works with. Both should select the identical set of noradIds when
+    // driven by the same seed, since they share the same core algorithm --
+    // this is the property that makes it safe for lib/shadowCatalog.ts to
+    // sample on the light rows and fetch full data only for the winners.
+    const tiers: [ObjectTrend['reentryTier'], ObjectTrend['decaySignal'], number][] = [
+      ['critical', 'decaying', 4],
+      ['warning', 'decaying', 6],
+      ['nominal', 'decaying', 40],
+      ['stable', 'stable', 200],
+    ];
+
+    const lightRows = buildLightRows(tiers);
+
+    const candidates: ShadowSampleCandidate[] = [];
+    let id = 1;
+    for (const [tier, signal, count] of tiers) {
+      for (let i = 0; i < count; i++) {
+        candidates.push({
+          noradId: id,
+          entry: {} as TleEntry, // shape irrelevant to sampling itself
+          trend: { reentryTier: tier, decaySignal: signal } as ObjectTrend,
+        });
+        id++;
+      }
+    }
+
+    const idsFromLight = selectStratifiedNoradIds(lightRows, {
+      sampleRate: 0.1,
+      maxSampleSize: 25,
+      random: seededRandom(123),
+    });
+    const idsFromFull = selectStratifiedShadowSample(candidates, {
+      sampleRate: 0.1,
+      maxSampleSize: 25,
+      random: seededRandom(123),
+    }).map((c) => c.noradId);
+
+    expect([...idsFromLight].sort((a, b) => a - b)).toEqual(
+      [...idsFromFull].sort((a, b) => a - b)
+    );
   });
 });

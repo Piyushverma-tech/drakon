@@ -1,21 +1,25 @@
 /**
  * Shared catalog-input loader for Stage 2 shadow evaluation. Assembles
- * the same inputs the live app uses — current TLE snapshot, current-
- * version object trends, current solar multiplier, current TIP
+ * the same inputs the live app uses — current TLE snapshot, ALL
+ * current-version object trends, current solar multiplier, current TIP
  * predictions — so both the scheduled run route and the replay route
  * evaluate against the same real catalog state without duplicating this
  * assembly logic. Read-only; writes nothing.
+ *
+ * The geomagnetic shadow evaluates the WHOLE catalog (both sides are
+ * local TS computation, no network calls, so this is cheap), unlike the
+ * Python compute shadow which samples via lib/shadowCatalog.ts's
+ * loadCurrentTrendSample() instead of loading everything -- see that
+ * function's docstring for why those two cases genuinely need different
+ * loading strategies. The four primitives this composes now live in
+ * lib/shadowCatalog.ts, shared by both.
  */
-
-import { and, eq, ne } from 'drizzle-orm';
-import { db } from './db';
-import { objectTrends } from './db/schema';
-import { CURRENT_TREND_VERSION } from './jobs/computeObjectTrends';
-import redis from './redis';
-import { CACHE_KEY, STALE_CACHE_KEY, normalizeNewlines } from './tleCache';
-import { parseTleText } from './tle';
-import { getSolarFlux } from './solarFlux';
-import { getTipPredictions } from './tip/tipStore';
+import {
+  loadCurrentTLECatalog,
+  loadFullCurrentTrendPopulation,
+  loadSolarFlux,
+  loadTIP,
+} from './shadowCatalog';
 import type { ObjectTrend, TipPrediction, TleEntry } from './types';
 
 export type ShadowCatalogInputs = {
@@ -27,43 +31,14 @@ export type ShadowCatalogInputs = {
 
 /** Returns null when no TLE data (live or stale) is available yet. */
 export async function loadCurrentCatalogForShadow(): Promise<ShadowCatalogInputs | null> {
-  const [tleRaw, staleTleRaw, trendRows, { multiplier: solarFluxMultiplier }, tip] =
-    await Promise.all([
-      redis.get<string>(CACHE_KEY),
-      redis.get<string>(STALE_CACHE_KEY),
-      db
-        .select()
-        .from(objectTrends)
-        .where(
-          and(
-            eq(objectTrends.trendVersion, CURRENT_TREND_VERSION),
-            ne(objectTrends.decaySignal, 'insufficient_data')
-          )
-        ),
-      getSolarFlux(),
-      getTipPredictions(),
-    ]);
+  const [entries, objectTrendsById, solarFluxMultiplier, tipByNoradId] = await Promise.all([
+    loadCurrentTLECatalog(),
+    loadFullCurrentTrendPopulation(),
+    loadSolarFlux(),
+    loadTIP(),
+  ]);
 
-  const tleText = tleRaw ?? staleTleRaw;
-  if (!tleText || !tleText.trim()) return null;
+  if (!entries) return null;
 
-  const entries = parseTleText(normalizeNewlines(tleText));
-
-  const objectTrendsById = new Map<number, ObjectTrend>(
-    trendRows.map((row) => [
-      row.noradId,
-      {
-        ...row,
-        updatedAt: row.updatedAt.toISOString(),
-        estimatedReentryAt: row.estimatedReentryAt?.toISOString() ?? null,
-      } as ObjectTrend,
-    ])
-  );
-
-  return {
-    entries,
-    objectTrendsById,
-    solarFluxMultiplier,
-    tipByNoradId: tip.byNoradId,
-  };
+  return { entries, objectTrendsById, solarFluxMultiplier, tipByNoradId };
 }
