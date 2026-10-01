@@ -43,3 +43,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python (backend/ -- DRAKON Compute Engine)
+backend/.venv
+backend/__pycache__
+backend/**/__pycache__
+backend/.pytest_cache
+*.egg-info
+backend/*.egg-info
