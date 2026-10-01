@@ -1,5 +1,5 @@
 import { ndotIndicatesDecay } from './satelliteHelpers';
-import type { ObjectTrend, TleEntry } from './types';
+import type { ObjectTrendRiskInputs, TleEntry } from './types';
 
 export function isDebrisEntry(entry: TleEntry): boolean {
   const nameUpper = entry.name.toUpperCase();
@@ -10,7 +10,7 @@ export function isDebrisEntry(entry: TleEntry): boolean {
   );
 }
 
-export function decayAltKmFromTrend(trend: ObjectTrend): number {
+export function decayAltKmFromTrend(trend: ObjectTrendRiskInputs): number {
   if (trend.smaLatest) return Math.max(0, trend.smaLatest - 6378.137);
   return trend.perigeeLatest ?? 0;
 }
@@ -40,7 +40,7 @@ export function decaySignalFlags(input: SignalInput) {
   return { bstarAgrees, ndotAgrees, altAgrees };
 }
 
-export function allTrendSignalsAgree(trend: ObjectTrend): boolean {
+export function allTrendSignalsAgree(trend: ObjectTrendRiskInputs): boolean {
   const decayAltKm = decayAltKmFromTrend(trend);
   const flags = decaySignalFlags({
     bstarSlope14d: trend.bstarSlope14d,
@@ -54,7 +54,7 @@ export function allTrendSignalsAgree(trend: ObjectTrend): boolean {
   return flags.bstarAgrees && flags.ndotAgrees && flags.altAgrees;
 }
 
-export function trendSignalsAgree(trend: ObjectTrend): boolean {
+export function trendSignalsAgree(trend: ObjectTrendRiskInputs): boolean {
   const decayAltKm = decayAltKmFromTrend(trend);
   const flags = decaySignalFlags({
     bstarSlope14d: trend.bstarSlope14d,

@@ -23,7 +23,7 @@
  * automatically on both sides.
  */
 
-import type { ObjectTrend, ReentryRisk, TipPrediction, TleEntry } from './types';
+import type { ObjectTrendRiskInputs, ReentryRisk, TipPrediction, TleEntry } from './types';
 import { buildReentryRiskMap } from './objectTrendRisk';
 import {
   combineAtmosphericMultipliers,
@@ -67,7 +67,7 @@ export type GeomagneticShadowSummary = {
 
 export function evaluateGeomagneticShadow(
   entries: TleEntry[],
-  objectTrendsById: Map<number, ObjectTrend> | undefined,
+  objectTrendsById: ReadonlyMap<number, ObjectTrendRiskInputs> | undefined,
   solarFluxMultiplier: number,
   geomagneticState: GeomagneticState,
   tipByNoradId?: Map<number, TipPrediction>,

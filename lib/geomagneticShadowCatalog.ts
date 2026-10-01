@@ -20,11 +20,11 @@ import {
   loadSolarFlux,
   loadTIP,
 } from './shadowCatalog';
-import type { ObjectTrend, TipPrediction, TleEntry } from './types';
+import type { ObjectTrendRiskInputs, TipPrediction, TleEntry } from './types';
 
 export type ShadowCatalogInputs = {
   entries: TleEntry[];
-  objectTrendsById: Map<number, ObjectTrend>;
+  objectTrendsById: Map<number, ObjectTrendRiskInputs>;
   solarFluxMultiplier: number;
   tipByNoradId: Map<number, TipPrediction>;
 };

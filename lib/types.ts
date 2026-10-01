@@ -209,6 +209,65 @@ export type ObjectTrend = {
   objectType: 'debris' | 'rocket_body' | 'payload' | 'unknown' | null;
   isDebris: boolean;
 };
+
+/**
+ * Minimal ObjectTrend fields needed to resolve reentry risk --
+ * resolveReentryRisk()/buildReentryRiskMap() (lib/objectTrendRisk.ts) and
+ * everything they call (lib/reentrySignals.ts), plus the equivalent Python
+ * compute payload (reentryComputeClient.ts's toComputeTrend). Verified by
+ * exhaustive grep against every consumer of the full population, not
+ * assumed -- see lib/shadowCatalog.ts's loadFullCurrentTrendPopulation().
+ * The geomagnetic shadow evaluates every object locally via exactly these
+ * two functions and nothing else, so this is also its full needed set.
+ */
+export type ObjectTrendRiskInputs = Pick<
+  ObjectTrend,
+  | 'noradId'
+  | 'epochsAvailable'
+  | 'historyDaysAvailable'
+  | 'bstarLatest'
+  | 'bstarSlope14d'
+  | 'perigeeLatest'
+  | 'perigeeSlope14d'
+  | 'smaLatest'
+  | 'smaSlope14d'
+  | 'meanMotionDotLatest'
+  | 'meanMotionDotMean14d'
+  | 'decaySignal'
+  | 'maneuverLikelihood'
+  | 'decayConfidence'
+  | 'estimatedDaysRemaining'
+  | 'estimatedReentryAt'
+  | 'reentryTier'
+>;
+
+/**
+ * ObjectTrendRiskInputs plus the extra fields the dashboard reads
+ * directly, outside risk resolution: trendVersion (ReentryAnalysisPage's
+ * data-freshness display), updatedAt + consensusRequired/consensusMet
+ * (buildReentryTrace.ts's history/consensus trace steps), and objectType
+ * (ReentryAnalysisPage's object-type label). Backs /api/object-trends,
+ * which every dashboard consumer (screening list, globe, detail page)
+ * reads through useObjectTrendsQuery. A strict superset of
+ * ObjectTrendRiskInputs, so it satisfies that type wherever risk
+ * resolution is called with dashboard data.
+ */
+export type ObjectTrendDashboardRow = ObjectTrendRiskInputs &
+  Pick<
+    ObjectTrend,
+    | 'trendVersion'
+    | 'updatedAt'
+    | 'consensusRequired'
+    | 'consensusMet'
+    | 'objectType'
+    // Needed by buildReentryTrace.ts's reconstructSignalContributions()
+    // call, which passes the whole trend object through -- caught by
+    // tsc, not by grepping trend.field accesses (see the Sep 25
+    // investigation note in areas/drakon-compute-engine.md).
+    | 'bstarSignalStrength'
+    | 'ndotSignalStrength'
+    | 'altitudeSignalStrength'
+  >;
 export type TrackSegment = {
   path: [number, number][]; // [lon, lat] pairs, antimeridian-split
   opacity: number; // 0–1, used as getColor alpha multiplier

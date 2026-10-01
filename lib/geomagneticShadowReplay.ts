@@ -26,7 +26,7 @@ import {
   GFZ_HISTORICAL_KP_AP_MAY_2024,
   type GfzHistoricalKpApEntry,
 } from './fixtures/gfzHistoricalKpAp';
-import type { ObjectTrend, TipPrediction, TleEntry } from './types';
+import type { ObjectTrendRiskInputs, TipPrediction, TleEntry } from './types';
 
 export type ReplayScenario = {
   /** Short, stable identifier persisted as geomagnetic_shadow_runs.replay_label. */
@@ -94,7 +94,7 @@ export function buildReplayScenarioFromGfzFixture(
 export function runGeomagneticShadowReplay(
   scenario: ReplayScenario,
   entries: TleEntry[],
-  objectTrendsById: Map<number, ObjectTrend> | undefined,
+  objectTrendsById: ReadonlyMap<number, ObjectTrendRiskInputs> | undefined,
   solarFluxMultiplier: number,
   tipByNoradId?: Map<number, TipPrediction>,
   nowMs: number = Date.now()

@@ -152,7 +152,7 @@ describe('loadCurrentTrendSample', () => {
 });
 
 describe('loadFullCurrentTrendPopulation', () => {
-  it('issues a single full-row query with no field narrowing', async () => {
+  it('narrows the query to only the columns resolveReentryRisk/buildReentryRiskMap read', async () => {
     const rows = [
       makeRow(1, 'stable', 'stable'),
       makeRow(2, 'critical', 'decaying'),
@@ -162,7 +162,29 @@ describe('loadFullCurrentTrendPopulation', () => {
     const result = await loadFullCurrentTrendPopulation();
 
     expect(selectMock).toHaveBeenCalledTimes(1);
-    expect(selectMock.mock.calls[0]).toEqual([]); // no narrowing -- SELECT *
+    const [columns] = selectMock.mock.calls[0];
+    expect(columns).toBeDefined();
+    expect(Object.keys(columns as Record<string, unknown>).sort()).toEqual(
+      [
+        'noradId',
+        'epochsAvailable',
+        'historyDaysAvailable',
+        'bstarLatest',
+        'bstarSlope14d',
+        'perigeeLatest',
+        'perigeeSlope14d',
+        'smaLatest',
+        'smaSlope14d',
+        'meanMotionDotLatest',
+        'meanMotionDotMean14d',
+        'decaySignal',
+        'maneuverLikelihood',
+        'decayConfidence',
+        'estimatedDaysRemaining',
+        'estimatedReentryAt',
+        'reentryTier',
+      ].sort()
+    );
     expect(result.size).toBe(2);
   });
 });

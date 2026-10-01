@@ -4,7 +4,7 @@ import {
   trendSignalsAgree,
 } from './reentrySignals';
 import type {
-  ObjectTrend,
+  ObjectTrendRiskInputs,
   ReentryRisk,
   TipPrediction,
   TleEntry,
@@ -65,7 +65,7 @@ function confidenceLabel(confidence: number | null): ReentryRisk['confidence'] {
 }
 
 /** True when multi-epoch history is sufficient for trend-based screening. */
-export function isActionableTrend(trend: ObjectTrend): boolean {
+export function isActionableTrend(trend: ObjectTrendRiskInputs): boolean {
   return (
     trend.epochsAvailable >= 3 &&
     trend.historyDaysAvailable >= 1 &&
@@ -92,7 +92,7 @@ function stableReentryRisk(entry: TleEntry): ReentryRisk {
 
 export function resolveReentryRisk(
   entry: TleEntry,
-  trend: ObjectTrend | undefined,
+  trend: ObjectTrendRiskInputs | undefined,
   solarFluxMultiplier: number = DEFAULT_SOLAR_FLUX_MULTIPLIER
 ): ReentryRisk {
   const debris = isDebrisEntry(entry);
@@ -208,7 +208,7 @@ export function resolveReentryRisk(
 }
 
 export function objectTrendToReentryRisk(
-  trend: ObjectTrend,
+  trend: ObjectTrendRiskInputs,
   entry: TleEntry,
   debris = isDebrisEntry(entry)
 ): ReentryRisk {
@@ -248,7 +248,7 @@ export function objectTrendToReentryRisk(
 
 export function buildReentryRiskMap(
   entries: TleEntry[],
-  objectTrendsById: Map<number, ObjectTrend> | undefined,
+  objectTrendsById: ReadonlyMap<number, ObjectTrendRiskInputs> | undefined,
   solarFluxMultiplier: number = DEFAULT_SOLAR_FLUX_MULTIPLIER,
   tipByNoradId?: Map<number, TipPrediction>
 ): Map<number, ReentryRisk> {

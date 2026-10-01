@@ -2,7 +2,7 @@ import {
   reconstructSignalContributions,
   type SignalContribution,
 } from '@/lib/explainReentryTrend';
-import { ObjectTrend, ReentryRisk } from '@/lib/types';
+import { ObjectTrendDashboardRow, ReentryRisk } from '@/lib/types';
 
 export type TraceStepIcon =
   | 'database'
@@ -49,7 +49,7 @@ export interface BuildReentryTraceInput {
   /** The trend row, if one exists. Supplies the per-signal breakdown and
    * consensus steps, and is compared against `risk` to detect when a live
    * altitude estimate has overridden it. */
-  trend: ObjectTrend | undefined;
+  trend: ObjectTrendDashboardRow | undefined;
   isCurrentModelVersion: boolean;
 }
 
@@ -73,7 +73,7 @@ const CONFIDENCE_WORD: Record<ReentryRisk['confidence'], string> = {
   low: 'low',
 };
 
-function loadHistoryStep(trend: ObjectTrend): ReentryTraceStep {
+function loadHistoryStep(trend: ObjectTrendDashboardRow): ReentryTraceStep {
   const epochs = trend.epochsAvailable;
   const days = trend.historyDaysAvailable;
   return {
@@ -118,7 +118,7 @@ function signalStep(signal: SignalContribution): ReentryTraceStep {
   };
 }
 
-function consensusStep(trend: ObjectTrend): ReentryTraceStep | null {
+function consensusStep(trend: ObjectTrendDashboardRow): ReentryTraceStep | null {
   const { consensusRequired, consensusMet } = trend;
   if (consensusRequired === null || consensusMet === null) return null;
 
@@ -189,7 +189,7 @@ function tierStep(risk: ReentryRisk): ReentryTraceStep {
  */
 function overrideStep(
   risk: ReentryRisk,
-  trend: ObjectTrend
+  trend: ObjectTrendDashboardRow
 ): ReentryTraceStep | null {
   if (trend.reentryTier === risk.tier) return null;
 
@@ -258,7 +258,7 @@ function characterize(
 
 function evidenceClause(
   risk: ReentryRisk,
-  trend: ObjectTrend | undefined
+  trend: ObjectTrendDashboardRow | undefined
 ): string {
   const basis =
     trend?.epochsAvailable != null
@@ -281,7 +281,7 @@ function evidenceClause(
 
 function buildSummary(
   risk: ReentryRisk,
-  trend: ObjectTrend | undefined,
+  trend: ObjectTrendDashboardRow | undefined,
   signals: SignalContribution[]
 ): string {
   return `${characterize(risk, signals)}. ${evidenceClause(risk, trend)}`;

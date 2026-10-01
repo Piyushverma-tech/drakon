@@ -20,7 +20,7 @@ import { parseTleText } from './tle';
 import { getSolarFlux } from './solarFlux';
 import { getTipPredictions } from './tip/tipStore';
 import { selectStratifiedNoradIds } from './pythonComputeShadowSampling';
-import type { ObjectTrend, TipPrediction, TleEntry } from './types';
+import type { ObjectTrend, ObjectTrendRiskInputs, TipPrediction, TleEntry } from './types';
 
 /** Current TLE snapshot (Redis, live with a stale fallback) -- cheap,
  * shared by every shadow evaluator. Returns null when neither the live
@@ -62,23 +62,65 @@ function rowToObjectTrend(
   } as ObjectTrend;
 }
 
+/** Columns needed by resolveReentryRisk()/buildReentryRiskMap()
+ * (lib/objectTrendRisk.ts) and everything they call
+ * (lib/reentrySignals.ts) -- verified by exhaustive grep against every
+ * consumer of the full population, not assumed. This is the geomagnetic
+ * shadow's full needed set: it never reads anything outside these two
+ * functions. See ObjectTrendRiskInputs in lib/types.ts. */
+const RISK_INPUT_COLUMNS = {
+  noradId: objectTrends.noradId,
+  epochsAvailable: objectTrends.epochsAvailable,
+  historyDaysAvailable: objectTrends.historyDaysAvailable,
+  bstarLatest: objectTrends.bstarLatest,
+  bstarSlope14d: objectTrends.bstarSlope14d,
+  perigeeLatest: objectTrends.perigeeLatest,
+  perigeeSlope14d: objectTrends.perigeeSlope14d,
+  smaLatest: objectTrends.smaLatest,
+  smaSlope14d: objectTrends.smaSlope14d,
+  meanMotionDotLatest: objectTrends.meanMotionDotLatest,
+  meanMotionDotMean14d: objectTrends.meanMotionDotMean14d,
+  decaySignal: objectTrends.decaySignal,
+  maneuverLikelihood: objectTrends.maneuverLikelihood,
+  decayConfidence: objectTrends.decayConfidence,
+  estimatedDaysRemaining: objectTrends.estimatedDaysRemaining,
+  estimatedReentryAt: objectTrends.estimatedReentryAt,
+  reentryTier: objectTrends.reentryTier,
+} as const;
+
+function rowToRiskInputs(
+  row: {
+    [K in keyof typeof RISK_INPUT_COLUMNS]: (typeof objectTrends.$inferSelect)[K];
+  }
+): ObjectTrendRiskInputs {
+  return {
+    ...row,
+    estimatedReentryAt: row.estimatedReentryAt?.toISOString() ?? null,
+  } as ObjectTrendRiskInputs;
+}
+
 const CURRENT_TREND_FILTER = and(
   eq(objectTrends.trendVersion, CURRENT_TREND_VERSION),
   ne(objectTrends.decaySignal, 'insufficient_data')
 );
 
-/** Every current-version, non-insufficient-data object_trends row, in
- * full. This is the expensive query (a full-width SELECT * across the
- * whole eligible population -- tens of thousands of rows in production)
- * that only the geomagnetic shadow actually needs, since it evaluates
- * every object locally. Anything that only needs a SAMPLE should use
- * loadCurrentTrendSample() below instead of calling this and sampling
- * client-side after the fact. */
+/** Every current-version, non-insufficient-data object_trends row,
+ * narrowed to only the ~17 columns resolveReentryRisk()/
+ * buildReentryRiskMap() actually read (see RISK_INPUT_COLUMNS above) --
+ * this is the only thing the geomagnetic shadow needs, since it
+ * evaluates every object locally through exactly those two functions.
+ * Previously a full 36-column SELECT * across the whole eligible
+ * population (tens of thousands of rows in production); narrowed
+ * 2026-09-25 once every consumer's actual field usage was verified by
+ * grep, not assumed -- see the Sep 25 investigation in
+ * areas/drakon-compute-engine.md for why. Anything that only needs a
+ * SAMPLE should use loadCurrentTrendSample() below instead of calling
+ * this and sampling client-side after the fact. */
 export async function loadFullCurrentTrendPopulation(): Promise<
-  Map<number, ObjectTrend>
+  Map<number, ObjectTrendRiskInputs>
 > {
-  const rows = await db.select().from(objectTrends).where(CURRENT_TREND_FILTER);
-  return new Map(rows.map((row) => [row.noradId, rowToObjectTrend(row)]));
+  const rows = await db.select(RISK_INPUT_COLUMNS).from(objectTrends).where(CURRENT_TREND_FILTER);
+  return new Map(rows.map((row) => [row.noradId, rowToRiskInputs(row)]));
 }
 
 export type TrendSampleResult = {

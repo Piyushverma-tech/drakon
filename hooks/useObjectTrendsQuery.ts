@@ -1,14 +1,14 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import type { ObjectTrend } from '@/lib/types';
+import type { ObjectTrendDashboardRow } from '@/lib/types';
 
 type ObjectTrendsResponse = {
   trendVersion: number;
-  trends: ObjectTrend[];
+  trends: ObjectTrendDashboardRow[];
 };
 
-async function fetchObjectTrends(): Promise<Map<number, ObjectTrend>> {
+async function fetchObjectTrends(): Promise<Map<number, ObjectTrendDashboardRow>> {
   const res = await fetch('/api/object-trends', { cache: 'no-store' });
   if (!res.ok) {
     throw new Error('Unable to load object trend data.');
