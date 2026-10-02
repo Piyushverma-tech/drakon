@@ -1,7 +1,7 @@
 {
   "$comment": "GENERATED FILE. Produced by scripts/generate-reentry-golden-fixtures.ts from the real production TypeScript re-entry model. Do not hand-edit -- regenerate deliberately when the reference implementation changes, and record why in fixtures/reentry-model/README.md.",
-  "generatedAt": "2026-09-08T18:15:59.526Z",
-  "baselineCommit": "0eadc6fb0b4bf1bd862a2ddf7ed91ba9a0c9acdd",
+  "generatedAt": "2026-10-02T09:23:14.809Z",
+  "baselineCommit": "b477eabad4b0483a8b97e5781fcb33d81e24b4e2",
   "sourceModules": [
     "lib/satelliteHelpers.ts",
     "lib/explainReentryTrend.ts",
