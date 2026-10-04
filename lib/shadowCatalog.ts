@@ -26,13 +26,34 @@ import type { ObjectTrend, ObjectTrendRiskInputs, TipPrediction, TleEntry } from
  * shared by every shadow evaluator. Returns null when neither the live
  * nor stale cache has anything yet. */
 export async function loadCurrentTLECatalog(): Promise<TleEntry[] | null> {
+  const redisFetchStartedAt = Date.now();
   const [tleRaw, staleTleRaw] = await Promise.all([
     redis.get<string>(CACHE_KEY),
     redis.get<string>(STALE_CACHE_KEY),
   ]);
+  const redisFetchMs = Date.now() - redisFetchStartedAt;
   const tleText = tleRaw ?? staleTleRaw;
   if (!tleText || !tleText.trim()) return null;
-  return parseTleText(normalizeNewlines(tleText));
+
+  const parseStartedAt = Date.now();
+  const entries = parseTleText(normalizeNewlines(tleText));
+  const parseMs = Date.now() - parseStartedAt;
+
+  // Diagnostic only, not persisted -- added 2026-10-02 to settle whether
+  // full-catalog reparsing (done here on every call, by both the
+  // geomagnetic shadow and the Python compute shadow, to look up a small
+  // fraction of these entries) is a meaningful CPU cost, versus the wide
+  // min/max spread in wall-clock catalogLoadMs being mostly Redis/Neon
+  // cold-start variance. See the Oct investigation in
+  // areas/drakon-compute-engine.md. A quick grep of Vercel's logs for
+  // this tag across a day of both crons' hourly runs should be enough to
+  // answer it without a schema change; promote to a persisted column
+  // only if that's not resolving.
+  console.log(
+    `[loadCurrentTLECatalog] redisFetchMs=${redisFetchMs} parseMs=${parseMs} entries=${entries.length}`
+  );
+
+  return entries;
 }
 
 /** Current solar-flux density multiplier (Redis-backed, see
