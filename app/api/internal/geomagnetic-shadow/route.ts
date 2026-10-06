@@ -8,6 +8,11 @@ import {
   persistGeomagneticShadowRun,
   type ShadowRunSource,
 } from '@/lib/geomagneticShadowStore';
+import { acquireShadowRunLock } from '@/lib/shadowRunLock';
+import {
+  GEOMAGNETIC_SHADOW_LOCK_KEY,
+  GEOMAGNETIC_SHADOW_LOCK_TTL_SECONDS,
+} from '@/lib/shadowRunLockKeys';
 
 /**
  * Stage 2 shadow-mode observation (plan §21). Internal/ops-only — not
@@ -31,7 +36,9 @@ import {
 export const maxDuration = 30;
 
 function checkAuth(req: Request): boolean {
-  return req.headers.get('x-internal-secret') === process.env.INTERNAL_JOB_SECRET;
+  return (
+    req.headers.get('x-internal-secret') === process.env.INTERNAL_JOB_SECRET
+  );
 }
 
 export async function GET(req: Request) {
@@ -55,7 +62,11 @@ export async function GET(req: Request) {
   }
 
   const sourceParam = searchParams.get('source');
-  if (sourceParam !== null && sourceParam !== 'scheduled' && sourceParam !== 'replay') {
+  if (
+    sourceParam !== null &&
+    sourceParam !== 'scheduled' &&
+    sourceParam !== 'replay'
+  ) {
     return NextResponse.json(
       { error: "source must be 'scheduled' or 'replay'" },
       { status: 400 }
@@ -80,6 +91,27 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   if (!checkAuth(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // As of the python-compute-shadow route merge (see its docstring),
+  // this route's scheduled trigger is removed from the
+  // external cron entirely -- geomagnetic evaluation now runs as part
+  // of that route's own hourly invocation. This lock is a safety net in
+  // case that external config change doesn't happen (or hasn't yet):
+  // if the merged route already ran geomagnetic this window, skip
+  // rather than duplicate the work. Manual/ad-hoc POSTs during this
+  // window will also see a skip -- that's an acceptable trade-off for a
+  // route whose only other caller is an external schedule.
+  const lockAcquired = await acquireShadowRunLock(
+    GEOMAGNETIC_SHADOW_LOCK_KEY,
+    GEOMAGNETIC_SHADOW_LOCK_TTL_SECONDS
+  );
+  if (!lockAcquired) {
+    return NextResponse.json({
+      skipped: true,
+      reason:
+        'Another geomagnetic shadow run already completed or is in progress this window (likely the merged python-compute-shadow route).',
+    });
   }
 
   const catalog = await loadCurrentCatalogForShadow();

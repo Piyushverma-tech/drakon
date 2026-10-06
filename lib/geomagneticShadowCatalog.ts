@@ -29,12 +29,26 @@ export type ShadowCatalogInputs = {
   tipByNoradId: Map<number, TipPrediction>;
 };
 
-/** Returns null when no TLE data (live or stale) is available yet. */
-export async function loadCurrentCatalogForShadow(): Promise<ShadowCatalogInputs | null> {
+/**
+ * `preloaded`: pass already-fetched `entries`/`solarFluxMultiplier` when
+ * a caller has just loaded them for another purpose in the same
+ * invocation (the merged python-compute-shadow route does this -- see
+ * its docstring) to avoid a second, redundant TLE-catalog fetch+parse
+ * and solar-flux lookup. Omit it (the normal case -- the standalone
+ * geomagnetic-shadow route and the replay route both do) to fetch all
+ * four inputs independently, exactly as before.
+ *
+ * Returns null when no TLE data (live or stale) is available yet --
+ * only possible when `preloaded` is omitted, since a caller passing
+ * `preloaded.entries` has already handled that case itself.
+ */
+export async function loadCurrentCatalogForShadow(
+  preloaded?: { entries: TleEntry[]; solarFluxMultiplier: number }
+): Promise<ShadowCatalogInputs | null> {
   const [entries, objectTrendsById, solarFluxMultiplier, tipByNoradId] = await Promise.all([
-    loadCurrentTLECatalog(),
+    preloaded ? preloaded.entries : loadCurrentTLECatalog(),
     loadFullCurrentTrendPopulation(),
-    loadSolarFlux(),
+    preloaded ? preloaded.solarFluxMultiplier : loadSolarFlux(),
     loadTIP(),
   ]);
 
