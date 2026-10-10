@@ -27,7 +27,7 @@ const INITIAL_VIEW_STATE = {
 
 // Carto Dark Matter
 const TILE_URL =
-  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_4gj9_1_c8f2e0456bd86de41732115d';
 
 // Subdomains for Carto CDN load balancing
 const TILE_SUBDOMAINS = ['a', 'b', 'c', 'd'];
